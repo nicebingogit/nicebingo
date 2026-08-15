@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from datetime import datetime
 
 import requests
@@ -733,6 +734,15 @@ class PremiumBingoBot:
             pass
 
     # ------------------------------------------------------------------- main
+    def build_application(self):
+        """Create the PTB Application with every handler wired (not started)."""
+        if not BOT_TOKEN:
+            raise SystemExit("BOT_TOKEN is missing — check your .env file.")
+        application = Application.builder().token(BOT_TOKEN).build()
+        application.post_init = self._on_start
+        self.setup_handlers()
+        return application
+
     def setup_handlers(self):
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("play", self.play_command))
@@ -777,6 +787,7 @@ class PremiumBingoBot:
                                             first=3.0)
 
     def run(self):
+        """Polling mode — the default (local PC / Docker / any host)."""
         if not BOT_TOKEN:
             raise SystemExit("BOT_TOKEN is missing — check your .env file.")
         if not self._webapp_ok():
@@ -785,11 +796,80 @@ class PremiumBingoBot:
                 "buttons, so the bot will show the setup hint instead. Run "
                 "setup_tunnel.bat once + run_tunnel.bat, or set APP_URL to an "
                 "https:// tunnel URL in .env, then restart.", _fresh_app_url())
-        self.application = Application.builder().token(BOT_TOKEN).build()
-        self.application.post_init = self._on_start
-        self.setup_handlers()
+        self.application = self.build_application()
         logger.info("🎰 Bingo bot starting — Mini App URL: %s", config.APP_URL)
         self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+# ------------------------------------------------------------------- webhook
+# Webhook mode (BOT_WEBHOOK=1): the bot runs INSIDE the Flask web process on
+# always-on hosts (PythonAnywhere) whose free tier cannot run background
+# processes. Telegram pushes updates to APP_URL/webhook/<secret>; server.py
+# forwards them to dispatch_webhook() here. The bot still sends messages and
+# runs its announcer job queue exactly like in polling mode.
+_webhook_loop = None
+_webhook_app = None
+
+
+def start_webhook() -> None:
+    """Start the bot in webhook mode on a background event loop.
+
+    Initializes the PTB application, registers the webhook URL with Telegram,
+    and keeps the loop alive. Call from the WSGI entry point (wsgi.py) only
+    when BOT_WEBHOOK=1 — never together with a polling instance (Telegram
+    rejects a second connection with 409 Conflict).
+    """
+    if not BOT_TOKEN:
+        raise SystemExit("BOT_TOKEN is missing — check your .env file.")
+
+    instance = PremiumBingoBot()
+    instance.application = instance.build_application()
+    loop = asyncio.new_event_loop()
+
+    async def _start():
+        await instance.application.initialize()
+        await instance.application.start()
+        webhook_url = f"{_fresh_app_url()}/webhook/{config.WEBHOOK_SECRET}"
+        await instance.application.bot.set_webhook(
+            url=webhook_url, allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=False)
+        logger.info("🎰 Bingo bot webhook registered → %s", webhook_url)
+
+    async def _runner():
+        await _start()
+        # make dispatch ready only AFTER the app is running, so an update is
+        # never handed to a not-yet-initialized application
+        global _webhook_loop, _webhook_app
+        _webhook_loop = loop
+        _webhook_app = instance.application
+        while True:
+            await asyncio.sleep(3600)
+
+    threading.Thread(target=lambda: loop.run_until_complete(_runner()),
+                     daemon=True).start()
+    logger.info("🎰 Bingo bot running in WEBHOOK mode")
+
+
+def dispatch_webhook(update_dict: dict) -> bool:
+    """Hand an incoming Telegram update to the running webhook bot.
+
+    Called by server.py's /webhook/<secret> route. Fire-and-forget: the update
+    is scheduled on the bot's event loop and the HTTP request returns at once.
+    Returns False only while the bot is still starting up (Telegram will
+    retry the delivery).
+    """
+    if _webhook_app is None or _webhook_loop is None:
+        return False
+    try:
+        update = Update.de_json(update_dict, _webhook_app.bot)
+        if update is None:
+            return True
+        asyncio.run_coroutine_threadsafe(
+            _webhook_app.process_update(update), _webhook_loop)
+        return True
+    except Exception as exc:
+        logger.error("webhook dispatch error: %s", exc)
+        return False
 
 
 if __name__ == "__main__":

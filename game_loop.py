@@ -49,7 +49,13 @@ class GameLoop:
 
     # ------------------------------------------------------------------ boot
     def start(self) -> None:
-        """Repair/restore state for EVERY room and start the ticker."""
+        """Repair/restore state for EVERY room and start the ticker.
+
+        Idempotent — safe to call again after a WSGI reload or a second
+        import of the app (the APScheduler cannot be started twice).
+        """
+        if self.scheduler.running:
+            return
         with self._lock:
             for room in config.ROOM_BETS:
                 state = self.db.get_game_state(room)

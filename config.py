@@ -4,6 +4,7 @@ Central configuration for the Telegram Bingo system (bot + local web server).
 Every value can be overridden through environment variables (see .env.example),
 so you never need to touch this file to run the system.
 """
+import hashlib
 import os
 
 
@@ -29,6 +30,16 @@ def _bool(name: str, default: bool) -> bool:
 # Telegram
 # ---------------------------------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+# BOT_WEBHOOK=1 switches the bot from polling to webhook mode. Used on always-on
+# hosts (e.g. PythonAnywhere) whose free tier cannot run background processes:
+# Telegram POSTs updates to APP_URL/webhook/<secret>, which the Flask server
+# forwards to the in-process bot. Local/desktop usage keeps polling (default).
+BOT_WEBHOOK = _bool("BOT_WEBHOOK", False)
+# Secret path segment for the webhook endpoint. Derived from the bot token so
+# nobody can guess it; override with BOT_WEBHOOK_SECRET if you want your own.
+WEBHOOK_SECRET = os.getenv("BOT_WEBHOOK_SECRET", "").strip()
+if not WEBHOOK_SECRET:
+    WEBHOOK_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:24] if BOT_TOKEN else "dev-secret"
 # ADMIN_IDS: comma separated numeric ids, inline "# comments" are allowed.
 ADMIN_IDS: list[int] = []
 for part in os.getenv("ADMIN_IDS", "").split(","):

@@ -27,6 +27,9 @@ for _f in ("api_smoke.db", "api_smoke.db-wal", "api_smoke.db-shm"):
 
 os.environ["DB_PATH"] = "api_smoke.db"
 os.environ["PREPARATION_SECONDS"] = "60"
+# the test buys cards in the 30/50/100 rooms, so the player needs enough
+# credit regardless of whatever the ambient .env sets (default is only 50)
+os.environ["NEW_PLAYER_CREDIT"] = "1000"
 
 import config  # noqa: E402
 import server  # noqa: E402

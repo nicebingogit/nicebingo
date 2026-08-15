@@ -31,12 +31,20 @@ on the Telegram side.
 
 ## ☁️ Run 24/7 in the cloud (free)
 
-Want the game to run around the clock **without leaving your PC on**? The repo
-ships a ready-made `Dockerfile` + `run_prod.py` supervisor that run the server
-and bot together in one container with a persistent SQLite volume. Deploy it to
-Northflank's free **Sandbox** plan — always-on (no sleeping), free HTTPS on a
-stable `…code.run` URL, no credit card, and it auto-redeploys on every `git
-push`. Full click-by-click guide: **[`DEPLOY.md`](DEPLOY.md)** (≈ 15 minutes).
+Want the game to run around the clock **without leaving your PC on**? Two free
+routes, depending on whether you can provide a card:
+
+* **Have a Visa/Mastercard?** The repo ships a ready-made `Dockerfile` +
+  `run_prod.py` supervisor that run the server and bot together in one
+  container with a persistent SQLite volume. Deploy it to Northflank's free
+  **Sandbox** plan — always-on (no sleeping), free HTTPS on a stable
+  `…code.run` URL, no credit card *charges* (a card is required for
+  verification only), auto-redeploys on every `git push`. Guide:
+  **[`DEPLOY.md`](DEPLOY.md)** (≈ 15 minutes).
+* **No card at all?** Deploy to **PythonAnywhere**'s free tier — always-on
+  web app, free HTTPS on `…pythonanywhere.com`, no credit card ever. The bot
+  runs in **webhook mode** (this repo supports it via `BOT_WEBHOOK=1`).
+  Guide: **[`PYTHONANYWHERE.md`](PYTHONANYWHERE.md)** (≈ 30 minutes).
 
 ---
 

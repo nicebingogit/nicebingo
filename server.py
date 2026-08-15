@@ -847,6 +847,30 @@ def api_admin_account_delete():
     return jsonify({"ok": True})
 
 
+# ------------------------------------------------------- telegram webhook
+@app.route("/webhook/<secret>", methods=["POST"])
+def telegram_webhook(secret: str):
+    """Telegram pushes bot updates here in webhook mode (BOT_WEBHOOK=1).
+
+    Used on always-on hosts (PythonAnywhere) whose free tier cannot run a
+    background polling process. The update is forwarded to the in-process bot
+    (bot.dispatch_webhook). The secret path comes from config.WEBHOOK_SECRET,
+    so only Telegram's configured URL is ever accepted; anything else gets 403.
+    """
+    if secret != config.WEBHOOK_SECRET:
+        return ("Forbidden", 403)
+    body = request.get_json(silent=True)
+    if not body:
+        return ("ok", 200)
+    try:
+        from bot import dispatch_webhook
+        ok = dispatch_webhook(body)
+    except Exception:
+        ok = False
+    # 500 makes Telegram retry — useful while the bot is still starting up
+    return ("ok", 200) if ok else ("error", 500)
+
+
 # ----------------------------------------------------------------- frontend
 @app.route("/")
 def index():

@@ -22,11 +22,16 @@ __pycache__/
 # Tunnel/runtime files
 tunnel_url.txt
 
-# Generated/build files
+# Frontend dependencies (the built app in frontend/dist IS committed)
+frontend/node_modules/
+
+# Local tooling / packaging junk
+tools/
 seller_dist/
 seller_build/
 seller_package/
 seller_spec/
+get-pip.py
 
 # VS Code
 .vscode/
@@ -34,11 +39,3 @@ seller_spec/
 # OS files
 .DS_Store
 Thumbs.db
-
-get-pip.py
-
-get-pip.py
-
-get-pip.py
-
-get-pip.py
