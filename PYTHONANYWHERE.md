@@ -54,13 +54,10 @@ cd ~
 curl -L https://codeload.github.com/elcotech/2xbingo/zip/refs/heads/main -o bingo.zip
 unzip bingo.zip && mv 2xbingo-main 2xbingo && rm bingo.zip
 cd ~/2xbingo
-# the built Mini App is already in frontend/dist — no npm build needed.
-# Remove junk that was committed by accident (Windows-only, not used here):
-rm -rf frontend/node_modules tools
+# the built Mini App is already in frontend/dist — no npm build needed
 ```
 
 > If you prefer git: `git clone --depth 1 https://github.com/elcotech/2xbingo.git`
-> then the same `rm -rf frontend/node_modules tools`.
 
 ### 4. Python environment (use 3.11 so every pinned wheel exists)
 ```bash
