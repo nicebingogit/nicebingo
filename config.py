@@ -67,7 +67,7 @@ ROOM_DEFAULT = ROOM_BETS[0]                         # room used when none is spe
 BET_PER_CARD = ROOM_DEFAULT                         # legacy alias: default room bet
 BET_MIN_CARD = ROOM_DEFAULT                         # legacy alias: bet is fixed per room
 MAX_CARDS_PER_PLAYER = _int("MAX_CARDS_PER_PLAYER", 3)  # max cards per player per round
-NEW_PLAYER_CREDIT = _int("NEW_PLAYER_CREDIT", 1000)  # welcome coins
+NEW_PLAYER_CREDIT = _int("NEW_PLAYER_CREDIT", 50)  # welcome coins
 PRIZE_PERCENT = _float("PRIZE_PERCENT", 0.8)        # 80% of the pool goes to the winner
 BOTS_CONTRIBUTE_TO_POOL = True                      # bot bets also feed the pool
 

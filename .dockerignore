@@ -1,0 +1,35 @@
+# --- secrets & local state (never ship these) ---
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+tunnel_url.txt
+*.log
+
+# --- python ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# --- frontend build inputs (the built app in frontend/dist is committed) ---
+node_modules/
+frontend/node_modules/
+
+# --- local tooling / packaging junk ---
+tools/
+sample_cards/
+seller_dist/
+seller_build/
+seller_package/
+seller_spec/
+get-pip.py
+
+# --- git / os / editor ---
+.git/
+.gitignore
+.vscode/
+.DS_Store
+Thumbs.db

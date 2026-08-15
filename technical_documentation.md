@@ -544,3 +544,26 @@ server + tunnel + bot.
 | `migrate_db.py` | idempotent schema/seed helper |
 | `api_smoke.py` / `smoke_test.py` | offline test suites |
 | `frontend/src/…` | React Mini App (Registration, Settings, AdminPanel, App) |
+| `Dockerfile` / `run_prod.py` | cloud image + supervisor (server + bot in one container) |
+| `DEPLOY.md` | step-by-step free 24/7 cloud deployment guide (Northflank Sandbox) |
+
+---
+
+## 11. Deployment (24/7 free — no PC needed)
+
+The repo ships a production container image so the whole system runs on a free
+cloud host around the clock: the `Dockerfile` builds a `python:3.11-slim` image
+and `run_prod.py` supervises both processes inside it — `server.py` (game loop
++ API + Mini App) and `bot.py` (polling, no webhook). They share one SQLite
+file, so they deliberately run in the **same container** on a persistent
+volume (`DB_PATH=/data/bingo_bot.db`). `run_prod.py` restarts a crashed
+process with exponential backoff, gives up on one that fails 5× in a row
+(keeping the other alive), and shuts both down cleanly on SIGTERM so the round
+resumes where it stopped.
+
+The recommended host is **Northflank's free Sandbox plan**: always-on (no
+sleeping), free TLS on a stable `https://…code.run` URL (used as `APP_URL` for
+the Telegram Mini App button), a persistent volume for SQLite, and no credit
+card. Full click-by-click guide: **`DEPLOY.md`**. The same image deploys
+unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
+(`BOT_TOKEN`, `ADMIN_IDS`, `APP_URL`, `SERVER_HOST=0.0.0.0`, `DB_PATH`) change.

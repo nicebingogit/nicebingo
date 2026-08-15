@@ -1,10 +1,12 @@
 # 🎰 Bingo Royale — Immersive Telegram Mini App Edition
 
-A professional, fully immersive Bingo system that runs **entirely on your Windows
-desktop**. The Telegram bot is the launcher: tapping **Play Mini App** opens a
-full-screen interactive game inside Telegram (same look & feel as the web
-version) — live board, your cards, sound effects, global win pool, winner
-celebrations, admin controls. **No Supabase, no Vercel, no cloud services.**
+A professional, fully immersive Bingo system. The Telegram bot is the launcher:
+tapping **Play Mini App** opens a full-screen interactive game inside Telegram
+(same look & feel as the web version) — live board, your cards, sound effects,
+global win pool, winner celebrations, admin controls. **No Supabase, no
+Vercel, no external services** — and it runs either **on your Windows desktop**
+or **24/7 in the free cloud with no PC needed** (see
+[☁️ Run 24/7 in the cloud](#-run-247-in-the-cloud-free)).
 
 ```
 ┌─────────────────────┐      ┌──────────────────────────────────────────┐
@@ -21,9 +23,20 @@ celebrations, admin controls. **No Supabase, no Vercel, no cloud services.**
 └─────────────────────┘      └──────────────────────────────────────────┘
 ```
 
-Everything (game state, database, logic) lives on your desktop. The **same
+Everything (game state, database, logic) lives wherever you run it. The **same
 bot token and admin ids** from your existing `.env` are used — nothing changes
 on the Telegram side.
+
+---
+
+## ☁️ Run 24/7 in the cloud (free)
+
+Want the game to run around the clock **without leaving your PC on**? The repo
+ships a ready-made `Dockerfile` + `run_prod.py` supervisor that run the server
+and bot together in one container with a persistent SQLite volume. Deploy it to
+Northflank's free **Sandbox** plan — always-on (no sleeping), free HTTPS on a
+stable `…code.run` URL, no credit card, and it auto-redeploys on every `git
+push`. Full click-by-click guide: **[`DEPLOY.md`](DEPLOY.md)** (≈ 15 minutes).
 
 ---
 
