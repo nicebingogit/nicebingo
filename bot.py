@@ -1,0 +1,797 @@
+"""
+Telegram bot — launcher for the immersive Bingo Mini App.
+
+The bot itself does NOT run the game anymore.  The local Flask server
+(server.py) owns the game loop; this bot:
+
+  * opens the Mini App with a Web App button (/play)
+  * announces round events to the chat by watching the shared SQLite DB
+  * offers the classic text commands (status, balance, cards, …)
+  * exposes the admin panel, which drives the server's admin API
+
+Run:  python bot.py      (keep server.py running in another window)
+"""
+import asyncio
+import json
+import logging
+import os
+from datetime import datetime
+
+import requests
+from dotenv import load_dotenv
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import ChatMember
+from telegram.error import Forbidden
+from telegram.ext import (
+    Application, CommandHandler, CallbackQueryHandler, ChatMemberHandler,
+    MessageHandler, ContextTypes, filters,
+)
+
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+
+import config
+from database import Database
+from game_logic import GameLogic, bot_name
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+HTTPS_HINT = (
+    "🔒 **One more step:** Telegram only allows **HTTPS** addresses on the "
+    "Mini App button, so `http://localhost` is rejected.\n\n"
+    "👉 Double-click **`setup_tunnel.bat`** once (downloads a free tunnel tool), "
+    "then **`run_tunnel.bat`** — it gives your PC a free `https://…trycloudflare.com` "
+    "address and updates `.env` automatically. Then press **/play** again. 🎯"
+)
+
+db = Database(config.DB_PATH)
+logic = GameLogic(db)
+
+
+def _md(text) -> str:
+    """Escape a user-supplied string for Telegram Markdown (parse_mode="Markdown").
+
+    Usernames / first names / winner names can contain `_`, `*`, `[`, `` ` `` …
+    which would break Markdown parsing and turn any message into the generic
+    "Something went wrong" error — this is the #1 cause of that message.
+    """
+    return (str(text or "").replace("\\", "\\\\").replace("_", "\\_")
+            .replace("*", "\\*").replace("[", "\\[").replace("`", "\\`"))
+
+
+def _fresh_app_url() -> str:
+    """The CURRENT Mini App URL, re-read from .env on every call.
+
+    tunnel.py writes a brand-new https://…trycloudflare.com URL into .env every
+    time it starts, so a long-running bot must not cache APP_URL at import —
+    otherwise every command/button keeps pointing at the dead old tunnel and
+    the bot only works again after a restart.
+    """
+    try:
+        from dotenv import dotenv_values
+        url = (dotenv_values() or {}).get("APP_URL") or config.APP_URL
+    except Exception:
+        url = config.APP_URL
+    return (url or "").strip().rstrip("/")
+
+
+class PremiumBingoBot:
+    def __init__(self):
+        self.application = None
+        # the announcer tracks the last seen state PER ROOM (each room runs
+        # its own round with its own ball order and pool)
+        self._last = {room: {"phase": None, "count": -1, "round": None}
+                      for room in config.ROOM_BETS}
+
+    # ------------------------------------------------------------ rooms
+    @staticmethod
+    def _rooms_line() -> str:
+        """One status line per room, e.g. '• Room by 30: PLAYING · pool 90 ETB'."""
+        lines = []
+        for room in config.ROOM_BETS:
+            state = db.get_game_state(room)
+            pool = logic.calculate_prize_pool(room)
+            lines.append(f"• {config.room_label(room)}: **{state['phase'].upper()}** · "
+                         f"pool **{pool['prize_pool']} ETB**")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------ HTTP
+    async def _post(self, path: str, payload: dict) -> dict:
+        try:
+            resp = await asyncio.to_thread(
+                requests.post, f"{_fresh_app_url()}{path}", json=payload, timeout=8)
+            return resp.json() if resp.status_code < 500 else {"error": "Server error"}
+        except Exception:
+            return {"error": "⚠️ Game server is offline — start server.py first."}
+
+    async def _get(self, path: str, params: dict) -> dict:
+        try:
+            resp = await asyncio.to_thread(
+                requests.get, f"{_fresh_app_url()}{path}", params=params, timeout=8)
+            return resp.json()
+        except Exception:
+            return {"error": "⚠️ Game server is offline — start server.py first."}
+
+    # ------------------------------------------------------------------ menus
+    def _webapp_ok(self) -> bool:
+        """Telegram only accepts https:// addresses on Web App buttons."""
+        return _fresh_app_url().lower().startswith("https")
+
+    def get_main_menu(self):
+        rows = []
+        if self._webapp_ok():
+            rows.append([InlineKeyboardButton("🎮 OPEN BINGO ARENA",
+                                              web_app={"url": _fresh_app_url()})])
+        else:
+            rows.append([InlineKeyboardButton("🔒 Fix Mini App URL",
+                                              callback_data="tunnel_help")])
+        rows += [
+            [InlineKeyboardButton("📊 Status", callback_data="status"),
+             InlineKeyboardButton("💰 Balance", callback_data="balance")],
+            [InlineKeyboardButton("🎲 My Cards", callback_data="my_cards"),
+             InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
+            [InlineKeyboardButton("❓ Help", callback_data="help")],
+        ]
+        return InlineKeyboardMarkup(rows)
+
+    def get_game_menu(self):
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Status", callback_data="status"),
+             InlineKeyboardButton("🔄 Refresh", callback_data="refresh")],
+            [InlineKeyboardButton("➕ Select Card", callback_data="select"),
+             InlineKeyboardButton("➖ Remove Card", callback_data="deselect")],
+            [InlineKeyboardButton("🎯 Show Cards", callback_data="show_cards"),
+             InlineKeyboardButton("🏠 Menu", callback_data="menu")],
+        ])
+
+    def get_admin_menu(self):
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("▶️ Force Start", callback_data="admin_start"),
+             InlineKeyboardButton("🎯 Force Call", callback_data="admin_call")],
+            [InlineKeyboardButton("🤖 Add Bots", callback_data="admin_bots"),
+             InlineKeyboardButton("🔀 Toggle Bots", callback_data="admin_bots_toggle")],
+            [InlineKeyboardButton("🔄 Reset Round", callback_data="admin_reset"),
+             InlineKeyboardButton("📊 Admin Stats", callback_data="admin_status")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu")],
+        ])
+
+    # --------------------------------------------------------------- commands
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/start — asks a NEW user for their full name (first-time onboarding).
+
+        The name is collected ONCE here in the chat. Existing users who already
+        have a stored full name go straight to the normal welcome — they are
+        never asked again (and /start alone never grants the welcome bonus).
+        """
+        user = update.effective_user
+        if db.get_player(user.id) is None:
+            # placeholder account — identity registration happens below
+            db.create_player(user.id, user.username or user.first_name, credit=0)
+            db.update_profile(user.id, registered=False)
+        player = db.get_player(user.id)
+        if not (player.get("full_name") or "").strip():
+            # first-time onboarding: collect the full name in the chat
+            context.user_data["awaiting_full_name"] = True
+            await update.message.reply_text(
+                "🎰 **Welcome to Bingo Royale!**\n\n"
+                "Before you continue, please enter your **full name**.",
+                parse_mode="Markdown",
+            )
+            return
+        await self._send_welcome(update, context)
+
+    async def _send_welcome(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """The normal welcome: balance, phase and the OPEN BINGO ARENA button."""
+        user = update.effective_user
+        player = db.get_player(user.id) or {}
+        name = (player.get("full_name") or "").strip() or user.first_name
+        credit = db.get_credit(user.id)
+        hint = f"\n\n{HTTPS_HINT}" if not self._webapp_ok() else ""
+        await update.message.reply_text(
+            f"🎲 **BINGO ROYALE** 🎲\n\n"
+            f"Welcome, {_md(name)}!\n"
+            f"💰 Balance: **{credit} {config.APP_CURRENCY}**\n\n"
+            f"🎰 Rooms:\n{self._rooms_line()}\n\n"
+            f"👇 Tap **🎮 OPEN BINGO ARENA** to play — pick your room (fixed "
+            f"bet 30 / 50 / 100 ETB per card). Your wallet is your phone number "
+            f"— deposit and withdraw from **Settings** inside the arena.{hint}",
+            reply_markup=self.get_main_menu(),
+            parse_mode="Markdown",
+        )
+
+    async def text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Captures the full name when the bot is waiting for it (after /start)."""
+        if not context.user_data.get("awaiting_full_name"):
+            return
+        user = update.effective_user
+        raw = (update.message.text or "").strip()
+        if not raw:
+            await update.message.reply_text(
+                "Please enter your full name — it can't be empty.", parse_mode="Markdown")
+            return
+        if len(raw) > 60:
+            await update.message.reply_text(
+                "That name is too long — please use at most 60 characters.",
+                parse_mode="Markdown")
+            return
+        if db.get_player(user.id) is None:
+            db.create_player(user.id, user.username or user.first_name, credit=0)
+        player = db.get_player(user.id)
+        had_name = bool((player.get("full_name") or "").strip())
+        # the full name becomes the display identity everywhere (winner
+        # announcements, admin user list, transactions, leaderboard, ...)
+        db.update_profile(user.id, full_name=raw)
+        context.user_data.pop("awaiting_full_name", None)
+        if not had_name:
+            # welcome bonus — granted exactly once, when the identity is first
+            # registered. Repeated /start never re-grants it.
+            db.set_credit(user.id, config.NEW_PLAYER_CREDIT)
+            await update.message.reply_text(
+                f"✅ **Registration complete**, {_md(raw)}! 🎉\n"
+                f"💰 You received **{config.NEW_PLAYER_CREDIT} "
+                f"{config.APP_CURRENCY}** as your welcome bonus.",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text(
+                f"✅ Got it, {_md(raw)} — your name has been updated.",
+                parse_mode="Markdown",
+            )
+        await self._send_welcome(update, context)
+
+    async def play_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if update.callback_query:
+            await update.callback_query.answer()
+            msg = update.callback_query.message
+            # web_app buttons can't be edited in place — always send fresh
+            chat_id = msg.chat_id
+        else:
+            chat_id = update.message.chat_id
+        if self._webapp_ok():
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎮 OPEN BINGO ARENA",
+                                      web_app={"url": _fresh_app_url()})],
+            ])
+            closing = ("Tap the button to open the full-screen interactive game. "
+                       "It works best inside Telegram on your phone or desktop.")
+        else:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔒 Fix Mini App URL", callback_data="tunnel_help")],
+            ])
+            closing = HTTPS_HINT
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"🎰 **Bingo Arena — Mini App**\n\n"
+                f"{self._rooms_line()}\n\n"
+                f"{closing}"
+            ),
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+
+    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        if query:
+            await query.answer()
+            msg = query.message
+        else:
+            msg = update.message
+        text = f"🎲 **Game Status**\n\n"
+        for room in config.ROOM_BETS:
+            state = db.get_game_state(room)
+            called = db.get_called_numbers(room)
+            pool = logic.calculate_prize_pool(room)
+            progress = len(called)
+            bar = "█" * int(progress / config.TOTAL_NUMBERS * 20) + \
+                  "░" * (20 - int(progress / config.TOTAL_NUMBERS * 20))
+            text += f"\n**{config.room_label(room)}** · {state['phase'].upper()} · " \
+                    f"players **{pool['real_players']}**\n"
+            if progress:
+                text += f"🔢 Called: {bar} {progress}/{config.TOTAL_NUMBERS}\n"
+            if state["phase"] == "preparation" and state.get("preparation_end_time"):
+                try:
+                    end = datetime.fromisoformat(state["preparation_end_time"])
+                    remaining = max(0, int((end - datetime.now()).total_seconds()))
+                    text += f"⏳ Countdown: **{remaining}s**\n"
+                except (ValueError, TypeError):
+                    pass
+            text += f"💰 Prize pool: **{pool['prize_pool']} ETB**\n"
+            if state["phase"] == "ended" and state.get("winner_user_id"):
+                info = json.loads(state["winning_pattern"] or "{}")
+                text += f"🏆 Winner: **{info.get('pattern')}** — {info.get('prize', 0)} ETB\n"
+        if query:
+            # inline taps edit in place instead of spamming new messages
+            try:
+                await query.edit_message_text(text, reply_markup=self.get_game_menu(),
+                                              parse_mode="Markdown")
+                return
+            except Exception:
+                pass
+        await msg.reply_text(text, reply_markup=self.get_game_menu(), parse_mode="Markdown")
+
+    async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        if query:
+            await query.answer()
+            msg = query.message
+        else:
+            msg = update.message
+        user_id = update.effective_user.id
+        credit = db.get_credit(user_id)
+        cards_line = " · ".join(
+            f"{config.room_label(room)}: {len(db.get_user_selections(user_id, room))}"
+            for room in config.ROOM_BETS
+        )
+        await msg.reply_text(
+            f"💰 **Balance**\n\nCurrent: **{credit} ETB**\n"
+            f"🃏 Cards: {cards_line}",
+            reply_markup=self.get_main_menu(),
+            parse_mode="Markdown",
+        )
+
+    async def my_cards_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        if query:
+            await query.answer()
+            msg = query.message
+        else:
+            msg = update.message
+        user_id = update.effective_user.id
+        all_sels = []
+        for room in config.ROOM_BETS:
+            all_sels += [(room, s) for s in db.get_user_selections(user_id, room)]
+        if not all_sels:
+            await msg.reply_text("No cards selected this round.", reply_markup=self.get_game_menu())
+            return
+        await msg.reply_text(f"🎯 Your {len(all_sels)} card(s):", reply_markup=self.get_game_menu())
+        for room, sel in all_sels:
+            card = db.get_card(sel["card_id"])
+            if not card:
+                continue
+            called = set(db.get_called_numbers(room))
+            patterns, cells = logic.check_winning_patterns(card, called)
+            caption = (f"🎯 {config.room_label(room)} · Card #{sel['card_id']} · "
+                       f"Bet {sel['bet_amount']} ETB")
+            if patterns:
+                caption += f"\n🏆 BINGO! Pattern: {patterns[0]}"
+            await msg.reply_text(
+                f"{caption}\n```\n{self._card_ascii(card, called)}```",
+                parse_mode="Markdown",
+            )
+
+    @staticmethod
+    def _card_ascii(card: dict, called: set) -> str:
+        letters = ["B", "I", "N", "G", "O"]
+        lines = ["   " + " ".join(l.center(3) for l in letters)]
+        for row in range(5):
+            cells = []
+            for col, letter in enumerate(letters):
+                v = card[letter][row]
+                if v == "FREE":
+                    cells.append("★")
+                elif f"{letter}-{v}" in called:
+                    cells.append("X")
+                else:
+                    cells.append(str(v))
+            lines.append("  " + " ".join(c.center(3) for c in cells))
+        return "\n".join(lines)
+
+    async def history_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        rows = db.get_user_history(user_id)
+        if not rows:
+            await update.message.reply_text("No history yet — play a round!")
+            return
+        text = "📜 **Your last rounds**\n\n"
+        for r in rows[:8]:
+            cards = json.loads(r["card_ids"])
+            text += f"• {r['played_at'][:16]} · {len(cards)} card(s) · bet {r['total_bet']} · " \
+                    f"{'🏆 +' + str(r['winnings']) if r['winnings'] else '—'}\n"
+        await update.message.reply_text(text, parse_mode="Markdown")
+
+    async def top_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        top = db.top_players(10)
+        if not top:
+            await update.message.reply_text("No players yet!")
+            return
+        text = "🏆 **Leaderboard**\n\n"
+        medals = ["🥇", "🥈", "🥉"]
+        for i, p in enumerate(top):
+            medal = medals[i] if i < 3 else f"{i + 1}."
+            # the stored full name is the display identity
+            name = p.get("full_name") or p.get("username") or "Anonymous"
+            text += f"{medal} {_md(name)}: " \
+                    f"**{p['credit']} {config.APP_CURRENCY}**\n"
+        await update.message.reply_text(text, reply_markup=self.get_main_menu(), parse_mode="Markdown")
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        if query:
+            await query.answer()
+            msg = query.message
+        else:
+            msg = update.message
+        room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
+        room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
+        await msg.reply_text(
+            "🎲 **Bingo Royale**\n\n"
+            f"1. Tap **Play Mini App** → full-screen arena opens in Telegram\n"
+            f"2. Pick a room (**{room_names}**) — each room has a FIXED bet per "
+            f"card ({room_bets}); no bet input needed\n"
+            f"3. During the **{config.PREPARATION_SECONDS}s countdown**, pick up to "
+            f"{config.MAX_CARDS_PER_PLAYER} cards in your room\n"
+            f"4. A ball is called every **{config.CALL_INTERVAL_SECONDS}s** — numbers are "
+            f"marked on your cards automatically\n"
+            f"5. Complete a row, column, diagonal or four corners and press **BINGO!**\n"
+            f"6. Winner takes **80%** of the room's prize pool — paid instantly\n\n"
+            "Commands: /start, /play, /status, /balance, /cards, /history, /top, /help",
+            reply_markup=self.get_main_menu(),
+            parse_mode="Markdown",
+        )
+
+    # ----------------------------------------------------------- card pick flow
+    async def select_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        user_id = update.effective_user.id
+        room = config.ROOM_DEFAULT  # the chat flow picks cards in the default room
+        state = db.get_game_state(room)
+        if state["phase"] != "preparation":
+            await query.edit_message_text("❌ Selection closed — round already started.",
+                                          reply_markup=self.get_main_menu())
+            return
+        selections = db.get_user_selections(user_id, room)
+        taken = {s["card_id"] for s in db.get_all_selections(room)
+                 if s["user_id"] != user_id}
+        available = [c for c in db.get_all_cards() if c["id"] not in taken]
+        keyboard = []
+        for card in available[:20]:
+            keyboard.append([InlineKeyboardButton(f"🎯 Card #{card['id']}",
+                                                  callback_data=f"select_{card['id']}")])
+        keyboard.append([InlineKeyboardButton("🏠 Menu", callback_data="menu")])
+        await query.edit_message_text(
+            f"🎯 **Select a card** — {config.room_label(room)}, {room} ETB each "
+            f"({len(selections)}/{config.MAX_CARDS_PER_PLAYER}):",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    async def deselect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        user_id = update.effective_user.id
+        selections = db.get_user_selections(user_id, config.ROOM_DEFAULT)
+        if not selections:
+            await query.edit_message_text("No cards selected.", reply_markup=self.get_main_menu())
+            return
+        keyboard = [[InlineKeyboardButton(f"❌ Card #{s['card_id']}",
+                                          callback_data=f"deselect_{s['card_id']}")]
+                    for s in selections]
+        keyboard.append([InlineKeyboardButton("🏠 Menu", callback_data="menu")])
+        await query.edit_message_text("Remove a card (full refund):",
+                                      reply_markup=InlineKeyboardMarkup(keyboard))
+
+    # --------------------------------------------------------------- callbacks
+    async def callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        user_id = update.effective_user.id
+        data = query.data
+
+        if data == "menu":
+            await query.edit_message_text("🎲 **Main Menu**", reply_markup=self.get_main_menu(),
+                                          parse_mode="Markdown")
+        elif data == "play":
+            await self.play_command(update, context)
+        elif data in ("status", "refresh"):
+            await self.status_command(update, context)
+        elif data == "balance":
+            await self.balance_command(update, context)
+        elif data in ("my_cards", "show_cards"):
+            await self.my_cards_command(update, context)
+        elif data == "leaderboard":
+            await self.top_command(update, context)
+        elif data == "quick_play":
+            result = await self._post("/api/quick-play",
+                                      {"user_id": user_id, "room": config.ROOM_DEFAULT})
+            if "chosen" in result:
+                await query.edit_message_text(
+                    f"✅ Auto-selected {len(result['chosen'])} card(s)! "
+                    f"Balance: {result['user']['credit']} ETB",
+                    reply_markup=self.get_main_menu())
+            else:
+                await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
+                                              reply_markup=self.get_main_menu())
+        elif data == "help":
+            await self.help_command(update, context)
+        elif data == "tunnel_help":
+            await query.edit_message_text(HTTPS_HINT, reply_markup=self.get_main_menu(),
+                                          parse_mode="Markdown")
+        elif data == "select":
+            await self.select_command(update, context)
+        elif data == "deselect":
+            await self.deselect_command(update, context)
+        elif data.startswith("select_"):
+            card_id = data.split("_", 1)[1]
+            result = await self._post("/api/select-card",
+                                      {"user_id": user_id, "card_id": card_id,
+                                       "room": config.ROOM_DEFAULT})
+            if result.get("ok"):
+                await query.edit_message_text(
+                    f"✅ Card #{card_id} selected · {result['user']['credit']} ETB left",
+                    reply_markup=self.get_game_menu())
+            else:
+                await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
+                                              reply_markup=self.get_main_menu())
+        elif data.startswith("deselect_"):
+            card_id = data.split("_", 1)[1]
+            result = await self._post("/api/deselect-card",
+                                      {"user_id": user_id, "card_id": card_id})
+            if result.get("ok"):
+                await query.edit_message_text(
+                    f"✅ Card #{card_id} removed — {result['user']['credit']} ETB refunded",
+                    reply_markup=self.get_main_menu())
+            else:
+                await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
+                                              reply_markup=self.get_main_menu())
+        elif data.startswith("admin_"):
+            await self.admin_callback_handler(update, context)
+        else:
+            await query.edit_message_text("Unknown action.")
+
+    # ------------------------------------------------------------------ admin
+    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if user_id not in config.ADMIN_IDS:
+            await update.message.reply_text("⛔ Unauthorized!")
+            return
+        stats = await self._get("/api/admin/stats", {"admin_id": user_id})
+        s = stats.get("stats", {})
+        bots = await self._get("/api/admin/bots", {"admin_id": user_id})
+        text = (
+            f"🔧 **Admin Panel**\n\n"
+            f"📊 Rounds: **{s.get('rounds', '?')}** · Bets: **{s.get('total_bets', 0)} ETB**\n"
+            f"💰 Paid out: **{s.get('prize_paid', 0)} ETB** · House: **{s.get('house_kept', 0)} ETB**\n"
+            f"🤖 Bots: {'ON' if bots.get('enabled') else 'OFF'} ({bots.get('count', 0)} accounts)"
+        )
+        await update.message.reply_text(text, reply_markup=self.get_admin_menu(),
+                                        parse_mode="Markdown")
+
+    async def give_take_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                sign: int):
+        user_id = update.effective_user.id
+        if user_id not in config.ADMIN_IDS:
+            await update.message.reply_text("⛔ Unauthorized!")
+            return
+        args = context.args
+        if len(args) < 2:
+            await update.message.reply_text("Usage: /give <user_id> <amount>  ·  /take <user_id> <amount>")
+            return
+        try:
+            target, amount = int(args[0]), int(args[1]) * sign
+        except ValueError:
+            await update.message.reply_text("Usage: /give <user_id> <amount>")
+            return
+        result = await self._post("/api/admin/credit",
+                                  {"admin_id": user_id, "user_id": target, "amount": amount})
+        if result.get("ok"):
+            await update.message.reply_text(
+                f"✅ User {target} now has **{result['credit']} ETB**")
+        else:
+            await update.message.reply_text(result.get("error", "Failed"))
+
+    async def admin_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = update.effective_user.id
+        if user_id not in config.ADMIN_IDS:
+            await query.edit_message_text("⛔ Unauthorized!")
+            return
+        data = query.data
+        actions = {
+            "admin_start": ("/api/admin/force-start", {}),
+            "admin_call": ("/api/admin/force-call", {}),
+            "admin_bots": ("/api/admin/bots/add", {}),
+            "admin_reset": ("/api/admin/reset", {}),
+            "admin_bots_toggle": ("/api/admin/bots/toggle", {}),
+        }
+        labels = {
+            "admin_start": "✅ Round force-started!",
+            "admin_call": "✅ Ball called!",
+            "admin_bots": "✅ Bots filled the room!",
+            "admin_reset": "✅ Round reset — new preparation phase.",
+            "admin_bots_toggle": "✅ Bots toggled.",
+        }
+        if data in actions:
+            path, _ = actions[data]
+            result = await self._post(path, {"admin_id": user_id})
+            msg = labels[data] if result.get("ok") else f"❌ {result.get('error', 'Failed')}"
+            await query.edit_message_text(msg, reply_markup=self.get_admin_menu())
+        elif data == "admin_status":
+            stats = await self._get("/api/admin/stats", {"admin_id": user_id})
+            s = stats.get("stats", {})
+            await query.edit_message_text(
+                f"📊 **Admin Stats**\n\nRounds: {s.get('rounds', '?')}\n"
+                f"Total bets: {s.get('total_bets', 0)} ETB\nPaid out: {s.get('prize_paid', 0)} ETB\n"
+                f"House kept: {s.get('house_kept', 0)} ETB\nReal winners: {s.get('real_winners', 0)}",
+                reply_markup=self.get_admin_menu(), parse_mode="Markdown")
+
+    # -------------------------------------------------------------- announcer
+    async def _announcer_tick(self, context):
+        """One polling pass — scheduled on the app's job queue.
+
+        Watches every room independently (each has its own phase, balls and
+        pool) and names the room in every announcement.
+        """
+        try:
+            players = db.get_all_player_ids()
+            if not players:
+                return
+            for room in config.ROOM_BETS:
+                state = db.get_game_state(room)
+                called = db.get_called_numbers(room)
+                phase, count, round_no = (state["phase"], len(called),
+                                          state.get("round_number"))
+                last = self._last.setdefault(room, {"phase": None, "count": -1, "round": None})
+                label = config.room_label(room)
+
+                if phase == "preparation" and last["phase"] != "preparation" and config.ANNOUNCE_ROUNDS:
+                    await self.broadcast(
+                        players,
+                        f"🔄 **{label}** is preparing — {config.PREPARATION_SECONDS}s to pick your cards!\n"
+                        f"Tap **/play** to open the Mini App 🎰")
+                elif phase == "playing" and last["phase"] != "playing" and config.ANNOUNCE_ROUNDS:
+                    pool = logic.calculate_prize_pool(room)
+                    # NOTE: no round number is ever announced to users
+                    await self.broadcast(
+                        players,
+                        f"🎰 **{label}**: A new Bingo round has started!\n\n"
+                        f"💰 Prize pool: **{pool['prize_pool']} ETB**\n"
+                        f"👥 Players: **{pool['real_players']}**\n\nGood luck! 🍀")
+                elif phase == "ended" and last["phase"] != "ended" and config.ANNOUNCE_ROUNDS:
+                    if state.get("winner_user_id"):
+                        info = json.loads(state["winning_pattern"] or "{}")
+                        winner = db.get_player(state["winner_user_id"])
+                        name = (winner or {}).get("full_name") or (winner or {}).get("username") or (
+                            bot_name(state["winner_user_id"])
+                            if state["winner_user_id"] < 0 else "Player")
+                        await self.broadcast(
+                            players,
+                            f"🎉 **BINGO!** 🎉 ({label})\n\n🏆 Winner: **{_md(name)}**\n"
+                            f"🎯 Pattern: **{info.get('pattern')}**\n"
+                            f"💰 Prize: **{info.get('prize', 0)} {config.APP_CURRENCY}**")
+                    else:
+                        await self.broadcast(
+                            players,
+                            f"🛑 **{label}**: all 75 balls called — no winner. Next round soon!")
+
+                if phase == "playing" and config.ANNOUNCE_NUMBERS and count > last["count"]:
+                    for idx, n in enumerate(called[last["count"]:count],
+                                            start=last["count"] + 1):
+                        await self.broadcast(
+                            players,
+                            f"🎯 **{n}**  ·  {idx}/{config.TOTAL_NUMBERS} ({label})")
+
+                last.update(phase=phase, count=count, round=round_no)
+        except Exception as exc:
+            logger.warning("announcer error: %s", exc)
+
+    async def broadcast(self, player_ids, message: str):
+        for uid in player_ids:
+            try:
+                await self.application.bot.send_message(chat_id=uid, text=message,
+                                                        parse_mode="Markdown")
+            except Forbidden:
+                # user blocked/deleted the bot -> their account is removed
+                # automatically (they can register again with new credentials)
+                db.delete_player(uid)
+                logger.info("User %s blocked the bot — account deleted", uid)
+            except Exception:
+                pass
+
+    async def my_chat_member_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Auto-delete the account when the user deletes/stops the bot.
+
+        Telegram sends a my_chat_member update with status 'kicked' (user
+        blocked the bot) or 'left' (user deleted the chat) — on either, the
+        account is wiped so the same person can register again with fresh
+        credentials the next time they add the bot.
+        """
+        try:
+            cm = update.my_chat_member
+            if not cm:
+                return
+            status = cm.new_chat_member.status
+            # only the user's PRIVATE chat with the bot counts (blocking the
+            # bot, deleting the chat). Being removed from a group by an admin
+            # must NOT delete anyone's account.
+            chat_type = getattr(cm.chat, "type", None)
+            if status in (ChatMember.KICKED, ChatMember.LEFT) and cm.from_user \
+                    and chat_type == "private":
+                uid = cm.from_user.id
+                if uid > 0:
+                    db.delete_player(uid)
+                    logger.info("User %s stopped the bot (%s) — account deleted", uid, status)
+        except Exception as exc:
+            logger.warning("my_chat_member handler error: %s", exc)
+
+    async def error_handler(self, update, context):
+        """Last-resort handler — turns crashes into friendly replies."""
+        logger.error("Update %s caused error %s", update, context.error)
+        if not (update and update.effective_user):
+            return
+        err = str(context.error or "")
+        text = HTTPS_HINT if "web app url" in err.lower() else \
+            "⚠️ Something went wrong — try again in a moment."
+        try:
+            await context.bot.send_message(chat_id=update.effective_user.id,
+                                           text=text, parse_mode="Markdown")
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------- main
+    def setup_handlers(self):
+        self.application.add_handler(CommandHandler("start", self.start_command))
+        self.application.add_handler(CommandHandler("play", self.play_command))
+        self.application.add_handler(CommandHandler("status", self.status_command))
+        self.application.add_handler(CommandHandler("balance", self.balance_command))
+        self.application.add_handler(CommandHandler("cards", self.my_cards_command))
+        self.application.add_handler(CommandHandler("history", self.history_command))
+        self.application.add_handler(CommandHandler("top", self.top_command))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("admin", self.admin_command))
+        self.application.add_handler(CommandHandler("give", self._give))
+        self.application.add_handler(CommandHandler("take", self._take))
+        # collects the full name during first-time onboarding (after /start)
+        self.application.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND, self.text_handler))
+        self.application.add_handler(CallbackQueryHandler(self.callback_handler))
+        self.application.add_handler(ChatMemberHandler(
+            self.my_chat_member_handler, ChatMemberHandler.MY_CHAT_MEMBER))
+        self.application.add_error_handler(self.error_handler)
+
+    async def _give(self, update, context):
+        await self.give_take_command(update, context, +1)
+
+    async def _take(self, update, context):
+        await self.give_take_command(update, context, -1)
+
+    async def _on_start(self, application):
+        # baseline sync so the first tick doesn't announce a fake phase change
+        try:
+            self._last = {}
+            for room in config.ROOM_BETS:
+                state = db.get_game_state(room)
+                self._last[room] = {
+                    "phase": state["phase"],
+                    "count": len(db.get_called_numbers(room)),
+                    "round": state.get("round_number"),
+                }
+        except Exception:
+            pass
+        application.job_queue.run_repeating(self._announcer_tick,
+                                            interval=config.ANNOUNCER_INTERVAL,
+                                            first=3.0)
+
+    def run(self):
+        if not BOT_TOKEN:
+            raise SystemExit("BOT_TOKEN is missing — check your .env file.")
+        if not self._webapp_ok():
+            logger.warning(
+                "APP_URL='%s' is not https — Telegram rejects http:// on Web App "
+                "buttons, so the bot will show the setup hint instead. Run "
+                "setup_tunnel.bat once + run_tunnel.bat, or set APP_URL to an "
+                "https:// tunnel URL in .env, then restart.", _fresh_app_url())
+        self.application = Application.builder().token(BOT_TOKEN).build()
+        self.application.post_init = self._on_start
+        self.setup_handlers()
+        logger.info("🎰 Bingo bot starting — Mini App URL: %s", config.APP_URL)
+        self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    bot = PremiumBingoBot()
+    bot.run()
