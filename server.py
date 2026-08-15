@@ -442,6 +442,8 @@ def api_create_transaction():
         if not account or not account.get("is_active"):
             return jsonify({"error": "Please select one of the active payment accounts."}), 400
     if type_ == "withdraw":
+        if amount < config.MIN_WITHDRAWAL:
+            return jsonify({"error": f"Minimum withdrawal is {config.MIN_WITHDRAWAL} {config.APP_CURRENCY}."}), 400
         # the payout goes to the account details the user provides — all three
         # are required (account name / holder's name / account number), so the
         # admin knows exactly where to send the money.
@@ -474,6 +476,22 @@ def api_create_transaction():
         account_number=(account or {}).get("account_number") if type_ == "deposit" else wd_account_number,
         account_holder=(account or {}).get("account_name") if type_ == "deposit" else wd_account_holder,
     )
+    # alert the admins in Telegram so every deposit/withdraw is noticed fast
+    try:
+        from bot import notify_admins
+        label = "WITHDRAW" if type_ == "withdraw" else "DEPOSIT"
+        who = str(player.get("full_name") or player.get("username") or user_id)
+        details = tx_id or ""
+        if type_ == "withdraw":
+            details = wd_account_name + " | " + wd_account_holder + " | " + wd_account_number
+        lines = ["NEW " + label + " REQUEST",
+                 "User: " + who,
+                 "Amount: " + str(amount) + " " + config.APP_CURRENCY]
+        if details:
+            lines.append("Details: " + details)
+        notify_admins(lines)
+    except Exception:
+        pass  # notifications must never break the request
     return jsonify({"ok": True, "id": row_id,
                     "transaction": db.get_transaction(row_id)})
 
@@ -865,10 +883,21 @@ def telegram_webhook(secret: str):
     try:
         from bot import dispatch_webhook
         ok = dispatch_webhook(body)
-    except Exception:
-        ok = False
+    except Exception as exc:
+        logger.error("webhook route error: %s", exc)
+        return (f"webhook route error: {exc}", 500)
     # 500 makes Telegram retry — useful while the bot is still starting up
-    return ("ok", 200) if ok else ("error", 500)
+    if ok:
+        return ("ok", 200)
+    # include bot state in the 500 body so delivery failures are diagnosable
+    # without digging through logs
+    try:
+        from bot import _webhook_app, _webhook_thread
+        state = ("app=" + ("set" if _webhook_app else "none") +
+                 " thread=" + ("alive" if _webhook_thread and _webhook_thread.is_alive() else "dead"))
+    except Exception:
+        state = "unknown"
+    return ("webhook dispatch failed (" + state + ")", 500)
 
 
 # ----------------------------------------------------------------- frontend

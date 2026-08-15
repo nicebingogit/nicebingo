@@ -206,9 +206,13 @@ class PremiumBingoBot:
 
     async def text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Captures the full name when the bot is waiting for it (after /start)."""
-        if not context.user_data.get("awaiting_full_name"):
-            return
         user = update.effective_user
+        player0 = db.get_player(user.id) or {}
+        if (player0.get("full_name") or "").strip():
+            # already registered — nothing to collect (state lives in the DB,
+            # so onboarding survives bot restarts / web-app reloads)
+            context.user_data.pop("awaiting_full_name", None)
+            return
         raw = (update.message.text or "").strip()
         if not raw:
             await update.message.reply_text(
@@ -738,10 +742,10 @@ class PremiumBingoBot:
         """Create the PTB Application with every handler wired (not started)."""
         if not BOT_TOKEN:
             raise SystemExit("BOT_TOKEN is missing — check your .env file.")
-        application = Application.builder().token(BOT_TOKEN).build()
-        application.post_init = self._on_start
+        self.application = Application.builder().token(BOT_TOKEN).build()
+        self.application.post_init = self._on_start
         self.setup_handlers()
-        return application
+        return self.application
 
     def setup_handlers(self):
         self.application.add_handler(CommandHandler("start", self.start_command))
@@ -809,6 +813,8 @@ class PremiumBingoBot:
 # runs its announcer job queue exactly like in polling mode.
 _webhook_loop = None
 _webhook_app = None
+_webhook_thread = None
+_webhook_lock = threading.Lock()
 
 
 def start_webhook() -> None:
@@ -845,9 +851,50 @@ def start_webhook() -> None:
         while True:
             await asyncio.sleep(3600)
 
-    threading.Thread(target=lambda: loop.run_until_complete(_runner()),
-                     daemon=True).start()
+    global _webhook_thread
+    _webhook_thread = threading.Thread(
+        target=lambda: loop.run_until_complete(_runner()), daemon=True)
+    _webhook_thread.start()
     logger.info("🎰 Bingo bot running in WEBHOOK mode")
+
+
+def _ensure_webhook_running() -> bool:
+    """(Re)start the webhook bot if its loop thread isn't alive.
+
+    Hosts that fork workers after import (uWSGI on PythonAnywhere) can leave
+    the module globals pointing at a loop whose pumping thread is gone. When
+    that happens the next delivery restarts the bot and returns False, so
+    Telegram retries a moment later against the fresh, alive loop.
+    """
+    if _webhook_thread is not None and _webhook_thread.is_alive():
+        return True
+    with _webhook_lock:
+        if _webhook_thread is not None and _webhook_thread.is_alive():
+            return True
+        try:
+            start_webhook()
+        except Exception as exc:
+            logger.error("webhook restart failed: %s", exc)
+            return False
+        return True
+
+
+def notify_admins(lines: list) -> None:
+    """Send a plain-text alert to every admin (best effort, non-blocking).
+
+    `lines` is a list of message lines, joined with newlines here.
+    """
+    if _webhook_app is None or _webhook_loop is None:
+        return
+    if _webhook_thread is None or not _webhook_thread.is_alive():
+        return
+    text = chr(10).join(str(line) for line in lines)
+    for admin_id in config.ADMIN_IDS:
+        try:
+            coro = _webhook_app.bot.send_message(chat_id=admin_id, text=text)
+            asyncio.run_coroutine_threadsafe(coro, _webhook_loop)
+        except Exception as exc:
+            logger.error("admin notify failed: %s", exc)
 
 
 def dispatch_webhook(update_dict: dict) -> bool:
@@ -858,6 +905,8 @@ def dispatch_webhook(update_dict: dict) -> bool:
     Returns False only while the bot is still starting up (Telegram will
     retry the delivery).
     """
+    if not _ensure_webhook_running():
+        return False
     if _webhook_app is None or _webhook_loop is None:
         return False
     try:

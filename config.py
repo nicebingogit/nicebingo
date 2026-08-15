@@ -79,6 +79,7 @@ BET_PER_CARD = ROOM_DEFAULT                         # legacy alias: default room
 BET_MIN_CARD = ROOM_DEFAULT                         # legacy alias: bet is fixed per room
 MAX_CARDS_PER_PLAYER = _int("MAX_CARDS_PER_PLAYER", 3)  # max cards per player per round
 NEW_PLAYER_CREDIT = _int("NEW_PLAYER_CREDIT", 50)  # welcome coins
+MIN_WITHDRAWAL = _int("MIN_WITHDRAWAL", 100)      # minimum withdraw request (ETB)
 PRIZE_PERCENT = _float("PRIZE_PERCENT", 0.8)        # 80% of the pool goes to the winner
 BOTS_CONTRIBUTE_TO_POOL = True                      # bot bets also feed the pool
 
@@ -92,6 +93,11 @@ def room_label(room: int) -> str:
 # ---------------------------------------------------------------------------
 PREPARATION_SECONDS = _int("PREPARATION_SECONDS", 60)      # between rounds
 CALL_INTERVAL_SECONDS = _int("CALL_INTERVAL_SECONDS", 4)   # between called numbers
+# How often the server-side game loop wakes up. 1 = real-time (local / Docker).
+# On throttled free hosts (PythonAnywhere) set TICK_INTERVAL=3 to cut CPU ~3x;
+# ball calls still land on their CALL_INTERVAL_SECONDS schedule, just with a
+# tick of extra jitter. Also lower MAX_TOTAL_PLAYERS (fewer bots) there.
+TICK_INTERVAL = _int("TICK_INTERVAL", 1)
 POST_GAME_RESET_SECONDS = _int("POST_GAME_RESET_SECONDS", 15)  # winner screen
 END_GAME_RESET_SECONDS = _int("END_GAME_RESET_SECONDS", 10)     # forced stop
 TOTAL_NUMBERS = 75                                          # a bingo set

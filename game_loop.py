@@ -71,7 +71,8 @@ class GameLoop:
                         self.db.update_game_state(room, next_call_time=_iso(0.5))
                 elif state["phase"] == "ended" and not _parse(state.get("reset_time")):
                     self.db.update_game_state(room, reset_time=_iso(config.POST_GAME_RESET_SECONDS))
-        self.scheduler.add_job(self.tick, "interval", seconds=1, id="game_tick",
+        self.scheduler.add_job(self.tick, "interval",
+                               seconds=config.TICK_INTERVAL, id="game_tick",
                                max_instances=1, coalesce=True)
         self.scheduler.start()
         logger.info("Game loop started · rooms=%s", config.ROOM_BETS)

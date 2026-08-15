@@ -24,10 +24,17 @@ PythonAnywhere web app configuration:
 Run locally (testing):  python -c "import wsgi"
 """
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from THIS file's directory. A bare load_dotenv() searches the
+# process working directory, which on PythonAnywhere is /home/<user> (uWSGI
+# is treated as "interactive" so dotenv falls back to os.getcwd()). It would
+# silently miss 2xbingo/.env, BOT_WEBHOOK would stay unset, and the bot would
+# never start — exactly the bug this explicit path fixes.
+_HERE = Path(__file__).resolve().parent
+load_dotenv(_HERE / ".env")
 
 import migrate_db
 import server  # noqa: E402  (defines app, db, game loop; reads .env above)
