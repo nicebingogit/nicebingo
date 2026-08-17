@@ -81,6 +81,20 @@ def _verify_init_data(init_data: str) -> bool:
         return False
 
 
+def _touch_admin_if_admin(user_id: Optional[int]) -> None:
+    """Mark an admin as ONLINE (last_seen = now) when they make any request.
+
+    An admin is "online" while they are actively using the app / bot — only
+    ONLINE admins' payment accounts are shown to users for deposits, and the
+    richest ONLINE admin is selected for each bank.
+    """
+    if user_id is not None and user_id in config.ADMIN_IDS:
+        try:
+            db.touch_admin(user_id)
+        except Exception:
+            pass
+
+
 def _user_id_from_request() -> Optional[int]:
     """Resolve the caller's identity, leniently.
 
@@ -91,6 +105,7 @@ def _user_id_from_request() -> Optional[int]:
          is present but can't be verified (old sessions, clock drift, proxies).
       3. Nothing -> None (caller must supply a real identity).
     """
+    uid: Optional[int] = None
     init_data = request.args.get("init_data") or \
         (request.get_json(silent=True) or {}).get("init_data")
     if init_data:
@@ -100,18 +115,18 @@ def _user_id_from_request() -> Optional[int]:
                 # the `user` value is percent-encoded JSON (e.g. %7B%22id%22...)
                 user = json.loads(urllib.parse.unquote(params.get("user", "{}")))
                 uid = int(user.get("id"))
-                if uid:
-                    return uid
             except (ValueError, TypeError):
-                pass
+                uid = None
         # invalid / unverifiable initData -> fall through to explicit user_id
-    raw = request.args.get("user_id") or \
-        (request.get_json(silent=True) or {}).get("user_id")
-    try:
-        uid = int(raw)
-        return uid if uid else None
-    except (TypeError, ValueError):
-        return None
+    if not uid:
+        raw = request.args.get("user_id") or \
+            (request.get_json(silent=True) or {}).get("user_id")
+        try:
+            uid = int(raw) if raw else None
+        except (TypeError, ValueError):
+            uid = None
+    _touch_admin_if_admin(uid)
+    return uid
 
 
 # ------------------------------------------------------------------ serializers
@@ -168,6 +183,8 @@ def _user_payload(user_id: int, room: int = 30) -> dict:
         "is_registered": bool(player.get("is_registered", 0)),
         "credit": player.get("credit", 0),
         "is_admin": user_id in config.ADMIN_IDS,
+        # the ONE admin who controls everything (credit selling, logs, appeals)
+        "is_super_admin": user_id == config.SUPER_ADMIN_ID,
         # false-BINGO elimination for the CURRENT round only
         "eliminated": eliminated,
         "selections": selections,
@@ -175,13 +192,31 @@ def _user_payload(user_id: int, room: int = 30) -> dict:
 
 
 def _account_payload(account: dict) -> dict:
-    """JSON-safe payment account (is_active as a real boolean)."""
+    """JSON-safe payment account (is_active as a real boolean).
+
+    Includes the OWNING admin's identity + credit + online status so the
+    Super Admin panel and the user deposit picker can show who stands behind
+    the account and whether the account is currently selectable.
+    """
+    admin_id = account.get("admin_id")
+    admin_name = account.get("admin_name")
+    admin_credit = account.get("admin_credit")
+    admin_online = None
+    if admin_id:
+        owner = db.get_player(admin_id) or {}
+        admin_name = admin_name or owner.get("full_name") or owner.get("username")
+        admin_credit = admin_credit if admin_credit is not None else owner.get("admin_credit", 0)
+        admin_online = db.is_admin_online(admin_id)
     return {
         "id": account["id"],
         "provider": account["provider"],
         "account_name": account["account_name"],
         "account_number": account["account_number"],
         "is_active": bool(account.get("is_active")),
+        "admin_id": admin_id,
+        "admin_name": admin_name,
+        "admin_credit": admin_credit if admin_credit is not None else 0,
+        "admin_online": admin_online,
         "created_at": account.get("created_at"),
         "updated_at": account.get("updated_at"),
     }
@@ -190,13 +225,25 @@ def _account_payload(account: dict) -> dict:
 def _settings_payload() -> dict:
     """Public wallet settings shown in every user's Settings -> Wallet panel.
 
-    Only ACTIVE payment accounts are exposed to players; the admin sees all of
-    them through /api/admin/accounts.
+    * `payment_accounts` — every ACTIVE account (kept for compatibility).
+    * `deposit_accounts` — the NEW deposit picker: ONE account per bank/
+      provider, always the account of the ONLINE admin with the MOST admin
+      credit. When no admin for a bank is online, that bank is not listed at
+      all — offline admins' accounts are never displayed.
     """
+    # get_deposit_accounts() is ordered by owner admin credit DESC, so the
+    # first row per provider IS the selected account
+    best: dict = {}
+    for acc in db.get_deposit_accounts():
+        best.setdefault(acc["provider"], acc)
     return {
         "currency": config.APP_CURRENCY,
         "payment_accounts": [_account_payload(a)
                               for a in db.get_payment_accounts(active_only=True)],
+        "deposit_accounts": [
+            {"provider": p, "account": _account_payload(a)}
+            for p, a in best.items()
+        ],
     }
 
 
@@ -441,6 +488,16 @@ def api_create_transaction():
         account = db.get_payment_account(acc_id) if acc_id else None
         if not account or not account.get("is_active"):
             return jsonify({"error": "Please select one of the active payment accounts."}), 400
+        # only ONLINE admins' accounts can be paid into — the account shown in
+        # Settings is always the online admin with the most credit, and an
+        # account whose owner just went offline is no longer selectable
+        owner_id = account.get("admin_id")
+        if not owner_id or not db.is_admin_online(owner_id):
+            return jsonify({
+                "error": "This payment account is not available right now — "
+                         "its admin is offline. Please use the account shown "
+                         "in Settings."
+            }), 400
     if type_ == "withdraw":
         if amount < config.MIN_WITHDRAWAL:
             return jsonify({"error": f"Minimum withdrawal is {config.MIN_WITHDRAWAL} {config.APP_CURRENCY}."}), 400
@@ -476,20 +533,26 @@ def api_create_transaction():
         account_number=(account or {}).get("account_number") if type_ == "deposit" else wd_account_number,
         account_holder=(account or {}).get("account_name") if type_ == "deposit" else wd_account_holder,
     )
-    # alert the admins in Telegram so every deposit/withdraw is noticed fast
+    # alert the right admin(s) in Telegram — high priority, so nothing sits
+    # unreviewed: a DEPOSIT goes to the admin who owns the paid-in account
+    # (only they can approve it and it consumes THEIR credit); a WITHDRAW goes
+    # to every admin (any of them can pay it out).
     try:
-        from bot import notify_admins
+        from bot import notify_admins, notify_user
         label = "WITHDRAW" if type_ == "withdraw" else "DEPOSIT"
         who = str(player.get("full_name") or player.get("username") or user_id)
         details = tx_id or ""
         if type_ == "withdraw":
             details = wd_account_name + " | " + wd_account_holder + " | " + wd_account_number
-        lines = ["NEW " + label + " REQUEST",
+        lines = ["🚨 NEW " + label + " REQUEST",
                  "User: " + who,
                  "Amount: " + str(amount) + " " + config.APP_CURRENCY]
         if details:
             lines.append("Details: " + details)
-        notify_admins(lines)
+        if type_ == "deposit" and account and account.get("admin_id"):
+            notify_user(account["admin_id"], lines)
+        else:
+            notify_admins(lines)
     except Exception:
         pass  # notifications must never break the request
     return jsonify({"ok": True, "id": row_id,
@@ -634,6 +697,19 @@ def _require_admin() -> Optional[int]:
         admin_id = None
     if admin_id is None or admin_id not in config.ADMIN_IDS:
         return None
+    _touch_admin_if_admin(admin_id)
+    return admin_id
+
+
+def _require_super_admin() -> Optional[int]:
+    """Only the SUPER ADMIN (config.SUPER_ADMIN_ID) passes this guard.
+
+    The super admin controls EVERYTHING: every account (admin or user), every
+    transaction log, admin credits (selling credit to admins) and appeals.
+    """
+    admin_id = _require_admin()
+    if admin_id is None or admin_id != config.SUPER_ADMIN_ID:
+        return None
     return admin_id
 
 
@@ -700,6 +776,7 @@ def api_admin_bots():
         admin_id = None
     if admin_id is None or admin_id not in config.ADMIN_IDS:
         return jsonify({"error": "Unauthorized"}), 403
+    _touch_admin_if_admin(admin_id)
     room = _room_from_request()
     return jsonify({"enabled": db.get_bots_enabled(room),
                     "count": db.bot_count(),
@@ -716,6 +793,7 @@ def api_admin_stats():
         admin_id = None
     if admin_id is None or admin_id not in config.ADMIN_IDS:
         return jsonify({"error": "Unauthorized"}), 403
+    _touch_admin_if_admin(admin_id)
     return jsonify({"stats": db.game_stats(), "recent": db.recent_games(8)})
 
 
@@ -764,9 +842,46 @@ def api_admin_transactions():
     return jsonify({"transactions": txs})
 
 
+def _apply_review(tx: dict, action: str, reviewer_id: int):
+    """Move the money for an approved deposit/withdraw under the admin-credit
+    model. Returns (ok: bool, error: Optional[str]).
+
+    * Approving a DEPOSIT credits the user the full amount AND deducts
+      ADMIN_APPROVAL_RATE (90%) of it from the credit of the admin who OWNS
+      the account the user paid into. An admin can only approve what their
+      credit can cover — the super admin sells them credit for exactly this.
+    * Approving a WITHDRAW debits the user and credits ADMIN_APPROVAL_RATE
+      back to the REVIEWING admin (they paid the money out for real).
+    """
+    if action == "approve":
+        if tx["type"] == "deposit":
+            acc = None
+            if tx.get("payment_account_id"):
+                acc = db.get_payment_account(tx["payment_account_id"])
+            owner = (acc or {}).get("admin_id") or reviewer_id
+            needed = int(tx["amount"] * config.ADMIN_APPROVAL_RATE)
+            if db.get_admin_credit(owner) < needed:
+                return False, (
+                    f"Insufficient admin credit: approving this deposit needs "
+                    f"{needed} {config.APP_CURRENCY} from the account owner's "
+                    f"credit ({(config.ADMIN_APPROVAL_RATE * 100):.0f}% of "
+                    f"{tx['amount']}). The super admin must top it up first."
+                )
+            db.update_credit(tx["user_id"], tx["amount"])
+            db.update_admin_credit(owner, -needed)
+        else:  # withdraw: take the money back (must be affordable)
+            if db.get_credit(tx["user_id"]) < tx["amount"]:
+                return False, "User has insufficient balance for this withdrawal."
+            db.update_credit(tx["user_id"], -tx["amount"])
+            back = int(tx["amount"] * config.ADMIN_APPROVAL_RATE)
+            db.update_admin_credit(reviewer_id, back)
+    return True, None
+
+
 @app.route("/api/admin/transactions/review", methods=["POST"])
 def api_admin_transaction_review():
-    """Approve/reject a wallet request; approving moves the money."""
+    """Approve/reject a wallet request; approving moves the money AND the
+    account-owner admin's credit (see _apply_review)."""
     admin_id = _require_admin()
     if admin_id is None:
         return jsonify({"error": "Unauthorized"}), 403
@@ -784,12 +899,9 @@ def api_admin_transaction_review():
     if tx["status"] != "pending":
         return jsonify({"error": "Transaction already reviewed"}), 400
     if action == "approve":
-        if tx["type"] == "deposit":
-            db.update_credit(tx["user_id"], tx["amount"])
-        else:  # withdraw: take the money back (must be affordable)
-            if db.get_credit(tx["user_id"]) < tx["amount"]:
-                return jsonify({"error": "User has insufficient balance for this withdrawal."}), 400
-            db.update_credit(tx["user_id"], -tx["amount"])
+        ok, err = _apply_review(tx, "approve", admin_id)
+        if not ok:
+            return jsonify({"error": err}), 400
     db.review_transaction(tx_id, "approved" if action == "approve" else "rejected",
                           reviewed_by=admin_id)
     updated = db.get_transaction(tx_id)
@@ -808,8 +920,14 @@ def api_admin_accounts():
 
 @app.route("/api/admin/accounts", methods=["POST"])
 def api_admin_account_add():
-    """Add a payment account (TeleBirr / CBE / CBB / bank ...)."""
-    if _require_admin() is None:
+    """Add a payment account (TeleBirr / CBE / CBB / bank ...).
+
+    The account belongs to the ADMIN who creates it — that admin's credit is
+    what gets consumed when deposits into this account are approved, and the
+    account is only shown to users while that admin is ONLINE.
+    """
+    admin_id = _require_admin()
+    if admin_id is None:
         return jsonify({"error": "Unauthorized"}), 403
     data = request.get_json(silent=True) or {}
     provider = (data.get("provider") or "").strip()
@@ -820,7 +938,8 @@ def api_admin_account_add():
     if len(account_number) > 60:
         return jsonify({"error": "Account number is too long."}), 400
     is_active = data.get("is_active") not in (False, 0, "0", "false", "False")
-    account_id = db.add_payment_account(provider, account_name, account_number, is_active)
+    account_id = db.add_payment_account(provider, account_name, account_number,
+                                        is_active, admin_id=admin_id)
     return jsonify({"ok": True, "account": _account_payload(db.get_payment_account(account_id))})
 
 
@@ -863,6 +982,285 @@ def api_admin_account_delete():
         return jsonify({"error": "id required"}), 400
     db.delete_payment_account(account_id)
     return jsonify({"ok": True})
+
+
+# ------------------------------------------------------- user appeals
+@app.route("/api/appeals")
+def api_my_appeals():
+    """The caller's own wallet appeals."""
+    user_id = _user_id_from_request()
+    if user_id is None:
+        return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
+    return jsonify({"appeals": db.get_user_appeals(user_id)})
+
+
+@app.route("/api/appeals", methods=["POST"])
+def api_file_appeal():
+    """A user appeals a DEPOSIT the admin never approved (they sent the money
+    for real). The SUPER ADMIN resolves the appeal."""
+    data = request.get_json(silent=True) or {}
+    user_id = _user_id_from_request()
+    if user_id is None:
+        return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
+    try:
+        tx_id = int(data.get("transaction_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "transaction_id required"}), 400
+    reason = (data.get("reason") or "").strip()
+    if not reason:
+        return jsonify({"error": "Please describe your appeal."}), 400
+    if len(reason) > 500:
+        return jsonify({"error": "Appeal reason is too long (max 500 characters)."}), 400
+    tx = db.get_transaction(tx_id)
+    if not tx or tx["user_id"] != user_id:
+        return jsonify({"error": "Transaction not found."}), 404
+    if tx["type"] != "deposit":
+        return jsonify({"error": "Only deposits can be appealed."}), 400
+    if tx["status"] not in ("pending", "rejected"):
+        return jsonify({"error": "This transaction is already finished."}), 400
+    existing = [a for a in db.get_user_appeals(user_id)
+                if a["transaction_id"] == tx_id and a["status"] == "pending"]
+    if existing:
+        return jsonify({"error": "You already have a pending appeal for this deposit."}), 400
+    appeal_id = db.add_appeal(user_id, tx_id, reason)
+    # alert the SUPER ADMIN — only they can resolve appeals
+    try:
+        from bot import notify_user
+        who = str(tx.get("user_name") or user_id)
+        notify_user(config.SUPER_ADMIN_ID, [
+            "🚨 NEW WALLET APPEAL",
+            "User: " + who,
+            "Deposit: " + str(tx["amount"]) + " " + config.APP_CURRENCY,
+            "Reason: " + reason,
+        ])
+    except Exception:
+        pass
+    return jsonify({"ok": True, "appeal": db.get_appeal(appeal_id)})
+
+
+# ------------------------------------------------------- super admin console
+@app.route("/api/superadmin/users")
+def api_superadmin_users():
+    """Every account — admins AND users — with credits, admin credit, online
+    status and history, so the super admin controls everything."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    users = db.get_all_players()
+    for u in users:
+        u["online"] = db.is_admin_online(u["user_id"])
+    return jsonify({"users": users})
+
+
+@app.route("/api/superadmin/credit", methods=["POST"])
+def api_superadmin_credit():
+    """The super admin manually increases/decreases ANY account's credit:
+    `target` "user" -> the player wallet, "admin" -> the admin credit float
+    (selling / buying back credit to admins)."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        target = int(data.get("user_id"))
+        amount = int(data.get("amount"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "user_id and amount are required"}), 400
+    target_kind = (data.get("target") or "user").strip().lower()
+    if target_kind not in ("user", "admin"):
+        return jsonify({"error": "target must be 'user' or 'admin'"}), 400
+    db.create_player(target, f"Player_{target}", credit=0)
+    if target_kind == "admin":
+        db.update_admin_credit(target, amount)
+    else:
+        db.update_credit(target, amount)
+    return jsonify({
+        "ok": True, "user_id": target, "target": target_kind,
+        "credit": db.get_credit(target),
+        "admin_credit": db.get_admin_credit(target),
+    })
+
+
+@app.route("/api/superadmin/transactions")
+def api_superadmin_transactions():
+    """Every wallet log (all deposits/withdraws, any status) with the owning
+    admin's credit impact for deposits."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    txs = db.get_all_transactions()
+    for tx in txs:
+        if not tx.get("user_name"):
+            p = db.get_player(tx["user_id"]) or {}
+            tx["user_name"] = p.get("full_name") or p.get("username") or f"#{tx['user_id']}"
+        owner = None
+        if tx.get("payment_account_id"):
+            acc = db.get_payment_account(tx["payment_account_id"])
+            owner = (acc or {}).get("admin_id")
+        tx["owner_admin_id"] = owner
+        if owner:
+            owner_p = db.get_player(owner) or {}
+            tx["owner_admin_name"] = owner_p.get("full_name") or owner_p.get("username")
+            tx["owner_admin_credit"] = owner_p.get("admin_credit", 0)
+        tx["credit_rate"] = config.ADMIN_APPROVAL_RATE
+    return jsonify({"transactions": txs})
+
+
+@app.route("/api/superadmin/transactions/review", methods=["POST"])
+def api_superadmin_transaction_review():
+    """The super admin can review ANY pending wallet request (same money
+    movement rules as the admin panel, including the owner's credit)."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        tx_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "id required"}), 400
+    action = (data.get("action") or "").strip().lower()
+    if action not in ("approve", "reject"):
+        return jsonify({"error": "action must be approve or reject"}), 400
+    tx = db.get_transaction(tx_id)
+    if not tx:
+        return jsonify({"error": "Transaction not found"}), 404
+    if tx["status"] != "pending":
+        return jsonify({"error": "Transaction already reviewed"}), 400
+    if action == "approve":
+        ok, err = _apply_review(tx, "approve", config.SUPER_ADMIN_ID)
+        if not ok:
+            return jsonify({"error": err}), 400
+    db.review_transaction(tx_id, "approved" if action == "approve" else "rejected",
+                          reviewed_by=config.SUPER_ADMIN_ID)
+    updated = db.get_transaction(tx_id)
+    updated["credit"] = db.get_credit(tx["user_id"])
+    return jsonify({"ok": True, "transaction": updated})
+
+
+@app.route("/api/superadmin/accounts")
+def api_superadmin_accounts():
+    """Every payment account (all admins') with owner + online status."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    return jsonify({"accounts": [_account_payload(a)
+                                  for a in db.get_payment_accounts()]})
+
+
+@app.route("/api/superadmin/accounts/update", methods=["POST"])
+def api_superadmin_account_update():
+    """Super admin edits ANY account — details, active toggle, or re-assigns
+    the owner admin (admin_id)."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        account_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "id required"}), 400
+    if not db.get_payment_account(account_id):
+        return jsonify({"error": "Account not found"}), 404
+    fields = {}
+    if data.get("provider") is not None:
+        fields["provider"] = (data.get("provider") or "").strip()
+    if data.get("account_name") is not None:
+        fields["account_name"] = (data.get("account_name") or "").strip()
+    if data.get("account_number") is not None:
+        fields["account_number"] = (data.get("account_number") or "").strip()
+    if data.get("is_active") is not None:
+        fields["is_active"] = data.get("is_active") not in (False, 0, "0", "false", "False")
+    if data.get("admin_id") is not None:
+        try:
+            fields["admin_id"] = int(data.get("admin_id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid admin_id"}), 400
+    if any(not v for k, v in fields.items()
+           if k in ("provider", "account_name", "account_number")):
+        return jsonify({"error": "Provider, account name and account number can't be empty."}), 400
+    db.update_payment_account(account_id, **fields)
+    return jsonify({"ok": True, "account": _account_payload(db.get_payment_account(account_id))})
+
+
+@app.route("/api/superadmin/accounts/delete", methods=["POST"])
+def api_superadmin_account_delete():
+    """Super admin deletes any account. Historical transactions keep their
+    snapshot."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        account_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "id required"}), 400
+    db.delete_payment_account(account_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/superadmin/appeals")
+def api_superadmin_appeals():
+    """All wallet appeals (with user + transaction info) for the super admin."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    return jsonify({"appeals": db.get_all_appeals()})
+
+
+@app.route("/api/superadmin/appeals/resolve", methods=["POST"])
+def api_superadmin_appeal_resolve():
+    """Resolve an appeal:
+    * approve -> the deposit is approved (user credited, the account owner's
+      admin credit charged at ADMIN_APPROVAL_RATE) even if the admin had
+      rejected it;
+    * reject  -> the appeal is dismissed with an optional resolution note.
+    """
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        appeal_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "id required"}), 400
+    action = (data.get("action") or "").strip().lower()
+    if action not in ("approve", "reject"):
+        return jsonify({"error": "action must be approve or reject"}), 400
+    resolution = (data.get("resolution") or "").strip()
+    appeal = db.get_appeal(appeal_id)
+    if not appeal:
+        return jsonify({"error": "Appeal not found"}), 404
+    if appeal["status"] != "pending":
+        return jsonify({"error": "Appeal already resolved"}), 400
+    tx = db.get_transaction(appeal["transaction_id"])
+    if action == "approve":
+        # the deposit may still be pending (admin never got to it) or rejected
+        # (admin said no) — either way the user paid, so approve it now
+        if tx and tx["status"] != "approved":
+            ok, err = _apply_review(tx, "approve", config.SUPER_ADMIN_ID)
+            if not ok:
+                return jsonify({"error": err}), 400
+            db.set_transaction_status(tx["id"], "approved",
+                                      reviewed_by=config.SUPER_ADMIN_ID,
+                                      admin_note="Approved via appeal")
+        db.resolve_appeal(appeal_id, "approved",
+                          resolution or "Deposit approved on appeal",
+                          config.SUPER_ADMIN_ID)
+        if tx:
+            try:
+                from bot import notify_user
+                notify_user(tx["user_id"], [
+                    "✅ Your appeal was APPROVED",
+                    "Deposit: " + str(tx["amount"]) + " " + config.APP_CURRENCY,
+                    "Your balance has been credited.",
+                ])
+            except Exception:
+                pass
+    else:
+        db.resolve_appeal(appeal_id, "rejected", resolution or "Appeal dismissed",
+                          config.SUPER_ADMIN_ID)
+        if tx:
+            try:
+                from bot import notify_user
+                notify_user(tx["user_id"], [
+                    "❌ Your appeal was rejected",
+                    "Deposit: " + str(tx["amount"]) + " " + config.APP_CURRENCY,
+                    ("Note: " + resolution) if resolution else "",
+                ])
+            except Exception:
+                pass
+    return jsonify({"ok": True, "appeal": db.get_appeal(appeal_id)})
 
 
 # ------------------------------------------------------- telegram webhook

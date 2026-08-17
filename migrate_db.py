@@ -27,7 +27,8 @@ from database import Database
 SCHEMA_TABLES = [
     "players", "game_state", "cards", "card_selections", "called_numbers",
     "games", "game_history", "bots", "transactions", "payment_accounts",
-    "round_eliminations", "settings", "profiles(view)",
+    "round_eliminations", "appeals", "bot_notifications", "settings",
+    "profiles(view)",
 ]
 
 

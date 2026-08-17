@@ -3,16 +3,25 @@
 This document describes the current system. It is kept up to date with every
 change so that any developer or AI can refer to it at any time.
 
-> **Latest update:** **bots play & win too** — bots are included in every room
-> by default (all **human male names**), they fill the room during
-> preparation, and they **press BINGO like humans** (with a short random
-> delay), so other players genuinely win rounds; the winner modal now **draws
-> the winning pattern on the winner's card** (glowing gold cells) for **all**
-> players; 3-card play gets slightly bigger cards that never overflow the
-> screen; the winning moment always vibrates. Built on top of claim-driven
-> winners, hidden win pool, manual play, compact single-card layout, the
-> per-room called-numbers fix, withdrawals with destination details, the
-> editable wallet phone, the 400-card pool and three rooms (30 / 50 / 100 ETB).
+> **Latest update:** **Super Admin + admin-credit economy** — the admin
+> **1512842545** is the **Super Admin** and controls **everything** from a new
+> 👑 **Super Admin console** in the Mini App: every account (admin or user)
+> with manual credit increase/decrease, every transaction log, every payment
+> account (reassign owner / activate / delete) and **wallet appeals**. Each
+> admin now has their **own credit** (sold to them by the Super Admin):
+> approving a **deposit** deducts **90 %** of the amount from the credit of
+> the admin who **owns** the paid-in account (approval is blocked when the
+> credit can't cover it); approving a **withdraw** credits **90 %** back to
+> the reviewing admin. Payment accounts are now **owned by admins** and the
+> deposit picker shows **only ONE account per bank** — the account of the
+> **online** admin with the **most credit**; when an admin is offline their
+> account is neither displayed nor payable into. Every deposit / withdraw /
+> appeal triggers a **high-priority Telegram bot message** to the right
+> admin(s) (works in both polling and webhook mode via a DB notification
+> queue). Built on top of the admin credit economy, the wallet appeals flow,
+> admin-owned payment accounts, online/offline account selection, the
+> claim-driven winners, hidden win pool, manual play, per-room called-numbers
+> fix, withdrawals with destination details and three rooms (30 / 50 / 100 ETB).
 
 ---
 
@@ -291,34 +300,84 @@ bots · Z cards".
 
 ## 4. Wallet & Payment Accounts
 
-### 4.1 Multiple admin payment accounts
+### 4.1 Payment accounts belong to admins
 
-The single-account `settings.admin_account` design is replaced by the
-`payment_accounts` table. The admin can **add / edit / delete / activate /
-deactivate** any number of accounts (TeleBirr, CBE, CBB, bank, …). Each
-account has: `id`, `provider`, `account_name` (holder), `account_number`,
-`is_active`, `created_at`, `updated_at`. Nothing is hard-coded.
+The `payment_accounts` table is extended with an **`admin_id` owner column**.
+Any admin can **add / edit / delete / activate / deactivate** their own
+accounts (TeleBirr, CBE, CBB, bank, …) from the existing **Accounts** tab —
+the account is automatically owned by the admin who creates it. Each account
+has: `id`, `provider`, `account_name` (holder), `account_number`, `is_active`,
+`admin_id`, `created_at`, `updated_at`.
 
-**Migration (idempotent, safe):** on startup, if `payment_accounts` is empty
-and the legacy `settings.admin_account` key has a value, it is inserted as one
-account (label taken from `admin_account_name`), so existing installations keep
-their account.
+**Migrations (idempotent, safe):**
+* legacy single wallet account (`settings.admin_account`) → one `payment_accounts`
+  row, as before;
+* accounts created before ownership existed (`admin_id NULL`) are assigned to
+  the **first** admin in `ADMIN_IDS` on startup, so existing installations
+  keep working. The Super Admin can re-assign any account to any admin.
 
-### 4.2 User deposit flow
+### 4.2 Admin credit — the approval float
 
-Settings → Wallet shows all **active** accounts:
+Every admin has their **own credit** (`players.admin_credit`, default 0),
+**sold to them manually by the Super Admin** (👑 Super → All accounts →
+Admin credit, or the bot's `/admin` shows the current float). This credit is
+what allows them to approve wallet requests:
+
+* **Approving a DEPOSIT** credits the user the full amount AND deducts
+  **`ADMIN_APPROVAL_RATE` (default 90 %)** of it from the credit of the admin
+  who **owns the account the user paid into** (`payment_accounts.admin_id`;
+  falls back to the reviewing admin if the account was deleted). If the owner
+  admin's credit cannot cover the deduction, the approval is **rejected**
+  with a clear error — the Super Admin must top the admin up first.
+* **Approving a WITHDRAW** debits the user (must have balance) and credits
+  **`ADMIN_APPROVAL_RATE` (90 %)** of the amount back to the **reviewing**
+  admin (they paid the money out for real).
+
+This is the Super Admin's business loop: **users buy credit** (deposits,
+paid to an admin's account) and **sell credit** (withdrawals, paid out by an
+admin); **admins buy admin credit from the Super Admin** and spend it as they
+approve deposits.
+
+### 4.3 Online status & ONE account per bank
+
+An admin is **online** while they have been active within
+`ADMIN_ONLINE_MINUTES` (default **5 minutes**). `players.last_seen` is touched
+on every API request and bot admin command (`_touch_admin_if_admin` — the
+admin's player row is created on first touch if missing).
+
+**Only ONLINE admins' accounts are selectable**, and the deposit picker shows
+**exactly ONE account per bank/provider** — always the account of the
+**online admin with the MOST admin credit** (ties broken by oldest account):
+
+```
+💳 Where can you pay?
+◉ TeleBirr — ELCOTECH · 0911226070   [📋]   👤 Online admin: Abebe
+```
+
+* When the admin is **offline**, his/her account is **not displayed** at all
+  (the bank simply disappears from the picker).
+* A deposit submitted against an account whose owner just went offline is
+  rejected: *"This payment account is not available right now — its admin is
+  offline."*
+* The public `settings.payment_accounts` list (all active accounts) is kept
+  for compatibility; the Mini App's wallet uses the new
+  `settings.deposit_accounts` (one per provider).
+
+### 4.4 User deposit flow
+
+Settings → Wallet → pick a **bank/provider** (only banks with an online admin
+are listed), the **single selected account** is shown with a copy button:
 
 ```
 💳 Where can you pay?
 ◉ TeleBirr — ELCOTECH · 0911226070   [📋]
-○ CBE — ELCOTECH · 1000XXXXXXXX      [📋]
 ```
 
-A deposit requires: **selected payment account + amount + transaction number**.
-The server validates all three (account must exist and be active, amount > 0
-and ≤ 1,000,000, tx number non-empty and ≤ 100 chars).
+A deposit requires: **selected account + amount + transaction number**. The
+server validates all three (account must exist, be active **and its owner
+online**, amount > 0 and ≤ 1,000,000, tx number non-empty and ≤ 100 chars).
 
-### 4.3 User withdraw flow
+### 4.5 User withdraw flow
 
 A withdraw requires the **destination account details**: **account name**
 (provider, e.g. TeleBirr / CBE / CBB), **account holder's name**, **amount**
@@ -328,7 +387,7 @@ chars each, amount > 0 and ≤ balance). They are snapshotted onto the same
 the admin Wallet panel shows exactly where to pay out and the record never
 changes later. A withdraw without these details is rejected (400).
 
-### 4.4 Transaction snapshots
+### 4.6 Transaction snapshots
 
 Each `transactions` row stores a **snapshot** at creation time:
 
@@ -340,10 +399,22 @@ Each `transactions` row stores a **snapshot** at creation time:
 * **Withdraw** rows snapshot the destination account the user provided.
 
 Editing or deleting a payment account later **never corrupts** historical
-transactions (the snapshot stays). Admin approval:
-* deposit → user credit +amount;
-* withdraw → user credit −amount (rejected if the balance can't cover it);
-  the admin pays the money out to the snapshotted destination details.
+transactions (the snapshot stays). Admin approval moves money AND the owner's
+admin credit (see §4.2).
+
+### 4.7 High-priority bot notifications
+
+Server events are pushed to Telegram through a **DB message queue**
+(`bot_notifications`): `server.py` enqueues a row, the bot's announcer tick
+drains the queue and sends it (`notify_admins` / `notify_user`). This works in
+**both polling and webhook modes**, even when server and bot run in separate
+processes (local desktop: two processes, one SQLite file).
+
+* **Deposit request** → alert to the **owner admin** of the paid-in account
+  (only they can approve it, and it consumes THEIR credit).
+* **Withdraw request** → alert to **every admin**.
+* **Appeal filed** → alert to the **Super Admin**.
+* **Appeal resolved** → alert to the user.
 
 The admin Wallet panel shows: user full name, phone, payment method, selected
 account (provider/holder/number), amount, transaction number, status, date,
@@ -381,6 +452,49 @@ exactly where to pay out.
 List (provider, holder, number, active badge), Add form (provider datalist +
 holder + number + active checkbox), inline Edit, Activate/Deactivate toggle,
 Delete with inline two-step confirm (no `window.confirm` — WebViews block it).
+New accounts are owned by the creating admin (§4.1). **The panel itself is
+unchanged** — only the server-side approval now consumes the owner admin's
+credit (§4.2) and the bot's `/admin` reply shows the admin's own credit.
+
+### 5.4 Super Admin console (👑 Super)
+
+The admin **1512842545** (`config.SUPER_ADMIN_ID`, env-overridable) is the
+**Super Admin**. They get an extra **👑 Super** button in the header that
+opens the **SuperAdminPanel** with five tabs (guarded server-side by
+`_require_super_admin` → only `SUPER_ADMIN_ID`, who must also be in
+`ADMIN_IDS`, passes):
+
+* **📊 Overview** — counts: total accounts, admins, pending wallet requests,
+  pending appeals, payment accounts.
+* **👥 All accounts** — EVERY account (admins AND users) with name, phone,
+  credit, admin credit, role badge and online/offline badge. Tapping a row
+  opens a detail modal with **＋/− controls for BOTH the player credit and the
+  admin credit** — this is how the Super Admin **sells credit to admins**
+  (and buys it back / adjusts anyone's balance).
+* **🧾 All logs** — every transaction (any status) with the deposit's
+  **owner admin + their credit**, and ✓ Approve / ✕ Reject for pending ones
+  (same money movement rules as the admin panel).
+* **💳 Accounts** — every admin's payment account with owner name + online
+  status + owner credit; **reassign owner** (dropdown of admins),
+  activate/deactivate and delete.
+* **⚖️ Appeals** — every wallet appeal (user, amount, reason, tx status);
+  **✓ Approve** (credits the user + charges the owner admin's credit, even if
+  the admin had rejected the deposit) or **✕ Reject** with a resolution note.
+
+### 5.5 Wallet appeals
+
+A user who sent a deposit but the admin never approved it (or rejected it)
+can file an **appeal** from Settings → Wallet → Recent requests → **⚠️ Appeal**
+(next to pending/rejected deposits; one pending appeal per transaction). The
+reason (≤ 500 chars) goes to the **Super Admin**, who is notified by bot
+message and resolves it in the 👑 Super console:
+
+* **approve** → the deposit is approved through the normal money movement
+  (user credited, owner admin's credit charged at `ADMIN_APPROVAL_RATE`) even
+  if the admin had already rejected it (`set_transaction_status` overrides a
+  rejected tx); the user is notified by bot message.
+* **reject** → the appeal is dismissed with an optional resolution note; the
+  user is notified.
 
 ---
 
@@ -388,7 +502,8 @@ Delete with inline two-step confirm (no `window.confirm` — WebViews block it).
 
 Tables: `players`, `game_state`, `cards`, `card_selections`, `called_numbers`,
 `games`, `game_history`, `bots`, `transactions`, `payment_accounts`,
-`round_eliminations`, `settings`, plus the read-only `profiles` view.
+`round_eliminations`, `appeals`, `bot_notifications`, `settings`, plus the
+read-only `profiles` view.
 
 Rooms: `game_state` is keyed by **`room`** (the fixed bet, 30/50/100) — one
 row per room, each with its own phase, countdown, ball order, pool and round
@@ -399,7 +514,11 @@ Key columns:
 
 ```sql
 players(user_id, username, full_name, phone, is_registered, credit,
-        is_admin, created_at)
+        admin_credit, is_admin, last_seen, created_at)
+        -- admin_credit: the float the SUPER ADMIN sells each admin; spent
+        --   when the admin approves deposits (90% of the amount)
+        -- last_seen:    ISO timestamp touched on every admin API/bot action;
+        --   an admin is "online" when last_seen < ADMIN_ONLINE_MINUTES ago
 
 card_selections(user_id, card_id, room, bet_amount, UNIQUE(user_id, card_id))
 called_numbers(room, number, UNIQUE(room, number))  -- per-room: the same ball
@@ -411,9 +530,20 @@ transactions(id, user_id, type, amount, tx_id, phone, user_name,
              status, admin_note, reviewed_by, created_at, reviewed_at)
 
 payment_accounts(id, provider, account_name, account_number, is_active,
-                 created_at, updated_at)
+                 admin_id, created_at, updated_at)
+                 -- admin_id: the OWNING admin; only ONLINE owners' accounts
+                 --   are shown/selectable, and approving a deposit into it
+                 --   charges THAT admin's credit
 
 round_eliminations(id, game_id, user_id, reason, eliminated_at)
+
+appeals(id, user_id, transaction_id, reason, status, resolution,
+        resolved_by, created_at, resolved_at)
+        -- status: pending | approved | rejected; resolved ONLY by the super admin
+
+bot_notifications(id, chat_id, text, created_at, sent_at)
+        -- cross-process Telegram queue: server.py enqueues, the bot's
+        --   announcer drains and sends (polling AND webhook modes)
 ```
 
 All migrations are idempotent (`CREATE TABLE IF NOT EXISTS` +
@@ -439,15 +569,38 @@ Room-aware: every gameplay endpoint accepts `room` (body/query, default
 (`[30, 50, 100]`) so the Mini App can build the room listbox.
 | `/api/history` / `/api/leaderboard` | GET | Stats |
 | `/api/transactions` | GET/POST | Own wallet requests (POST: deposit = amount + tx number + payment account; withdraw = amount + account name / holder / number) |
+| `/api/appeals` | GET/POST | Own appeals; POST files one for a pending/rejected deposit (`transaction_id` + `reason`) — only the super admin resolves them |
 | `/api/admin/*` | — | All guarded by `ADMIN_IDS` (server-side) |
+| `/api/superadmin/*` | — | Guarded by `config.SUPER_ADMIN_ID` only (the Super Admin) |
 
 Admin endpoints: `stats`, `bots`, `force-start`, `force-call`, `reset`,
 `bots/add`, `bots/toggle`, `credit` (target-only), `users`, `users/delete`,
 `transactions`, `transactions/review`, `accounts` (GET/POST),
-`accounts/update`, `accounts/delete`.
+`accounts/update`, `accounts/delete`. **`accounts` POST now records the
+creating admin as owner; `transactions/review` approves charge/credit admin
+credit (§4.2) — the panel UI itself is unchanged.**
+
+Super Admin endpoints:
+* `GET /api/superadmin/users` — every account (admins + users) with credit,
+  admin credit, role + online status;
+* `POST /api/superadmin/credit` — `{user_id, amount, target: "user"|"admin"}`
+  manually increase/decrease ANY account's player credit or admin credit
+  (selling credit to admins);
+* `GET /api/superadmin/transactions` — every wallet log with the deposit's
+  owner admin + their credit;
+* `POST /api/superadmin/transactions/review` — approve/reject any pending
+  request (same money rules as the admin panel);
+* `GET /api/superadmin/accounts` / `POST /api/superadmin/accounts/update`
+  (details, active toggle, `admin_id` re-own) / `POST /api/superadmin/accounts/delete`;
+* `GET /api/superadmin/appeals` — all appeals joined with user + tx;
+* `POST /api/superadmin/appeals/resolve` — `{id, action: approve|reject,
+  resolution?}`; approve credits the user + charges the owner admin's credit
+  (works even if the admin had rejected the deposit).
 
 `_require_admin()` resolves `admin_id` from JSON body or query params and
-rejects anything not in `config.ADMIN_IDS`.
+rejects anything not in `config.ADMIN_IDS` (and touches `last_seen` for
+online tracking). `_require_super_admin()` additionally requires the caller
+be `config.SUPER_ADMIN_ID`.
 
 ---
 
@@ -458,7 +611,18 @@ rejects anything not in `config.ADMIN_IDS`.
 * The frontend is never trusted for authorization or money movement — the
   server re-validates everything.
 * Admin credit changes target an explicit `user_id`, never the caller.
-* User-supplied names are Markdown-escaped before any Telegram message.
+* **Super-admin endpoints are guarded by `config.SUPER_ADMIN_ID`** — a normal
+  admin (even one in `ADMIN_IDS`) gets 403 from every `/api/superadmin/*`
+  route. The Super Admin console button is only rendered for that id.
+* **Admin-credit enforcement is server-side**: approving a deposit is blocked
+  when the account owner's admin credit can't cover `ADMIN_APPROVAL_RATE` of
+  the amount — an admin can never approve more than their float.
+* Deposit accounts are only selectable while their **owner admin is online**
+  (last_seen within `ADMIN_ONLINE_MINUTES`), matching what the user sees in
+  the picker.
+* User-supplied names and appeal reasons are length-validated; names are
+  Markdown-escaped before any Telegram message; bot notifications are sent as
+  plain text (no Markdown parsing) so user input can never break a message.
 * Deposit transaction numbers are validated; withdraws check the balance.
 
 ---
@@ -505,12 +669,16 @@ rejects anything not in `config.ADMIN_IDS`.
    cards: 30+30 = 60 pool → 48 prize) — **both won via a BINGO claim** (the
    winning pattern is present before the claim and NOT announced);
 8. bots toggle, admin credit affects only the target, stats;
-9. payment accounts CRUD + activation, deposit requires an account, snapshot
-   correctness (account edited after deposit → history unchanged), approve
-   deposit/withdraw, **withdraw requires account details (rejected without,
-   snapshotted with)**, **profile phone edit (Settings) incl. duplicate-phone
-   409 and no-account-wipe**, admin wallet panel fields, active accounts
-   exposed to users;
+9. payment accounts CRUD + activation (accounts are now admin-owned), deposit
+   requires an account, snapshot correctness (account edited after deposit →
+   history unchanged), approve deposit/withdraw **with the admin-credit
+   model: the super admin sells 10 000 admin credit, approving a 200 deposit
+   deducts 90 % (180) from the owner admin's credit, approving a 100 withdraw
+   credits 90 % back**, **withdraw requires account details (rejected
+   without, snapshotted with)**, **profile phone edit (Settings) incl.
+   duplicate-phone 409 and no-account-wipe**, admin wallet panel fields,
+   active accounts exposed to users, **the deposit picker shows ONE account
+   per bank (the online admin with the most credit)**;
 10. account lifecycle: delete → gate → re-register after bot onboarding;
 11. false BINGO: elimination, no refund, no re-claim, cards can't win,
     elimination persisted across a fresh DB connection (restart), eligible
@@ -524,6 +692,14 @@ rejects anything not in `config.ADMIN_IDS`.
     ends the round with a **bot winner** (the ball loop never auto-announced
     it — the bot claimed); the winner payload carries `winning_cells` + the
     winner's card numbers for the visual pattern.
+16. **super admin + admin-credit/online model**: super admin sees every
+    account (with admin credit + online), a normal admin gets 403 on
+    `/api/superadmin/*`, super admin adds/subtracts a user's credit;
+    **offline admin's account is rejected for deposits and disappears from
+    the picker**; appeals: file → duplicate rejected → super admin sees all →
+    approve credits the user + charges the owner admin's credit; super admin
+    sees every transaction log; super admin controls any account
+    (deactivate/reactivate, owner + online shown).
 
 `venv\Scripts\python.exe smoke_test.py` runs the API suite + card image
 rendering. `build_frontend.bat` rebuilds `frontend/dist`. `run_all.bat` starts
@@ -535,15 +711,15 @@ server + tunnel + bot.
 
 | File | Role |
 |---|---|
-| `bot.py` | chat onboarding (full name), announcements, auto-delete on block |
-| `server.py` | Flask API + admin + payment accounts + registration contracts |
-| `database.py` | schema, migrations, wallet/elimination/accounts storage |
+| `bot.py` | chat onboarding (full name), announcements, auto-delete on block, notification-queue drain, admin credit line in `/admin` |
+| `server.py` | Flask API + admin + payment accounts + registration contracts, online tracking, 90% admin-credit approval, appeals + super-admin console |
+| `database.py` | schema, migrations, wallet/elimination/accounts storage, admin credit + online + deposit-account selection, appeals + notification queue |
 | `game_loop.py` | round lifecycle, claim validation + elimination |
 | `game_logic.py` | patterns, winner lookup (skips eliminated), prize pool, bot names (100% human male names) |
-| `config.py` | `APP_CURRENCY`, rooms (`ROOM_BETS`), timing, `ADMIN_IDS` |
+| `config.py` | `APP_CURRENCY`, rooms (`ROOM_BETS`), timing, `ADMIN_IDS`, `SUPER_ADMIN_ID`, `ADMIN_APPROVAL_RATE`, `ADMIN_ONLINE_MINUTES` |
 | `migrate_db.py` | idempotent schema/seed helper |
-| `api_smoke.py` / `smoke_test.py` | offline test suites |
-| `frontend/src/…` | React Mini App (Registration, Settings, AdminPanel, App) |
+| `api_smoke.py` / `smoke_test.py` | offline test suites (incl. super admin, appeals, admin-credit, online model) |
+| `frontend/src/…` | React Mini App (Registration, Settings, AdminPanel, **SuperAdminPanel**, App) |
 | `Dockerfile` / `run_prod.py` | cloud image + supervisor (server + bot in one container) |
 | `DEPLOY.md` | step-by-step free 24/7 cloud deployment guide (Northflank Sandbox) |
 

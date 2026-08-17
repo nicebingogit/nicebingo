@@ -50,6 +50,22 @@ for part in os.getenv("ADMIN_IDS", "").split(","):
         except ValueError:
             pass
 
+# SUPER_ADMIN_ID: the one admin who controls EVERYTHING — every account (admin
+# or user), every transaction log, admin credits (selling credit to admins),
+# and wallet appeals. Defaults to the owner's Telegram id (1512842545);
+# override with SUPER_ADMIN_ID in .env if it ever changes.
+SUPER_ADMIN_ID = _int("SUPER_ADMIN_ID", 1512842545)
+# ADMIN_APPROVAL_RATE: the share of a DEPOSIT amount that is deducted from the
+# account-owner admin's credit when the deposit is approved (0.9 = 90%). The
+# same rate is credited BACK to the reviewing admin when a WITHDRAW is
+# approved (the admin pays the money out for real).
+ADMIN_APPROVAL_RATE = _float("ADMIN_APPROVAL_RATE", 0.9)
+# ADMIN_ONLINE_MINUTES: how many minutes of recent activity keep an admin
+# "online". Only ONLINE admins' payment accounts are shown to users for
+# deposits, and the system picks the online admin with the MOST admin credit
+# per bank/provider.
+ADMIN_ONLINE_MINUTES = _int("ADMIN_ONLINE_MINUTES", 5)
+
 # ---------------------------------------------------------------------------
 # Local web server (Flask) that hosts the Mini App + API
 # ---------------------------------------------------------------------------

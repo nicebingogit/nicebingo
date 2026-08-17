@@ -85,6 +85,11 @@ export const api = {
       method: 'POST',
       body: { type, amount, tx_id: txId, payment_account_id: accountId, ...extra },
     }),
+  // wallet appeals — a deposit the admin never approved can be appealed; the
+  // SUPER ADMIN resolves it
+  appeals: () => request('/api/appeals'),
+  fileAppeal: (transactionId, reason) =>
+    request('/api/appeals', { method: 'POST', body: { transaction_id: transactionId, reason } }),
   admin: {
     stats: () => adminRequest('/api/admin/stats', { method: 'GET' }),
     bots: () => adminRequest('/api/admin/bots', { method: 'GET' }),
@@ -105,4 +110,25 @@ export const api = {
     updateAccount: (account) => adminRequest('/api/admin/accounts/update', { body: account }),
     deleteAccount: (id) => adminRequest('/api/admin/accounts/delete', { body: { id } }),
   },
+  // SUPER ADMIN — controls every account (admin or user), every log, admin
+  // credits (selling credit to admins) and wallet appeals
+  superAdmin: {
+    users: () => superAdminRequest('/api/superadmin/users', { method: 'GET' }),
+    credit: (target, amount, kind) =>
+      superAdminRequest('/api/superadmin/credit', { body: { user_id: target, amount, target: kind } }),
+    transactions: () => superAdminRequest('/api/superadmin/transactions', { method: 'GET' }),
+    reviewTransaction: (id, action) =>
+      superAdminRequest('/api/superadmin/transactions/review', { body: { id, action } }),
+    accounts: () => superAdminRequest('/api/superadmin/accounts', { method: 'GET' }),
+    updateAccount: (account) => superAdminRequest('/api/superadmin/accounts/update', { body: account }),
+    deleteAccount: (id) => superAdminRequest('/api/superadmin/accounts/delete', { body: { id } }),
+    appeals: () => superAdminRequest('/api/superadmin/appeals', { method: 'GET' }),
+    resolveAppeal: (id, action, resolution) =>
+      superAdminRequest('/api/superadmin/appeals/resolve', { body: { id, action, resolution } }),
+  },
 };
+
+// super-admin requests are guarded by admin_id == SUPER_ADMIN_ID server-side
+function superAdminRequest(path, options = {}) {
+  return adminRequest(path, options);
+}

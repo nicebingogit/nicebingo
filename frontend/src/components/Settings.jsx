@@ -20,7 +20,10 @@ const WINNING_PATTERNS = [
 export default function Settings({ user, settings, config, onChanged, onError, onClose }) {
   const [tab, setTab] = useState('wallet');
   const [txs, setTxs] = useState([]);
-  const [accId, setAccId] = useState(null);
+  // the deposit picker works per BANK: the system shows ONE account per bank
+  // (the online admin with the most credit) — the user picks the bank, not
+  // the account
+  const [depProvider, setDepProvider] = useState('');
   const [depAmount, setDepAmount] = useState('');
   const [depTx, setDepTx] = useState('');
   const [wdAmount, setWdAmount] = useState('');
@@ -36,7 +39,18 @@ export default function Settings({ user, settings, config, onChanged, onError, o
   const [nameDraft, setNameDraft] = useState(user?.full_name || '');
   const [phoneDraft, setPhoneDraft] = useState(user?.phone || '');
 
-  const accounts = settings?.payment_accounts || [];
+  // wallet appeals: a deposit the admin never approved can be appealed to the
+  // SUPER ADMIN
+  const [appeals, setAppeals] = useState([]);
+  const [appealTx, setAppealTx] = useState(null);
+  const [appealReason, setAppealReason] = useState('');
+
+  // deposit_accounts = ONE account per bank/provider — always the account of
+  // the ONLINE admin with the most credit; offline admins' accounts are never
+  // listed
+  const depositAccounts = settings?.deposit_accounts || [];
+  const selectedDep = depositAccounts.find((d) => d.provider === depProvider) || null;
+  const accId = selectedDep ? selectedDep.account.id : null;
 
   const loadTxs = useCallback(async () => {
     try {
@@ -47,7 +61,23 @@ export default function Settings({ user, settings, config, onChanged, onError, o
     }
   }, [onError]);
 
-  useEffect(() => { loadTxs(); }, [loadTxs]);
+  const loadAppeals = useCallback(async () => {
+    try {
+      const d = await api.appeals();
+      setAppeals(d.appeals || []);
+    } catch (e) {
+      /* appeals are a convenience — never block the wallet on them */
+    }
+  }, []);
+
+  useEffect(() => { loadTxs(); loadAppeals(); }, [loadTxs, loadAppeals]);
+
+  // default the deposit picker to the first available bank
+  useEffect(() => {
+    if (!depProvider && depositAccounts.length) {
+      setDepProvider(depositAccounts[0].provider);
+    }
+  }, [depositAccounts, depProvider]);
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
 
@@ -64,16 +94,31 @@ export default function Settings({ user, settings, config, onChanged, onError, o
   const submitDeposit = async (e) => {
     e.preventDefault();
     if (!accId) {
-      flash('❌ Please select the payment account you sent the money to.');
+      flash('❌ Please select the bank/account you sent the money to.');
       return;
     }
     playClick();
     setBusy('dep');
     try {
       await api.createTransaction('deposit', Number(depAmount), depTx.trim(), accId);
-      setDepAmount(''); setDepTx(''); setAccId(null);
-      flash('✅ Deposit request sent! The admin will verify and credit your balance.');
+      setDepAmount(''); setDepTx('');
+      flash('✅ Deposit request sent! The online admin will verify and credit your balance.');
       await loadTxs(); await onChanged();
+    } catch (err) {
+      flash(`❌ ${err.message}`);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const submitAppeal = async () => {
+    playClick();
+    setBusy('appeal');
+    try {
+      await api.fileAppeal(appealTx, appealReason.trim());
+      setAppealTx(null); setAppealReason('');
+      flash('✅ Appeal submitted! The super admin will review it.');
+      await loadAppeals();
     } catch (err) {
       flash(`❌ ${err.message}`);
     } finally {
@@ -183,37 +228,75 @@ export default function Settings({ user, settings, config, onChanged, onError, o
             </span>
           </div>
 
-          {accounts.length === 0 ? (
+          {depositAccounts.length === 0 ? (
             <div className="reg-hint">
-              ⏳ The admin hasn't set up payment accounts yet — check again later.
+              ⏳ No payment account is available right now — every admin is
+              offline. Check again in a few minutes.
             </div>
           ) : (
             <div className="acc-picker">
               <div className="wallet-form-title">💳 Where can you pay?</div>
-              {accounts.map((a) => (
+              {/* one account per bank — always the ONLINE admin with the most
+                  credit; offline admins' accounts are never shown */}
+              {depositAccounts.map((d) => (
                 <label
-                  key={a.id}
-                  className={`acc-option ${accId === a.id ? 'selected' : ''}`}
+                  key={d.provider}
+                  className={`acc-option ${depProvider === d.provider ? 'selected' : ''}`}
                 >
                   <input
                     type="radio"
                     name="payacc"
-                    checked={accId === a.id}
-                    onChange={() => setAccId(a.id)}
+                    checked={depProvider === d.provider}
+                    onChange={() => setDepProvider(d.provider)}
                   />
-                  <span className="acc-provider">{a.provider}</span>
-                  <span className="acc-holder">— {a.account_name}</span>
-                  <span className="acc-number">{a.account_number}</span>
+                  <span className="acc-provider">{d.provider}</span>
+                  <span className="acc-holder">— {d.account.account_name}</span>
+                  <span className="acc-number">{d.account.account_number}</span>
                   <button
                     type="button"
                     className="chip chip-btn acc-copy"
-                    onClick={() => copyAccount(a)}
+                    onClick={() => copyAccount(d.account)}
                     title="Copy number"
                   >
-                    {copied === a.id ? '✓' : '📋'}
+                    {copied === d.account.id ? '✓' : '📋'}
                   </button>
                 </label>
               ))}
+              {selectedDep && selectedDep.account.admin_name && (
+                <p className="reg-hint">
+                  👤 Online admin: <b>{selectedDep.account.admin_name}</b> — this
+                  is the only {selectedDep.provider} account available right now.
+                </p>
+              )}
+            </div>
+          )}
+
+          {appealTx && (
+            <div className="appeal-box">
+              <div className="wallet-form-title">⚠️ Appeal this deposit</div>
+              <p className="reg-hint">
+                You sent the money but the admin has not approved it. The
+                super admin will review your appeal and credit your balance if
+                it is valid.
+              </p>
+              <div className="wallet-form-row">
+                <input
+                  type="text" maxLength={500}
+                  placeholder="Explain what happened (e.g. sent on … with ref …)"
+                  value={appealReason}
+                  onChange={(e) => setAppealReason(e.target.value)}
+                />
+                <button
+                  className="btn btn-primary"
+                  disabled={!appealReason.trim() || busy === 'appeal'}
+                  onClick={submitAppeal}
+                >
+                  {busy === 'appeal' ? '…' : 'Send appeal'}
+                </button>
+                <button className="btn btn-ghost" onClick={() => { playClick(); setAppealTx(null); }}>
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 
@@ -281,6 +364,10 @@ export default function Settings({ user, settings, config, onChanged, onError, o
               <div className="wallet-form-title">🧾 Recent requests</div>
               {txs.slice(0, 8).map((t) => {
                 const st = TX_STATUS[t.status] || TX_STATUS.pending;
+                const appeal = appeals.find((a) => a.transaction_id === t.id);
+                const appealable = t.type === 'deposit'
+                  && (t.status === 'pending' || t.status === 'rejected')
+                  && !appeal;
                 return (
                   <div key={t.id} className={`tx-row ${st.cls}`}>
                     <span className="tx-type">
@@ -294,6 +381,22 @@ export default function Settings({ user, settings, config, onChanged, onError, o
                       {t.tx_id ? `Ref ${t.tx_id} · ` : ''}{t.created_at?.slice(0, 16)}
                     </span>
                     <span className="tx-status">{st.label}</span>
+                    {appealable && (
+                      <button
+                        className="btn btn-ghost user-btn"
+                        onClick={() => { playClick(); setAppealTx(t.id); setAppealReason(''); }}
+                        title="The admin didn't approve this deposit — appeal to the super admin"
+                      >
+                        ⚠️ Appeal
+                      </button>
+                    )}
+                    {appeal && (
+                      <span className={`tx-status ${appeal.status}`}>
+                        {appeal.status === 'pending' ? '⏳ Appeal pending'
+                          : appeal.status === 'approved' ? '✅ Appeal approved'
+                            : '❌ Appeal rejected'}
+                      </span>
+                    )}
                   </div>
                 );
               })}

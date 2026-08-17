@@ -562,6 +562,23 @@ body::before {
   border-radius: 14px; padding: 12px;
 }
 
+/* --------------------------------------------------------- wallet appeals */
+.appeal-box {
+  background: rgba(255, 213, 79, 0.07); border: 1px solid rgba(255, 213, 79, 0.4);
+  border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+  animation: modalIn 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.appeal-res-input {
+  min-width: 130px; flex: 1; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border);
+  color: var(--text); border-radius: 10px; padding: 7px 10px; font-size: 12px;
+}
+.appeal-res-input:focus { outline: none; border-color: var(--gold); }
+.credit-edit select {
+  background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border); color: var(--text);
+  border-radius: 10px; padding: 8px 9px; font-size: 12px; font-family: inherit; cursor: pointer;
+}
+.credit-edit select:focus { outline: none; border-color: var(--gold); }
+
 /* -------------------------------------------------- eliminated (false BINGO) */
 .eliminated-banner {
   text-align: center; background: rgba(255, 95, 122, 0.1);

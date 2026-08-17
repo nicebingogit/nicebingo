@@ -9,6 +9,7 @@ import BingoCard from './components/BingoCard.jsx';
 import CardPicker from './components/CardPicker.jsx';
 import WinnerModal from './components/WinnerModal.jsx';
 import AdminPanel from './components/AdminPanel.jsx';
+import SuperAdminPanel from './components/SuperAdminPanel.jsx';
 import Registration from './components/Registration.jsx';
 import Settings from './components/Settings.jsx';
 
@@ -30,6 +31,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showSuper, setShowSuper] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [toast, setToast] = useState('');
   const [modalClosed, setModalClosed] = useState(false);
@@ -294,14 +296,21 @@ export default function App() {
         pool={state.phase === 'preparation' ? null : (state.win_pool ?? 0)}
         room={room}
         isAdmin={myUser?.is_admin}
+        isSuperAdmin={myUser?.is_super_admin}
         showAdmin={showAdmin}
-        onToggleAdmin={() => setShowAdmin((s) => !s)}
+        showSuper={showSuper}
+        onToggleAdmin={() => { playClick(); setShowAdmin((s) => !s); setShowSuper(false); }}
+        onToggleSuper={() => { playClick(); setShowSuper((s) => !s); setShowAdmin(false); }}
         onToggleSettings={() => setShowSettings((s) => !s)}
         connected={!error}
       />
 
       {showAdmin && myUser?.is_admin && (
         <AdminPanel room={room} onError={showError} onChanged={handleChanged} />
+      )}
+
+      {showSuper && myUser?.is_super_admin && (
+        <SuperAdminPanel onError={showError} />
       )}
 
       {showSettings && (

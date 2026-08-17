@@ -554,11 +554,16 @@ class PremiumBingoBot:
         if user_id not in config.ADMIN_IDS:
             await update.message.reply_text("⛔ Unauthorized!")
             return
+        db.touch_admin(user_id)
         stats = await self._get("/api/admin/stats", {"admin_id": user_id})
         s = stats.get("stats", {})
         bots = await self._get("/api/admin/bots", {"admin_id": user_id})
+        # the admin's own credit float — the balance the super admin sells them
+        # and that is consumed when they approve deposits
+        admin_credit = db.get_admin_credit(user_id)
         text = (
             f"🔧 **Admin Panel**\n\n"
+            f"💳 Your admin credit: **{admin_credit} ETB**\n"
             f"📊 Rounds: **{s.get('rounds', '?')}** · Bets: **{s.get('total_bets', 0)} ETB**\n"
             f"💰 Paid out: **{s.get('prize_paid', 0)} ETB** · House: **{s.get('house_kept', 0)} ETB**\n"
             f"🤖 Bots: {'ON' if bots.get('enabled') else 'OFF'} ({bots.get('count', 0)} accounts)"
@@ -572,6 +577,7 @@ class PremiumBingoBot:
         if user_id not in config.ADMIN_IDS:
             await update.message.reply_text("⛔ Unauthorized!")
             return
+        db.touch_admin(user_id)
         args = context.args
         if len(args) < 2:
             await update.message.reply_text("Usage: /give <user_id> <amount>  ·  /take <user_id> <amount>")
@@ -625,6 +631,29 @@ class PremiumBingoBot:
                 reply_markup=self.get_admin_menu(), parse_mode="Markdown")
 
     # -------------------------------------------------------------- announcer
+    async def _drain_notifications(self):
+        """Send every queued bot_notification over Telegram (best effort).
+
+        server.py enqueues deposit/withdraw/appeal alerts into the shared DB;
+        the announcer drains the queue on every tick so admins are notified by
+        bot message as soon as something needs their attention — even when the
+        bot runs in a different process (polling mode).
+        """
+        try:
+            for n in db.get_unsent_bot_notifications(50):
+                try:
+                    if self.application is not None and self.application.bot:
+                        await self.application.bot.send_message(
+                            chat_id=n["chat_id"], text=n["text"])
+                except Forbidden:
+                    # recipient blocked/deleted the bot — drop the message
+                    logger.info("notification to %s dropped (Forbidden)", n["chat_id"])
+                except Exception as exc:
+                    logger.warning("notification to %s failed: %s", n["chat_id"], exc)
+                db.mark_bot_notification_sent(n["id"])
+        except Exception as exc:
+            logger.warning("notification drain error: %s", exc)
+
     async def _announcer_tick(self, context):
         """One polling pass — scheduled on the app's job queue.
 
@@ -632,6 +661,7 @@ class PremiumBingoBot:
         pool) and names the room in every announcement.
         """
         try:
+            await self._drain_notifications()
             players = db.get_all_player_ids()
             if not players:
                 return
@@ -880,21 +910,30 @@ def _ensure_webhook_running() -> bool:
 
 
 def notify_admins(lines: list) -> None:
-    """Send a plain-text alert to every admin (best effort, non-blocking).
+    """Queue a plain-text alert to EVERY admin (best effort, non-blocking).
 
-    `lines` is a list of message lines, joined with newlines here.
+    `lines` is a list of message lines, joined with newlines here. The message
+    is written into the `bot_notifications` table and the bot's announcer tick
+    picks it up and sends it over Telegram — this works in BOTH polling and
+    webhook modes, even when the server and the bot run in separate processes.
     """
-    if _webhook_app is None or _webhook_loop is None:
-        return
-    if _webhook_thread is None or not _webhook_thread.is_alive():
-        return
     text = chr(10).join(str(line) for line in lines)
     for admin_id in config.ADMIN_IDS:
         try:
-            coro = _webhook_app.bot.send_message(chat_id=admin_id, text=text)
-            asyncio.run_coroutine_threadsafe(coro, _webhook_loop)
+            db.add_bot_notification(admin_id, text)
         except Exception as exc:
             logger.error("admin notify failed: %s", exc)
+
+
+def notify_user(user_id: int, lines: list) -> None:
+    """Queue a Telegram alert for ONE specific chat (e.g. the admin who owns
+    the payment account a deposit was paid into, or a user whose appeal was
+    resolved). Best effort — never raises."""
+    text = chr(10).join(str(line) for line in lines)
+    try:
+        db.add_bot_notification(user_id, text)
+    except Exception as exc:
+        logger.error("user notify failed: %s", exc)
 
 
 def dispatch_webhook(update_dict: dict) -> bool:

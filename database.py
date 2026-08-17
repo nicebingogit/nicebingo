@@ -206,6 +206,30 @@ class Database:
                     key   TEXT PRIMARY KEY,
                     value TEXT
                 );
+                -- wallet appeals: a user who sent a deposit but the admin never
+                -- approved it can appeal; the SUPER ADMIN resolves these.
+                CREATE TABLE IF NOT EXISTS appeals (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id        INTEGER NOT NULL,
+                    transaction_id INTEGER NOT NULL,
+                    reason         TEXT,
+                    status         TEXT DEFAULT 'pending',
+                    resolution     TEXT,
+                    resolved_by    INTEGER,
+                    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at    TIMESTAMP
+                );
+                -- cross-process bot message queue: server.py (Flask) enqueues
+                -- admin/user alerts here; the bot's announcer tick drains the
+                -- queue and sends them over Telegram. Works in BOTH polling
+                -- and webhook modes (server and bot may be separate processes).
+                CREATE TABLE IF NOT EXISTS bot_notifications (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id    INTEGER NOT NULL,
+                    text       TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    sent_at    TIMESTAMP
+                );
                 """
             )
             # ----------------------------------------------------------
@@ -296,6 +320,26 @@ class Database:
             self._ensure_column(conn, "players", "full_name", "TEXT")
             self._ensure_column(conn, "players", "phone", "TEXT")
             self._ensure_column(conn, "players", "is_registered", "INTEGER NOT NULL DEFAULT 1")
+            # admin-credit system: every admin has their own credit (the float
+            # the super admin sells them). Deposits approved on an admin's
+            # account deduct ADMIN_APPROVAL_RATE of the amount from that
+            # admin's credit; withdrawals approved add it back to the reviewer.
+            self._ensure_column(conn, "players", "admin_credit", "INTEGER NOT NULL DEFAULT 0")
+            # last_seen (ISO timestamp): an admin is "online" when they have
+            # made an API call / bot command recently. Only ONLINE admins'
+            # payment accounts are shown to users for deposits.
+            self._ensure_column(conn, "players", "last_seen", "TEXT")
+            # payment accounts now belong to an admin (admin_id = owner). Only
+            # the owner's account is charged when a deposit into it is approved.
+            self._ensure_column(conn, "payment_accounts", "admin_id", "INTEGER")
+            # legacy accounts created before admin ownership existed are
+            # assigned to the FIRST admin so they keep working (the super admin
+            # can re-assign them later in the Super Admin panel).
+            if config.ADMIN_IDS:
+                conn.execute(
+                    "UPDATE payment_accounts SET admin_id = ? "
+                    "WHERE admin_id IS NULL", (config.ADMIN_IDS[0],)
+                )
             # wallet transaction snapshot columns (safe for old databases)
             self._ensure_column(conn, "transactions", "user_name", "TEXT")
             self._ensure_column(conn, "transactions", "payment_account_id", "INTEGER")
@@ -414,6 +458,7 @@ class Database:
             rows = conn.execute(
                 """
                 SELECT p.user_id, p.username, p.full_name, p.phone, p.credit,
+                       p.admin_credit, p.is_admin, p.last_seen,
                        p.is_registered, p.created_at,
                        COALESCE(s.rounds, 0)   AS rounds,
                        COALESCE(s.wins, 0)     AS wins,
@@ -454,6 +499,72 @@ class Database:
                 "UPDATE players SET credit = MAX(credit + ?, 0) WHERE user_id = ?",
                 (delta, user_id),
             )
+
+    # --------------------------------------------------------- admin credit
+    def get_admin_credit(self, user_id: int) -> int:
+        """An admin's own credit float (set by the super admin)."""
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT admin_credit FROM players WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            return int(row[0]) if row else 0
+
+    def set_admin_credit(self, user_id: int, amount: int) -> None:
+        """Set an admin's credit to an absolute value (never negative)."""
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE players SET admin_credit = ? WHERE user_id = ?",
+                (max(0, int(amount)), user_id),
+            )
+
+    def update_admin_credit(self, user_id: int, delta: int) -> None:
+        """Add `delta` to an admin's credit; the balance can never go below 0."""
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE players SET admin_credit = MAX(admin_credit + ?, 0) "
+                "WHERE user_id = ?",
+                (delta, user_id),
+            )
+
+    # ----------------------------------------------------------- online status
+    def touch_admin(self, user_id: int) -> None:
+        """Record that an admin is active RIGHT NOW (last_seen = now).
+
+        Also ensures the admin has a players row (an admin may only ever call
+        the admin API without ever registering as a player — their row must
+        exist for online lookups and the deposit-account join)."""
+        with self._session() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO players (user_id, username, credit) "
+                "VALUES (?, ?, 0)", (user_id, f"Player_{user_id}"),
+            )
+            conn.execute(
+                "UPDATE players SET last_seen = ? WHERE user_id = ?",
+                (datetime.now().isoformat(), user_id),
+            )
+
+    def get_last_seen(self, user_id: int) -> Optional[str]:
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT last_seen FROM players WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            return row[0] if row else None
+
+    def is_admin_online(self, user_id: int,
+                        minutes: Optional[int] = None) -> bool:
+        """True when the admin has been active within the online window."""
+        if user_id not in config.ADMIN_IDS:
+            return False
+        last = self.get_last_seen(user_id)
+        if not last:
+            return False
+        try:
+            seen = datetime.fromisoformat(last)
+        except (ValueError, TypeError):
+            return False
+        window = (minutes if minutes is not None
+                  else config.ADMIN_ONLINE_MINUTES)
+        return (datetime.now() - seen).total_seconds() <= window * 60
 
     def delete_bot_players(self) -> None:
         """Remove leftover bot accounts (negative ids)."""
@@ -791,16 +902,148 @@ class Database:
             row = conn.execute("SELECT * FROM transactions WHERE id = ?", (tx_id,)).fetchone()
             return dict(row) if row else None
 
+    def set_transaction_status(self, tx_id: int, status: str,
+                               reviewed_by: Optional[int] = None,
+                               admin_note: Optional[str] = None) -> Optional[Dict]:
+        """Set a transaction's status REGARDLESS of the current status.
+
+        Used by the super admin when resolving an appeal: a deposit the admin
+        rejected can still be approved on appeal (the user did pay after all).
+        """
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE transactions SET status = ?, admin_note = ?, "
+                "reviewed_by = ?, reviewed_at = ? WHERE id = ?",
+                (status, admin_note, reviewed_by, datetime.now().isoformat(), tx_id),
+            )
+            row = conn.execute("SELECT * FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+            return dict(row) if row else None
+
+    # ----------------------------------------------------------------- appeals
+    def add_appeal(self, user_id: int, transaction_id: int,
+                   reason: Optional[str] = None) -> int:
+        """File a wallet appeal (a deposit the admin never approved)."""
+        with self._session() as conn:
+            cur = conn.execute(
+                "INSERT INTO appeals (user_id, transaction_id, reason) "
+                "VALUES (?, ?, ?)",
+                (user_id, transaction_id, reason),
+            )
+            return int(cur.lastrowid)
+
+    def get_appeal(self, appeal_id: int) -> Optional[Dict]:
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT * FROM appeals WHERE id = ?", (appeal_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_user_appeals(self, user_id: int, limit: int = 30) -> List[Dict]:
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT * FROM appeals WHERE user_id = ? "
+                "ORDER BY id DESC LIMIT ?", (user_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_all_appeals(self, limit: int = 300) -> List[Dict]:
+        """Every appeal joined with the user + the transaction details (super
+        admin console)."""
+        with self._session() as conn:
+            rows = conn.execute(
+                """
+                SELECT a.*, p.full_name AS user_name, p.phone AS user_phone,
+                       t.type AS tx_type, t.amount AS tx_amount,
+                       t.status AS tx_status, t.provider AS tx_provider,
+                       t.tx_id AS tx_ref, t.created_at AS tx_created_at
+                FROM appeals a
+                LEFT JOIN players p ON p.user_id = a.user_id
+                LEFT JOIN transactions t ON t.id = a.transaction_id
+                ORDER BY a.id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def resolve_appeal(self, appeal_id: int, status: str,
+                       resolution: Optional[str] = None,
+                       resolved_by: Optional[int] = None) -> Optional[Dict]:
+        """Mark an appeal approved/rejected. Only pending appeals change."""
+        with self._session() as conn:
+            cur = conn.execute(
+                "UPDATE appeals SET status = ?, resolution = ?, "
+                "resolved_by = ?, resolved_at = ? "
+                "WHERE id = ? AND status = 'pending'",
+                (status, resolution, resolved_by, datetime.now().isoformat(), appeal_id),
+            )
+            if cur.rowcount == 0:
+                return None
+            row = conn.execute("SELECT * FROM appeals WHERE id = ?", (appeal_id,)).fetchone()
+            return dict(row) if row else None
+
+    # --------------------------------------------------------- notifications
+    def add_bot_notification(self, chat_id: int, text: str) -> int:
+        """Enqueue a Telegram message for the bot's announcer to send."""
+        with self._session() as conn:
+            cur = conn.execute(
+                "INSERT INTO bot_notifications (chat_id, text) VALUES (?, ?)",
+                (chat_id, text),
+            )
+            return int(cur.lastrowid)
+
+    def get_unsent_bot_notifications(self, limit: int = 50) -> List[Dict]:
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT * FROM bot_notifications WHERE sent_at IS NULL "
+                "ORDER BY id LIMIT ?", (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def mark_bot_notification_sent(self, notif_id: int) -> None:
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE bot_notifications SET sent_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), notif_id),
+            )
+
     # --------------------------------------------------------- payment accounts
     def add_payment_account(self, provider: str, account_name: str,
-                            account_number: str, is_active: int = 1) -> int:
+                            account_number: str, is_active: int = 1,
+                            admin_id: Optional[int] = None) -> int:
+        """Add a payment account. `admin_id` is the admin who owns it — only
+        ONLINE owners' accounts are shown to users for deposits, and the
+        owner's admin credit is charged when a deposit into it is approved."""
         with self._session() as conn:
             cur = conn.execute(
                 "INSERT INTO payment_accounts (provider, account_name, "
-                "account_number, is_active) VALUES (?, ?, ?, ?)",
-                (provider, account_name, account_number, 1 if is_active else 0),
+                "account_number, is_active, admin_id) VALUES (?, ?, ?, ?, ?)",
+                (provider, account_name, account_number, 1 if is_active else 0,
+                 admin_id),
             )
             return int(cur.lastrowid)
+
+    def get_deposit_accounts(self) -> List[Dict]:
+        """Active payment accounts whose OWNER admin is currently ONLINE,
+        joined with the owner's name + admin credit (the selection pool for
+        user deposits). Ordered by admin credit DESC so the richest ONLINE
+        admin comes first for every provider — the caller picks the first row
+        per provider and that is the ONE account shown to the user."""
+        cutoff = (datetime.now() -
+                  timedelta(minutes=config.ADMIN_ONLINE_MINUTES)).isoformat()
+        with self._session() as conn:
+            rows = conn.execute(
+                """
+                SELECT pa.*, p.full_name AS admin_name, p.admin_credit,
+                       p.last_seen
+                FROM payment_accounts pa
+                JOIN players p ON p.user_id = pa.admin_id
+                WHERE pa.is_active = 1 AND pa.admin_id IS NOT NULL
+                  AND p.last_seen IS NOT NULL AND p.last_seen >= ?
+                ORDER BY p.admin_credit DESC, pa.id
+                """,
+                (cutoff,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def get_payment_account(self, account_id: int) -> Optional[Dict]:
         with self._session() as conn:
@@ -822,7 +1065,8 @@ class Database:
     def update_payment_account(self, account_id: int, provider: Optional[str] = None,
                                account_name: Optional[str] = None,
                                account_number: Optional[str] = None,
-                               is_active: Optional[bool] = None) -> None:
+                               is_active: Optional[bool] = None,
+                               admin_id: Optional[int] = None) -> None:
         sets, vals = [], []
         if provider is not None:
             sets.append("provider = ?")
@@ -836,6 +1080,9 @@ class Database:
         if is_active is not None:
             sets.append("is_active = ?")
             vals.append(1 if is_active else 0)
+        if admin_id is not None:
+            sets.append("admin_id = ?")
+            vals.append(admin_id)
         if not sets:
             return
         sets.append("updated_at = ?")

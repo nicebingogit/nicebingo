@@ -40,6 +40,8 @@ TEST_USER = 555001
 OTHER_USER = 555002
 BOT_USER = 777111
 ADMIN = config.ADMIN_IDS[0]
+# the super admin (config.SUPER_ADMIN_ID) is the first admin in this test env
+SUPER = config.SUPER_ADMIN_ID
 
 client = server.app.test_client()
 db, loop = server.db, server.loop  # loop.scheduler is NOT started in tests
@@ -328,11 +330,34 @@ def main():
     step(9, "Historical transaction keeps the original account snapshot",
          db.get_transaction(tx_id)["account_number"] == "0911226071")
 
+    # ---- admin-credit model: the super admin sells credit to admins, and
+    # approving a deposit deducts ADMIN_APPROVAL_RATE (90%) of the amount from
+    # the ACCOUNT-OWNER admin's credit (the admin who owns the account the
+    # user paid into). Without credit the deposit cannot be approved.
+    code, data = post("/api/superadmin/credit",
+                      {"admin_id": SUPER, "user_id": ADMIN,
+                       "amount": 10000, "target": "admin"})
+    step(9, "Super admin sells 10000 admin credit to an admin",
+         code == 200 and data["admin_credit"] == 10000)
+    code, data = get("/api/game-state", query_string={"user_id": TEST_USER})
+    dep_accs = data["settings"].get("deposit_accounts", [])
+    # the account was edited to 9999999999 AFTER the deposit — the picker shows
+    # the CURRENT account of the online admin with the most credit
+    step(9, "Deposit picker shows ONE TeleBirr account (online admin, most credit)",
+         any(d["provider"] == "TeleBirr"
+             and d["account"]["account_number"] == "9999999999"
+             and d["account"]["admin_online"] is True
+             for d in dep_accs))
+
     bal_before = db.get_credit(TEST_USER)
+    admin_credit_before = db.get_admin_credit(ADMIN)
     code, data = post("/api/admin/transactions/review",
                       {"admin_id": ADMIN, "id": tx_id, "action": "approve"})
+    expected_deduction = int(200 * config.ADMIN_APPROVAL_RATE)
     step(9, f"Admin approves deposit -> +200 ETB (balance {data['transaction']['credit']})",
          code == 200 and db.get_credit(TEST_USER) == bal_before + 200)
+    step(9, f"Approving deducts {expected_deduction} ETB from the owner admin's credit",
+         db.get_admin_credit(ADMIN) == admin_credit_before - expected_deduction)
 
     code, data = post("/api/transactions",
                       {"user_id": TEST_USER, "type": "withdraw", "amount": 100})
@@ -348,10 +373,14 @@ def main():
          and data["transaction"]["account_number"] == "+251922334455")
     tx_id2 = data["id"]
     bal_before = db.get_credit(TEST_USER)
+    admin_credit_before = db.get_admin_credit(ADMIN)
     code, data = post("/api/admin/transactions/review",
                       {"admin_id": ADMIN, "id": tx_id2, "action": "approve"})
+    expected_back = int(100 * config.ADMIN_APPROVAL_RATE)
     step(9, f"Admin approves withdraw -> -100 ETB (balance {data['transaction']['credit']})",
          code == 200 and db.get_credit(TEST_USER) == bal_before - 100)
+    step(9, f"Approving the withdraw credits {expected_back} ETB back to the admin",
+         db.get_admin_credit(ADMIN) == admin_credit_before + expected_back)
 
     code, data = get("/api/admin/transactions", query_string={"admin_id": ADMIN})
     step(9, "Admin wallet panel shows user name + phone + account + tx number",
@@ -543,6 +572,100 @@ def main():
          and "B" in state["winner"]["card"]["numbers"])
     step(15, "Bot winner gets a human male display name",
          bool(state["winner"]["name"].strip()))
+
+    # ------------------- 16. super admin console + admin-credit/online model
+    # the super admin sees EVERY account (admins AND users) with credits
+    code, data = get("/api/superadmin/users", query_string={"admin_id": SUPER})
+    step(16, "Super admin sees every account (admin credit + online status)",
+         code == 200
+         and any(u["user_id"] == ADMIN and u.get("admin_credit") is not None
+                 and "online" in u for u in data["users"])
+         and any(u["user_id"] == TEST_USER for u in data["users"]))
+    if len(config.ADMIN_IDS) > 1:
+        OTHER_ADMIN = config.ADMIN_IDS[1]
+        code, _ = get("/api/superadmin/users", query_string={"admin_id": OTHER_ADMIN})
+        step(16, "A normal admin cannot use super admin endpoints (403)", code == 403)
+
+    # super admin manually changes a USER's credit (target 'user')
+    code, data = post("/api/superadmin/credit",
+                      {"admin_id": SUPER, "user_id": OTHER_USER,
+                       "amount": 250, "target": "user"})
+    step(16, "Super admin adds 250 ETB to a user's credit",
+         code == 200 and data["credit"] == 250)
+    code, data = post("/api/superadmin/credit",
+                      {"admin_id": SUPER, "user_id": OTHER_USER,
+                       "amount": -100, "target": "user"})
+    step(16, "Super admin can also subtract credit",
+         code == 200 and data["credit"] == 150)
+
+    # an OFFLINE admin's account must not be selectable / visible
+    import sqlite3 as _sq
+    _c = _sq.connect("api_smoke.db")
+    _c.execute("UPDATE players SET last_seen = ? WHERE user_id = ?",
+               ("2000-01-01T00:00:00", ADMIN))
+    _c.commit()
+    _c.close()
+    code, data = post("/api/transactions",
+                      {"user_id": TEST_USER, "type": "deposit", "amount": 60,
+                       "tx_id": "OFFLINE-TX", "payment_account_id": acc1})
+    step(16, "Deposit into an OFFLINE admin's account is rejected",
+         code == 400 and "offline" in (data.get("error") or "").lower())
+    code, data = get("/api/game-state", query_string={"user_id": TEST_USER})
+    step(16, "Offline admins' accounts disappear from the deposit picker",
+         not any(d["provider"] == "TeleBirr"
+                 for d in data["settings"].get("deposit_accounts", [])))
+    db.touch_admin(ADMIN)  # bring the admin back online
+
+    # ---- wallet appeals: a deposit the admin never approved
+    code, data = post("/api/transactions",
+                      {"user_id": TEST_USER, "type": "deposit", "amount": 50,
+                       "tx_id": "APPEAL-TX", "payment_account_id": acc1})
+    step(16, "Deposit created for the appeal test", code == 200)
+    appeal_tx = data["transaction"]["id"]
+    code, data = post("/api/appeals",
+                      {"user_id": TEST_USER, "transaction_id": appeal_tx,
+                       "reason": "Sent the money but the admin never approved"})
+    step(16, "User files an appeal for an unapproved deposit",
+         code == 200 and data["appeal"]["status"] == "pending")
+    appeal_id = data["appeal"]["id"]
+    code, _ = post("/api/appeals",
+                   {"user_id": TEST_USER, "transaction_id": appeal_tx,
+                    "reason": "duplicate"})
+    step(16, "Duplicate pending appeal rejected", code == 400)
+    code, _ = get("/api/appeals", query_string={"user_id": TEST_USER})
+    step(16, "User sees their own appeals", code == 200)
+    code, data = get("/api/superadmin/appeals", query_string={"admin_id": SUPER})
+    step(16, "Super admin sees all appeals",
+         code == 200 and any(a["id"] == appeal_id for a in data["appeals"]))
+    bal_before = db.get_credit(TEST_USER)
+    admin_credit_before = db.get_admin_credit(ADMIN)
+    code, data = post("/api/superadmin/appeals/resolve",
+                      {"admin_id": SUPER, "id": appeal_id, "action": "approve",
+                       "resolution": "Verified the transfer"})
+    step(16, "Super admin approves the appeal -> user credited",
+         code == 200 and data["appeal"]["status"] == "approved"
+         and db.get_credit(TEST_USER) == bal_before + 50)
+    step(16, "Appeal approval also charges the owner admin's credit",
+         db.get_admin_credit(ADMIN) == admin_credit_before - int(50 * config.ADMIN_APPROVAL_RATE))
+
+    # super admin sees the whole transaction log
+    code, data = get("/api/superadmin/transactions", query_string={"admin_id": SUPER})
+    step(16, "Super admin sees every transaction log",
+         code == 200 and any(t["id"] == appeal_tx and t["status"] == "approved"
+                             for t in data["transactions"]))
+
+    # super admin controls ANY account: view all, deactivate, re-assign owner
+    code, data = get("/api/superadmin/accounts", query_string={"admin_id": SUPER})
+    step(16, "Super admin sees every admin's accounts (owner + online)",
+         code == 200 and any(a["id"] == acc1 and a["admin_name"] for a in data["accounts"]))
+    code, data = post("/api/superadmin/accounts/update",
+                      {"admin_id": SUPER, "id": acc1, "is_active": False})
+    step(16, "Super admin can deactivate any account",
+         code == 200 and data["account"]["is_active"] is False)
+    code, data = post("/api/superadmin/accounts/update",
+                      {"admin_id": SUPER, "id": acc1, "is_active": True})
+    step(16, "Super admin can reactivate it",
+         code == 200 and data["account"]["is_active"] is True)
 
     print(f"\nAPI SMOKE TEST PASSED ✅  ({time.time() - t0:.1f}s)", flush=True)
 

@@ -3,7 +3,7 @@ import { PACKS, getPack, setPack } from '../sound.js';
 
 const BRAND = { B: '#ff5f7a', I: '#4be3a0', N: '#ffd54f', G: '#3ec8ff', O: '#d95cff' };
 
-export default function Header({ credit, pool, room, isAdmin, showAdmin, onToggleAdmin, onToggleSettings, connected }) {
+export default function Header({ credit, pool, room, isAdmin, isSuperAdmin, showAdmin, showSuper, onToggleAdmin, onToggleSuper, onToggleSettings, connected }) {
   const [packIdx, setPackIdx] = useState(() => PACKS.findIndex((p) => p.id === getPack()));
 
   const cyclePack = () => {
@@ -50,6 +50,11 @@ export default function Header({ credit, pool, room, isAdmin, showAdmin, onToggl
         {isAdmin && (
           <button className={`chip chip-btn ${showAdmin ? 'active' : ''}`} onClick={onToggleAdmin}>
             🛠 Admin
+          </button>
+        )}
+        {isSuperAdmin && (
+          <button className={`chip chip-btn ${showSuper ? 'active' : ''}`} onClick={onToggleSuper} title="Super admin — control every account, log and credit">
+            👑 Super
           </button>
         )}
         <span className={`dot ${connected ? 'on' : ''}`} title={connected ? 'Live' : 'Offline'} />
