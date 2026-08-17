@@ -367,7 +367,9 @@ export default function App() {
               {state.current_call || '–'}
             </div>
             <div className="cc-info">
-              <div className="cc-label">LAST NUMBER · ROOM BY {room}</div>
+              {/* the room is already shown in the header chip — no need to
+                  repeat it here; the saved space goes to bigger cards */}
+              <div className="cc-label">LAST NUMBER</div>
               <div className="cc-progress">
                 {state.called_count} / {state.total_numbers} balls
               </div>
@@ -418,9 +420,12 @@ export default function App() {
                         </div>
                       </div>
                     )}
+                    {/* 3 cards wrap 2+1 (bigger touch targets) — never more
+                        than two cards per row, and everything stays on one
+                        screen (the play column is height-capped) */}
                     <div
                       className={`my-cards ${myCards.length === 1 ? 'single' : ''}`}
-                      style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(myCards.length, 3))}, 1fr)` }}
+                      style={{ gridTemplateColumns: `repeat(${Math.min(myCards.length, 2)}, 1fr)` }}
                     >
                       {myWinning.map(({ card, patterns, cells }) => (
                         <BingoCard

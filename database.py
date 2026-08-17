@@ -500,6 +500,37 @@ class Database:
                 (delta, user_id),
             )
 
+    # ----------------------------------------------------------------- admins
+    def is_admin(self, user_id: int) -> bool:
+        """An admin is either in config.ADMIN_IDS (env / core admins) OR was
+        promoted to admin by the SUPER ADMIN (players.is_admin = 1)."""
+        if user_id in config.ADMIN_IDS:
+            return True
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT is_admin FROM players WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            return bool(row and row[0])
+
+    def get_admin_ids(self) -> List[int]:
+        """Every admin user id: core admins (config.ADMIN_IDS) + super-admin-
+        promoted admins (players.is_admin = 1). Used for notifications and
+        online tracking."""
+        ids = set(config.ADMIN_IDS)
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT user_id FROM players WHERE is_admin = 1").fetchall()
+            ids.update(r[0] for r in rows)
+        return sorted(ids)
+
+    def set_admin(self, user_id: int, is_admin: bool) -> None:
+        """Promote/demote a user in the DB (super admin only)."""
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE players SET is_admin = ? WHERE user_id = ?",
+                (1 if is_admin else 0, user_id),
+            )
+
     # --------------------------------------------------------- admin credit
     def get_admin_credit(self, user_id: int) -> int:
         """An admin's own credit float (set by the super admin)."""
@@ -553,7 +584,7 @@ class Database:
     def is_admin_online(self, user_id: int,
                         minutes: Optional[int] = None) -> bool:
         """True when the admin has been active within the online window."""
-        if user_id not in config.ADMIN_IDS:
+        if not self.is_admin(user_id):
             return False
         last = self.get_last_seen(user_id)
         if not last:

@@ -18,10 +18,16 @@ change so that any developer or AI can refer to it at any time.
 > account is neither displayed nor payable into. Every deposit / withdraw /
 > appeal triggers a **high-priority Telegram bot message** to the right
 > admin(s) (works in both polling and webhook mode via a DB notification
-> queue). Built on top of the admin credit economy, the wallet appeals flow,
-> admin-owned payment accounts, online/offline account selection, the
-> claim-driven winners, hidden win pool, manual play, per-room called-numbers
-> fix, withdrawals with destination details and three rooms (30 / 50 / 100 ETB).
+> queue). The Super Admin can also **promote any user to admin** (and demote
+> them) from the 👑 Super console — promoted admins instantly get the full
+> admin panel, their own payment accounts and admin credit. In-game cards are
+> **bigger for easy tapping** (single card up to 270 px, 3 cards wrap 2+1)
+> while everything still fits on **one screen**, and the "ROOM BY …" text is
+> gone during play so the space goes to the cards. Built on top of the admin
+> credit economy, the wallet appeals flow, admin-owned payment accounts,
+> online/offline account selection, the claim-driven winners, hidden win pool,
+> manual play, per-room called-numbers fix, withdrawals with destination
+> details and three rooms (30 / 50 / 100 ETB).
 
 ---
 
@@ -147,13 +153,17 @@ Daubing a number **auto-daubs it on the player's other cards** when the same
 number appears there — one tap marks it everywhere it exists.
 
 **Layout (fits one screen — nothing ever overflows):**
-* A single card is rendered **compact** (the `small` variant, capped at
-  `max-width: 210px`, centered) so the card, daub hint and BINGO button all
-  stay visible without scrolling.
-* Playing **3 cards** uses a slightly **bigger variant** (`triple`: larger
-  cells/font for readability) while the play column stays height-capped and
-  compact (tightened gaps, slim calling board and current-ball bar), so even
-  3 bigger cards + the called strip + BINGO button fit on one screen.
+* A single card is rendered **bigger for easy tapping** (the `small` variant,
+  capped at `max-width: 270px`, centered, 13 px cells) so the card, daub
+  hint and BINGO button all stay visible without scrolling.
+* Playing **2–3 cards** uses the bigger `triple` variant (14 px cells) and 3
+  cards wrap **2 + 1** (two per row) so every card is wide enough to touch,
+  while the play column stays height-capped and compact (tightened gaps,
+  slim calling board and current-ball bar), so all cards + the called strip
+  + BINGO button fit on one screen.
+* During play the current-ball bar shows just **LAST NUMBER** (the room is
+  already in the header chip — the "ROOM BY …" text was removed so the saved
+  space goes to the cards).
 * Playing **2–3 cards** shows a horizontally scrollable **called strip** right
   above the cards — every called ball as a letter-coloured chip. Tapping a
   chip daubs that number on **all** of the player's cards at once (tap again
@@ -470,7 +480,12 @@ opens the **SuperAdminPanel** with five tabs (guarded server-side by
   credit, admin credit, role badge and online/offline badge. Tapping a row
   opens a detail modal with **＋/− controls for BOTH the player credit and the
   admin credit** — this is how the Super Admin **sells credit to admins**
-  (and buys it back / adjusts anyone's balance).
+  (and buys it back / adjusts anyone's balance). The modal also has a
+  **🛠 Make admin / Demote to user** button: promoted admins immediately get
+  the full 🛠 Admin panel, can post their own payment accounts and approve
+  wallet requests with their own admin credit. Core admins (from
+  `ADMIN_IDS` in `.env`) are marked "core admin" and cannot be demoted from
+  the panel.
 * **🧾 All logs** — every transaction (any status) with the deposit's
   **owner admin + their credit**, and ✓ Approve / ✕ Reject for pending ones
   (same money movement rules as the admin panel).
@@ -582,7 +597,9 @@ credit (§4.2) — the panel UI itself is unchanged.**
 
 Super Admin endpoints:
 * `GET /api/superadmin/users` — every account (admins + users) with credit,
-  admin credit, role + online status;
+  admin credit, role (`env_admin` marker) + online status;
+* `POST /api/superadmin/admin` — `{user_id, is_admin}` **promote/demote** a
+  user to admin (`players.is_admin`); demoting a core `.env` admin is rejected;
 * `POST /api/superadmin/credit` — `{user_id, amount, target: "user"|"admin"}`
   manually increase/decrease ANY account's player credit or admin credit
   (selling credit to admins);
@@ -608,6 +625,10 @@ be `config.SUPER_ADMIN_ID`.
 
 * Telegram `initData` HMAC verification is preserved; the Telegram user ID is
   the authoritative ID.
+* **Admin identity is DB-backed**: `db.is_admin()` = in `config.ADMIN_IDS`
+  (core, from `.env`) OR promoted by the super admin (`players.is_admin = 1`).
+  Every admin guard in the server, the bot and the online tracker uses it, so
+  promoted admins get full admin powers immediately (and lose them on demote).
 * The frontend is never trusted for authorization or money movement — the
   server re-validates everything.
 * Admin credit changes target an explicit `user_id`, never the caller.
@@ -699,7 +720,9 @@ be `config.SUPER_ADMIN_ID`.
     the picker**; appeals: file → duplicate rejected → super admin sees all →
     approve credits the user + charges the owner admin's credit; super admin
     sees every transaction log; super admin controls any account
-    (deactivate/reactivate, owner + online shown).
+    (deactivate/reactivate, owner + online shown); **promote a user to admin
+    → they can use the admin panel and are flagged `is_admin` → demote
+    revokes it (403) → core `.env` admins cannot be demoted**.
 
 `venv\Scripts\python.exe smoke_test.py` runs the API suite + card image
 rendering. `build_frontend.bat` rebuilds `frontend/dist`. `run_all.bat` starts

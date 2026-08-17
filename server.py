@@ -88,7 +88,7 @@ def _touch_admin_if_admin(user_id: Optional[int]) -> None:
     ONLINE admins' payment accounts are shown to users for deposits, and the
     richest ONLINE admin is selected for each bank.
     """
-    if user_id is not None and user_id in config.ADMIN_IDS:
+    if user_id is not None and db.is_admin(user_id):
         try:
             db.touch_admin(user_id)
         except Exception:
@@ -182,7 +182,7 @@ def _user_payload(user_id: int, room: int = 30) -> dict:
         # is_registered=False so the Mini App shows the registration gate again
         "is_registered": bool(player.get("is_registered", 0)),
         "credit": player.get("credit", 0),
-        "is_admin": user_id in config.ADMIN_IDS,
+        "is_admin": db.is_admin(user_id),
         # the ONE admin who controls everything (credit selling, logs, appeals)
         "is_super_admin": user_id == config.SUPER_ADMIN_ID,
         # false-BINGO elimination for the CURRENT round only
@@ -695,7 +695,7 @@ def _require_admin() -> Optional[int]:
         admin_id = int(admin_id) if admin_id is not None else None
     except (TypeError, ValueError):
         admin_id = None
-    if admin_id is None or admin_id not in config.ADMIN_IDS:
+    if admin_id is None or not db.is_admin(admin_id):
         return None
     _touch_admin_if_admin(admin_id)
     return admin_id
@@ -774,7 +774,7 @@ def api_admin_bots():
         admin_id = int(admin_id) if admin_id is not None else None
     except (TypeError, ValueError):
         admin_id = None
-    if admin_id is None or admin_id not in config.ADMIN_IDS:
+    if admin_id is None or not db.is_admin(admin_id):
         return jsonify({"error": "Unauthorized"}), 403
     _touch_admin_if_admin(admin_id)
     room = _room_from_request()
@@ -791,7 +791,7 @@ def api_admin_stats():
         admin_id = int(admin_id) if admin_id is not None else None
     except (TypeError, ValueError):
         admin_id = None
-    if admin_id is None or admin_id not in config.ADMIN_IDS:
+    if admin_id is None or not db.is_admin(admin_id):
         return jsonify({"error": "Unauthorized"}), 403
     _touch_admin_if_admin(admin_id)
     return jsonify({"stats": db.game_stats(), "recent": db.recent_games(8)})
@@ -1048,7 +1048,36 @@ def api_superadmin_users():
     users = db.get_all_players()
     for u in users:
         u["online"] = db.is_admin_online(u["user_id"])
+        u["env_admin"] = u["user_id"] in config.ADMIN_IDS
     return jsonify({"users": users})
+
+
+@app.route("/api/superadmin/admin", methods=["POST"])
+def api_superadmin_set_admin():
+    """The super admin PROMOTES a user to admin (or demotes a promoted admin).
+
+    Promoted admins get the full 🛠 Admin panel, can add their own payment
+    accounts and approve wallet requests with their own admin credit. Core
+    admins (config.ADMIN_IDS) cannot be demoted here — they are defined in
+    .env.
+    """
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        target = int(data.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "user_id required"}), 400
+    is_admin = data.get("is_admin") not in (False, 0, "0", "false", "False")
+    if not is_admin and target in config.ADMIN_IDS:
+        return jsonify({
+            "error": "Core admins are defined in .env (ADMIN_IDS) and cannot "
+                     "be demoted from the panel."
+        }), 400
+    db.create_player(target, f"Player_{target}", credit=0)
+    db.set_admin(target, is_admin)
+    return jsonify({"ok": True, "user_id": target, "is_admin": bool(is_admin),
+                    "is_super_admin": target == config.SUPER_ADMIN_ID})
 
 
 @app.route("/api/superadmin/credit", methods=["POST"])

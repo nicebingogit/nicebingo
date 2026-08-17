@@ -551,7 +551,7 @@ class PremiumBingoBot:
     # ------------------------------------------------------------------ admin
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
-        if user_id not in config.ADMIN_IDS:
+        if not db.is_admin(user_id):
             await update.message.reply_text("⛔ Unauthorized!")
             return
         db.touch_admin(user_id)
@@ -574,7 +574,7 @@ class PremiumBingoBot:
     async def give_take_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                 sign: int):
         user_id = update.effective_user.id
-        if user_id not in config.ADMIN_IDS:
+        if not db.is_admin(user_id):
             await update.message.reply_text("⛔ Unauthorized!")
             return
         db.touch_admin(user_id)
@@ -598,7 +598,7 @@ class PremiumBingoBot:
     async def admin_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = update.effective_user.id
-        if user_id not in config.ADMIN_IDS:
+        if not db.is_admin(user_id):
             await query.edit_message_text("⛔ Unauthorized!")
             return
         data = query.data
@@ -918,7 +918,7 @@ def notify_admins(lines: list) -> None:
     webhook modes, even when the server and the bot run in separate processes.
     """
     text = chr(10).join(str(line) for line in lines)
-    for admin_id in config.ADMIN_IDS:
+    for admin_id in db.get_admin_ids():
         try:
             db.add_bot_notification(admin_id, text)
         except Exception as exc:

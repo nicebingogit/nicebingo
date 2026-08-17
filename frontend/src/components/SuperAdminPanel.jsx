@@ -74,6 +74,21 @@ export default function SuperAdminPanel({ onError }) {
     }
   };
 
+  const toggleAdminRole = async (u, makeAdmin) => {
+    playClick();
+    try {
+      await api.superAdmin.setAdmin(u.user_id, makeAdmin);
+      await loadUsers();
+      setSelected((s) => (s ? { ...s, is_admin: makeAdmin } : s));
+      setDetailMsg(makeAdmin
+        ? `✅ ${u.full_name || u.username || u.user_id} is now an admin.`
+        : `✅ ${u.full_name || u.username || u.user_id} is no longer an admin.`);
+      setTimeout(() => setDetailMsg(''), 3000);
+    } catch (err) {
+      setDetailMsg(`❌ ${err.message}`);
+    }
+  };
+
   const reviewTx = async (id, action) => {
     playClick();
     try {
@@ -423,6 +438,31 @@ export default function SuperAdminPanel({ onError }) {
                 {editKind === 'admin'
                   ? 'Admin credit is the float admins spend when approving deposits (90% of each approved deposit) — sell it to them here.'
                   : 'Changes the player wallet balance.'}
+              </p>
+            </div>
+
+            <div className="credit-edit">
+              <div className="wallet-form-title">
+                🛠 Role: <b>{selected.is_admin ? 'Admin' : 'User'}</b>
+                {selected.env_admin && <span className="muted"> · core admin (from .env)</span>}
+              </div>
+              {!selected.env_admin && (
+                <div className="wallet-form-row">
+                  {selected.is_admin ? (
+                    <button className="btn btn-ghost user-btn" onClick={() => toggleAdminRole(selected, false)}>
+                      Demote to user
+                    </button>
+                  ) : (
+                    <button className="btn btn-ghost user-btn" onClick={() => toggleAdminRole(selected, true)}>
+                      🛠 Make admin
+                    </button>
+                  )}
+                </div>
+              )}
+              <p className="reg-hint">
+                Admins get the 🛠 Admin panel, can post their own payment
+                accounts and approve wallet requests with their own admin
+                credit.
               </p>
             </div>
           </div>

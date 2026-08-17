@@ -116,6 +116,8 @@ export const api = {
     users: () => superAdminRequest('/api/superadmin/users', { method: 'GET' }),
     credit: (target, amount, kind) =>
       superAdminRequest('/api/superadmin/credit', { body: { user_id: target, amount, target: kind } }),
+    setAdmin: (target, isAdmin) =>
+      superAdminRequest('/api/superadmin/admin', { body: { user_id: target, is_admin: isAdmin } }),
     transactions: () => superAdminRequest('/api/superadmin/transactions', { method: 'GET' }),
     reviewTransaction: (id, action) =>
       superAdminRequest('/api/superadmin/transactions/review', { body: { id, action } }),

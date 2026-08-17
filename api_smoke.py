@@ -667,6 +667,27 @@ def main():
     step(16, "Super admin can reactivate it",
          code == 200 and data["account"]["is_active"] is True)
 
+    # the super admin PROMOTES a user to admin (and can demote them again)
+    code, data = post("/api/superadmin/admin",
+                      {"admin_id": SUPER, "user_id": OTHER_USER, "is_admin": True})
+    step(16, "Super admin promotes a user to admin",
+         code == 200 and data["is_admin"] is True)
+    code, data = get("/api/admin/users", query_string={"admin_id": OTHER_USER})
+    step(16, "Promoted admin can use the admin panel",
+         code == 200 and isinstance(data.get("users"), list))
+    code, data = get("/api/game-state", query_string={"user_id": OTHER_USER})
+    step(16, "Promoted admin is flagged is_admin in the app",
+         code == 200 and data["user"]["is_admin"] is True)
+    code, data = post("/api/superadmin/admin",
+                      {"admin_id": SUPER, "user_id": OTHER_USER, "is_admin": False})
+    step(16, "Super admin demotes the user again",
+         code == 200 and data["is_admin"] is False)
+    code, _ = get("/api/admin/users", query_string={"admin_id": OTHER_USER})
+    step(16, "Demoted user loses admin access (403)", code == 403)
+    code, _ = post("/api/superadmin/admin",
+                   {"admin_id": SUPER, "user_id": config.ADMIN_IDS[0], "is_admin": False})
+    step(16, "Core admins (from .env) cannot be demoted", code == 400)
+
     print(f"\nAPI SMOKE TEST PASSED ✅  ({time.time() - t0:.1f}s)", flush=True)
 
 
