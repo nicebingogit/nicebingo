@@ -846,6 +846,11 @@ _webhook_app = None
 _webhook_thread = None
 _webhook_lock = threading.Lock()
 _webhook_registered = False  # True after setWebhook succeeds
+# Track the PID that started the bot. uWSGI forks workers AFTER loading
+# wsgi.py, so the forked worker inherits stale globals (_webhook_app=None)
+# while the master's thread sets them. We detect the fork by PID mismatch
+# and force-restart the bot in the worker.
+_webhook_pid = os.getpid()
 
 
 def start_webhook() -> None:
@@ -931,13 +936,29 @@ def _ensure_webhook_running() -> bool:
     the module globals pointing at a loop whose pumping thread is gone. When
     that happens the next delivery restarts the bot and returns False, so
     Telegram retries a moment later against the fresh, alive loop.
+
+    Also detects uWSGI fork: the master loads wsgi.py and starts the bot
+    thread, then forks workers. The worker inherits a COPY of the module
+    globals (still None/False) while the master's thread sets them. We
+    detect this by comparing PIDs and force-restart in the worker.
     """
-    if _webhook_thread is not None and _webhook_thread.is_alive():
+    global _webhook_pid
+    current_pid = os.getpid()
+    forked = (current_pid != _webhook_pid)
+    if forked:
+        logger.warning("webhook: PID changed %d -> %d (uWSGI fork detected)"
+                       " — resetting globals", _webhook_pid, current_pid)
+        _webhook_pid = current_pid
+        _webhook_loop = None
+        _webhook_app = None
+        _webhook_thread = None
+        _webhook_registered = False
+    if not forked and _webhook_thread is not None and _webhook_thread.is_alive():
         return True
     with _webhook_lock:
-        if _webhook_thread is not None and _webhook_thread.is_alive():
+        if not forked and _webhook_thread is not None and _webhook_thread.is_alive():
             return True
-        logger.warning("webhook thread is dead — restarting")
+        logger.warning("webhook thread is dead or forked — restarting")
         try:
             start_webhook()
         except Exception as exc:
