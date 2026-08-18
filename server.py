@@ -1292,6 +1292,40 @@ def api_superadmin_appeal_resolve():
     return jsonify({"ok": True, "appeal": db.get_appeal(appeal_id)})
 
 
+# ------------------------------------------------------- health / diagnostics
+@app.route("/health")
+def health_check():
+    """Non-sensitive health check — reports system status without secrets.
+
+    Safe to expose publicly; never reveals BOT_TOKEN, WEBHOOK_SECRET,
+    ADMIN_IDS, database contents, player data, or credentials.
+    """
+    try:
+        game_loop_ok = loop.scheduler.running
+    except Exception:
+        game_loop_ok = False
+    try:
+        db_ok = db.count_cards() > 0
+    except Exception:
+        db_ok = False
+    # bot webhook status (only in webhook mode)
+    bot_info = {"webhook_mode": bool(config.BOT_WEBHOOK)}
+    if config.BOT_WEBHOOK:
+        try:
+            from bot import _webhook_app, _webhook_thread, _webhook_registered
+            bot_info["thread_alive"] = bool(_webhook_thread and _webhook_thread.is_alive())
+            bot_info["app_ready"] = bool(_webhook_app is not None)
+            bot_info["webhook_registered"] = bool(_webhook_registered)
+        except Exception:
+            bot_info["error"] = "could not read bot state"
+    return jsonify({
+        "status": "ok" if (game_loop_ok and db_ok) else "degraded",
+        "game_loop": game_loop_ok,
+        "database": db_ok,
+        "bot": bot_info,
+    })
+
+
 # ------------------------------------------------------- telegram webhook
 @app.route("/webhook/<secret>", methods=["POST"])
 def telegram_webhook(secret: str):

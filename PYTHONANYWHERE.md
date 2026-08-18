@@ -117,9 +117,12 @@ Game loop started · rooms=[30, 50, 100]
 
 ### 9. Verify end-to-end
 1. Open `https://<username>.pythonanywhere.com` in a browser → the arena loads.
-2. In Telegram send the bot `/play` → tap **🎮 OPEN BINGO ARENA** → the Mini
+2. Visit `https://<username>.pythonanywhere.com/health` — you should see
+   `"status":"ok"`, `"game_loop":true`, `"database":true`,
+   `"bot.thread_alive":true`, and `"bot.webhook_registered":true`.
+3. In Telegram send the bot `/play` → tap **🎮 OPEN BINGO ARENA** → the Mini
    App opens on the cloud URL.
-3. `/status` answers; rounds run automatically; bots fill the room. Your PC
+4. `/status` answers; rounds run automatically; bots fill the room. Your PC
    can stay off. 🎉
 
 ---
@@ -178,6 +181,7 @@ Game loop started · rooms=[30, 50, 100]
 | Telegram: "only https links are allowed" | `APP_URL` must start with `https://` and **Force HTTPS** must be on → reload, then send `/play` again (old buttons keep the old URL) |
 | Mini App opens but API errors | Check the **Error log**; make sure `WSGI configuration file` points to `wsgi.py` (not the default) |
 | Bot answers nothing after Reload | Telegram needs the webhook re-registered — it happens on every Reload; give it a few seconds and retry `/play` |
+| Bot still not responding after Reload | Visit `https://<username>.pythonanywhere.com/health` — check `bot.thread_alive` and `bot.webhook_registered`; if thread is dead, Reload again |
 | Error log shows a `setWebhook` / connection failure to `api.telegram.org` | Free accounts can normally reach Telegram; if the bank of the account blocks it, contact PythonAnywhere support and ask them to whitelist `api.telegram.org` |
 | Updated the code but the game still runs the old version | The zip was unzipped *inside* `~/2xbingo` (it lands in `~/2xbingo/2xbingo-main/` and nothing is replaced). Run the corrected update command above from `cd ~`, then **Reload**. Verify the new code is there: `grep -n superadmin ~/2xbingo/server.py` should print lines |
 | `unzip` says `End-of-central-directory signature not found` and the download is only 14 bytes | Your repo is **private** — the anonymous zip URL returns `404: Not Found`. Don't use the zip; use git with a personal access token (see *Keeping it running* → *Private repo?*) |

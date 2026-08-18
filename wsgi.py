@@ -47,7 +47,13 @@ server.loop.start()
 
 # always-on hosts run the bot in webhook mode inside this same process
 if os.getenv("BOT_WEBHOOK", "0").strip().lower() in ("1", "true", "yes"):
-    import bot  # noqa: E402
-    bot.start_webhook()
+    try:
+        import bot  # noqa: E402
+        bot.start_webhook()
+    except Exception as _bot_exc:
+        import logging as _log
+        _log.getLogger("wsgi").error("Bot webhook startup failed: %s", _bot_exc)
+        # The game loop and Flask app still work — the webhook will be
+        # retried by _ensure_webhook_running() when the next delivery arrives.
 
 from server import app as application  # noqa: E402

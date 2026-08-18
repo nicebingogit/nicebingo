@@ -766,3 +766,33 @@ the Telegram Mini App button), a persistent volume for SQLite, and no credit
 card. Full click-by-click guide: **`DEPLOY.md`**. The same image deploys
 unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 (`BOT_TOKEN`, `ADMIN_IDS`, `APP_URL`, `SERVER_HOST=0.0.0.0`, `DB_PATH`) change.
+
+---
+
+## Changelog
+
+### 2026-08-18 — Webhook reliability fix
+
+**Problem:** After deploying the super-admin feature, the Telegram bot stopped
+responding to `/start`. The game loop continued running, but the webhook bot
+thread silently died during WSGI startup (transient `set_webhook` network error
+on PythonAnywhere free tier). `_ensure_webhook_running()` could only restart the
+bot when a delivery arrived, but Telegram gave up after repeated 500 errors.
+
+**Fix:**
+
+- `bot.py` `start_webhook()`: retries `set_webhook` up to **3 times** with a
+  2-second delay between attempts so transient DNS/TLS errors don't kill the bot
+  permanently. Logs each attempt and the final outcome. A new `_webhook_registered`
+  flag tracks whether registration succeeded.
+- `wsgi.py`: the bot startup is now wrapped in `try/except` so a crash during
+  `start_webhook()` never kills the Flask/WSGI process — the game loop and API
+  continue working while the bot retries.
+- `server.py` `/health`: a new **non-sensitive** health endpoint reports
+  game-loop status, database accessibility, and webhook-bot thread state
+  (`thread_alive`, `app_ready`, `webhook_registered`). Safe to expose publicly;
+  never reveals tokens, secrets, or player data.
+
+**Files changed:** `bot.py`, `wsgi.py`, `server.py`
+
+**Database:** untouched — production `bingo_bot.db` preserved.
