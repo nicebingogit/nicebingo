@@ -50,11 +50,27 @@ for part in os.getenv("ADMIN_IDS", "").split(","):
         except ValueError:
             pass
 
-# SUPER_ADMIN_ID: the one admin who controls EVERYTHING — every account (admin
-# or user), every transaction log, admin credits (selling credit to admins),
-# and wallet appeals. Defaults to the owner's Telegram id (1512842545);
-# override with SUPER_ADMIN_ID in .env if it ever changes.
-SUPER_ADMIN_ID = _int("SUPER_ADMIN_ID", 1512842545)
+# SUPER_ADMIN_IDS: comma-separated list of Telegram user IDs that have full
+# super-admin privileges — every account (admin or user), every transaction
+# log, admin credits (selling credit to admins), and wallet appeals.
+# Defaults to the owner's Telegram id (1512842545).
+SUPER_ADMIN_IDS: list[int] = []
+for part in os.getenv("SUPER_ADMIN_IDS", "").split(","):
+    part = part.split("#")[0].strip()
+    if part:
+        try:
+            SUPER_ADMIN_IDS.append(int(part))
+        except ValueError:
+            pass
+if not SUPER_ADMIN_IDS:
+    # fallback: single SUPER_ADMIN_ID env var (legacy)
+    single = _int("SUPER_ADMIN_ID", 0)
+    if single:
+        SUPER_ADMIN_IDS = [single]
+    else:
+        SUPER_ADMIN_IDS = [1512842545, 903313112]
+# backward compat: code that uses SUPER_ADMIN_ID still works
+SUPER_ADMIN_ID = SUPER_ADMIN_IDS[0] if SUPER_ADMIN_IDS else 1512842545
 # ADMIN_APPROVAL_RATE: the share of a DEPOSIT amount that is deducted from the
 # account-owner admin's credit when the deposit is approved (0.9 = 90%). The
 # same rate is credited BACK to the reviewing admin when a WITHDRAW is

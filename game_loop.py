@@ -96,7 +96,9 @@ class GameLoop:
                     # countdown too, so the player sees other players BEFORE
                     # the round starts (idempotent — stops at the cap)
                     if self.db.get_bots_enabled(room):
-                        self.logic.ensure_minimum_players(room, config.MAX_TOTAL_PLAYERS)
+                        # add ONE bot per tick so players see them joining
+                        # gradually (feels like humans picking cards)
+                        self.logic.add_bot_player(room)
                     end = _parse(state.get("preparation_end_time"))
                     if end and now >= end:
                         self.start_round(room)

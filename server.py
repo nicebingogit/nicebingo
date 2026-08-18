@@ -184,7 +184,7 @@ def _user_payload(user_id: int, room: int = 30) -> dict:
         "credit": player.get("credit", 0),
         "is_admin": db.is_admin(user_id),
         # the ONE admin who controls everything (credit selling, logs, appeals)
-        "is_super_admin": user_id == config.SUPER_ADMIN_ID,
+        "is_super_admin": user_id in config.SUPER_ADMIN_IDS,
         # false-BINGO elimination for the CURRENT round only
         "eliminated": eliminated,
         "selections": selections,
@@ -702,14 +702,23 @@ def _require_admin() -> Optional[int]:
 
 
 def _require_super_admin() -> Optional[int]:
-    """Only the SUPER ADMIN (config.SUPER_ADMIN_ID) passes this guard.
+    """Only a SUPER ADMIN passes this guard.
 
-    The super admin controls EVERYTHING: every account (admin or user), every
-    transaction log, admin credits (selling credit to admins) and appeals.
+    A super admin is identified purely by membership in SUPER_ADMIN_IDS
+    (from .env). They do NOT need to be in ADMIN_IDS or have is_admin=1
+    in the DB — super-admin status is the highest privilege and grants
+    access to every account, every transaction log, admin credits, and
+    wallet appeals.
     """
-    admin_id = _require_admin()
-    if admin_id is None or admin_id != config.SUPER_ADMIN_ID:
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id") or request.args.get("admin_id")
+    try:
+        admin_id = int(admin_id) if admin_id is not None else None
+    except (TypeError, ValueError):
+        admin_id = None
+    if admin_id is None or admin_id not in config.SUPER_ADMIN_IDS:
         return None
+    _touch_admin_if_admin(admin_id)
     return admin_id
 
 

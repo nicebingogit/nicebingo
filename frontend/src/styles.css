@@ -198,13 +198,13 @@ body::before {
 /* a single card must stay compact and centered — a full-width card would push
    the BINGO button below the screen edge on phones */
 .my-cards.single { justify-items: center; }
-.my-cards.single .bingo-card { width: 100%; max-width: 270px; }
+.my-cards.single .bingo-card { width: 100%; max-width: 320px; }
 .bingo-card {
   position: relative; background: linear-gradient(180deg, #121a3d, #0d1230);
   border: 1px solid var(--border); border-radius: 14px; padding: 10px;
   box-shadow: var(--shadow);
 }
-.bingo-card.small { padding: 9px; }
+.bingo-card.small { padding: 12px; }
 .bingo-card.winning { border-color: var(--gold); animation: winGlow 1.1s ease infinite; }
 @keyframes winGlow { 0%, 100% { box-shadow: 0 0 10px rgba(255, 213, 79, 0.25); } 50% { box-shadow: 0 0 26px rgba(255, 213, 79, 0.6); } }
 .card-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
@@ -214,7 +214,7 @@ body::before {
 .card-cell {
   flex: 1; aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
   background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 8px; font-size: 14px; font-weight: 700; color: var(--text);
+  border-radius: 8px; font-size: 15px; font-weight: 700; color: var(--text);
   padding: 0; margin: 0; font-family: inherit; line-height: 1; cursor: default;
   appearance: none; -webkit-appearance: none;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease;
@@ -241,18 +241,18 @@ body::before {
 }
 .no-cards { text-align: center; color: var(--muted); padding: 18px; }
 
-.bingo-card.small .card-head { margin-bottom: 6px; }
-.bingo-card.small .card-grid { gap: 3px; }
-.bingo-card.small .card-row { gap: 3px; }
-.bingo-card.small .card-cell { font-size: 13px; border-radius: 7px; }
+.bingo-card.small .card-head { margin-bottom: 8px; }
+.bingo-card.small .card-grid { gap: 4px; }
+.bingo-card.small .card-row { gap: 4px; }
+.bingo-card.small .card-cell { font-size: 14px; border-radius: 8px; }
 /* 2-3 cards get BIG cells for easy tapping — 3 cards wrap 2+1 (two per row)
    so each card is wide enough to touch; the play layout stays height-capped
    and compact so everything still fits on one screen */
-.bingo-card.triple { padding: 10px; }
-.bingo-card.triple .card-head { font-size: 13px; margin-bottom: 7px; }
-.bingo-card.triple .card-grid { gap: 4px; }
-.bingo-card.triple .card-row { gap: 4px; }
-.bingo-card.triple .card-cell { font-size: 14px; border-radius: 8px; }
+.bingo-card.triple { padding: 12px; }
+.bingo-card.triple .card-head { font-size: 13px; margin-bottom: 8px; }
+.bingo-card.triple .card-grid { gap: 5px; }
+.bingo-card.triple .card-row { gap: 5px; }
+.bingo-card.triple .card-cell { font-size: 15px; border-radius: 9px; }
 
 .bingo-btn {
   width: 100%; font-size: 16px; padding: 12px; border-radius: 14px;
