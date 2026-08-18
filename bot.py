@@ -868,23 +868,31 @@ def start_webhook() -> None:
     loop = asyncio.new_event_loop()
 
     async def _start():
-        await instance.application.initialize()
-        await instance.application.start()
-        # Make dispatch ready IMMEDIATELY after the app is running — before
-        # setWebhook, which is a network call that can take several seconds.
-        # This ensures Telegram updates can be processed the moment the webhook
-        # is registered, and prevents a race where PythonAnywhere reloads
-        # between app.start() and setWebhook, leaving _webhook_app as None.
-        global _webhook_loop, _webhook_app
+        global _webhook_loop, _webhook_app, _webhook_registered
+        logger.info("webhook: _start beginning")
+        try:
+            logger.info("webhook: calling application.initialize()...")
+            await instance.application.initialize()
+            logger.info("webhook: application.initialize() done")
+        except Exception as exc:
+            logger.error("webhook: application.initialize() FAILED: %s", exc)
+            return
+        try:
+            logger.info("webhook: calling application.start()...")
+            await instance.application.start()
+            logger.info("webhook: application.start() done")
+        except Exception as exc:
+            logger.error("webhook: application.start() FAILED: %s", exc)
+            return
+        # Set dispatch globals IMMEDIATELY after app is running
         _webhook_loop = loop
         _webhook_app = instance.application
         logger.info("🎰 Bingo bot app ready — dispatch enabled")
-        # retry setWebhook up to 3 times — transient DNS / TLS errors on
-        # PythonAnywhere free tier are the #1 cause of silent bot death
-        global _webhook_registered
+        # retry setWebhook up to 3 times
         webhook_url = f"{_fresh_app_url()}/webhook/{config.WEBHOOK_SECRET}"
         for attempt in range(1, 4):
             try:
+                logger.info("webhook: setWebhook attempt %d to %s", attempt, webhook_url)
                 await instance.application.bot.set_webhook(
                     url=webhook_url, allowed_updates=Update.ALL_TYPES,
                     drop_pending_updates=False)
@@ -896,16 +904,14 @@ def start_webhook() -> None:
                 logger.warning("webhook setWebhook attempt %d failed: %s", attempt, exc)
                 if attempt < 3:
                     await asyncio.sleep(2)
-        # all 3 attempts failed — log but don't crash; _ensure_webhook_running
-        # will retry later when the next delivery arrives
-        logger.error("🎰 webhook registration FAILED after 3 attempts — "
-                     "bot will retry on next delivery")
+        logger.error("🎰 webhook registration FAILED after 3 attempts")
 
     async def _runner():
+        logger.info("webhook: _runner starting")
         try:
             await _start()
         except Exception as exc:
-            logger.error("webhook runner _start failed: %s", exc)
+            logger.error("webhook runner _start FAILED: %s", exc, exc_info=True)
             return
         logger.info("🎰 Bingo bot webhook runner alive — loop running")
         while True:
