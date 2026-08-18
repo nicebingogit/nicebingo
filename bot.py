@@ -870,6 +870,15 @@ def start_webhook() -> None:
     async def _start():
         await instance.application.initialize()
         await instance.application.start()
+        # Make dispatch ready IMMEDIATELY after the app is running — before
+        # setWebhook, which is a network call that can take several seconds.
+        # This ensures Telegram updates can be processed the moment the webhook
+        # is registered, and prevents a race where PythonAnywhere reloads
+        # between app.start() and setWebhook, leaving _webhook_app as None.
+        global _webhook_loop, _webhook_app
+        _webhook_loop = loop
+        _webhook_app = instance.application
+        logger.info("🎰 Bingo bot app ready — dispatch enabled")
         # retry setWebhook up to 3 times — transient DNS / TLS errors on
         # PythonAnywhere free tier are the #1 cause of silent bot death
         global _webhook_registered
@@ -898,12 +907,7 @@ def start_webhook() -> None:
         except Exception as exc:
             logger.error("webhook runner _start failed: %s", exc)
             return
-        # make dispatch ready only AFTER the app is running, so an update is
-        # never handed to a not-yet-initialized application
-        global _webhook_loop, _webhook_app
-        _webhook_loop = loop
-        _webhook_app = instance.application
-        logger.info("🎰 Bingo bot webhook runner alive — dispatch ready")
+        logger.info("🎰 Bingo bot webhook runner alive — loop running")
         while True:
             await asyncio.sleep(3600)
 
@@ -971,10 +975,19 @@ def dispatch_webhook(update_dict: dict) -> bool:
     Returns False only while the bot is still starting up (Telegram will
     retry the delivery).
     """
-    if not _ensure_webhook_running():
-        return False
     if _webhook_app is None or _webhook_loop is None:
-        return False
+        # App not ready yet — try to (re)start the bot
+        logger.warning("webhook dispatch: app not ready, attempting restart")
+        if not _ensure_webhook_running():
+            return False
+        # give the thread a moment to initialize
+        import time
+        for _ in range(20):
+            if _webhook_app is not None and _webhook_loop is not None:
+                break
+            time.sleep(0.5)
+        if _webhook_app is None or _webhook_loop is None:
+            return False
     try:
         update = Update.de_json(update_dict, _webhook_app.bot)
         if update is None:
