@@ -1085,8 +1085,11 @@ def api_superadmin_set_admin():
         }), 400
     db.create_player(target, f"Player_{target}", credit=0)
     db.set_admin(target, is_admin)
+    # when promoting, touch the user so they appear online immediately
+    if is_admin:
+        db.touch_admin(target)
     return jsonify({"ok": True, "user_id": target, "is_admin": bool(is_admin),
-                    "is_super_admin": target == config.SUPER_ADMIN_ID})
+                    "is_super_admin": target in config.SUPER_ADMIN_IDS})
 
 
 @app.route("/api/superadmin/credit", methods=["POST"])

@@ -526,17 +526,21 @@ class Database:
     def set_admin(self, user_id: int, is_admin: bool) -> None:
         """Promote/demote a user in the DB (super admin only).
 
-        Uses INSERT ... ON CONFLICT so it works even if the player row
-        doesn't exist yet (the super admin can promote any Telegram id).
+        Two-step upsert that works on every SQLite version: try UPDATE
+        first; if no row exists yet, INSERT a fresh one.
         """
         val = 1 if is_admin else 0
         with self._session() as conn:
-            conn.execute(
-                "INSERT INTO players (user_id, username, credit, is_admin) "
-                "VALUES (?, ?, 0, ?) "
-                "ON CONFLICT(user_id) DO UPDATE SET is_admin = ?",
-                (user_id, f"Player_{user_id}", val, val),
+            cur = conn.execute(
+                "UPDATE players SET is_admin = ? WHERE user_id = ?",
+                (val, user_id),
             )
+            if cur.rowcount == 0:
+                conn.execute(
+                    "INSERT INTO players (user_id, username, credit, is_admin) "
+                    "VALUES (?, ?, 0, ?)",
+                    (user_id, f"Player_{user_id}", val),
+                )
 
     # --------------------------------------------------------- admin credit
     def get_admin_credit(self, user_id: int) -> int:

@@ -12,7 +12,7 @@ async function request(path, options = {}) {
   }
   let res;
   if (options.method === 'POST') {
-    const body = { ...(options.body || {}), user_id: user.id };
+    const body = { user_id: user.id, ...(options.body || {}) };
     if (initData) body.init_data = initData;
     res = await fetch(`${BASE}${path}`, {
       method: 'POST',
