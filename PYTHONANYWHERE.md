@@ -59,6 +59,15 @@ cd ~/2xbingo
 
 > If you prefer git: `git clone --depth 1 https://github.com/elcotech/2xbingo.git`
 
+> **Private repo?** The `curl`/zip download above only works for **public**
+> repos — a private repo returns `404: Not Found` (a 14-byte file that `unzip`
+> rejects with *"End-of-central-directory signature not found"*). Use git with
+> a **personal access token** instead:
+> `git clone --depth 1 https://<USERNAME>:<TOKEN>@github.com/elcotech/2xbingo.git`
+> (create the token at https://github.com/settings/tokens → *Generate new
+> token (classic)* → tick `repo`; or a fine-grained token with *Contents:
+> Read-only* on this repo).
+
 ### 4. Python environment (use 3.11 so every pinned wheel exists)
 ```bash
 cd ~/2xbingo
@@ -118,9 +127,35 @@ Game loop started · rooms=[30, 50, 100]
 ## Keeping it running
 
 - The free web app **never sleeps** — the game loop ticks 24/7.
-- **Updating the game:** SSH or Bash console →
-  `cd ~/2xbingo && curl -L https://codeload.github.com/elcotech/2xbingo/zip/refs/heads/main -o b.zip && unzip -o b.zip && rm b.zip` (or `git pull`),
-  then press **Reload** on the web app page.
+- **Updating the game:** SSH or Bash console → download the zip to your **home
+  folder**, extract it, and copy the files over the existing `~/2xbingo`
+  (never download/unzip *inside* `~/2xbingo` — the zip extracts to a
+  `2xbingo-main/` subfolder and the old code would stay in place!):
+
+  ```bash
+  cd ~
+  curl -L https://codeload.github.com/elcotech/2xbingo/zip/refs/heads/main -o bingo.zip
+  unzip -o bingo.zip
+  cp -r 2xbingo-main/. 2xbingo/    # overwrite code only — bingo_bot.db, .env, venv survive
+  rm -rf 2xbingo-main bingo.zip
+  ```
+
+  (If you cloned with git, `cd ~/2xbingo && git pull` does the same.) If
+  `requirements.txt` changed, re-run `pip install -r requirements.txt` inside
+  the venv. Then press **Reload** on the web app page.
+
+  **Private repo?** The zip download 404s (GitHub returns a 14-byte
+  `404: Not Found` — unzip says *"End-of-central-directory signature not
+  found"*). Use git with a token instead — set it once, then `git pull`:
+
+  ```bash
+  cd ~/2xbingo
+  git remote set-url origin https://<USERNAME>:<TOKEN>@github.com/elcotech/2xbingo.git
+  git pull
+  ```
+
+  (or just `git pull` and type your GitHub username + the token as the
+  password each time).
 - **Backups:** download `~/2xbingo/bingo_bot.db` regularly (while the app is
   reloaded, or just copy the file — SQLite handles it).
 
@@ -144,6 +179,8 @@ Game loop started · rooms=[30, 50, 100]
 | Mini App opens but API errors | Check the **Error log**; make sure `WSGI configuration file` points to `wsgi.py` (not the default) |
 | Bot answers nothing after Reload | Telegram needs the webhook re-registered — it happens on every Reload; give it a few seconds and retry `/play` |
 | Error log shows a `setWebhook` / connection failure to `api.telegram.org` | Free accounts can normally reach Telegram; if the bank of the account blocks it, contact PythonAnywhere support and ask them to whitelist `api.telegram.org` |
+| Updated the code but the game still runs the old version | The zip was unzipped *inside* `~/2xbingo` (it lands in `~/2xbingo/2xbingo-main/` and nothing is replaced). Run the corrected update command above from `cd ~`, then **Reload**. Verify the new code is there: `grep -n superadmin ~/2xbingo/server.py` should print lines |
+| `unzip` says `End-of-central-directory signature not found` and the download is only 14 bytes | Your repo is **private** — the anonymous zip URL returns `404: Not Found`. Don't use the zip; use git with a personal access token (see *Keeping it running* → *Private repo?*) |
 
 ## Your existing players & balance?
 
