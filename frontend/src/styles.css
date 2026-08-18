@@ -44,6 +44,43 @@ body::before {
 
 .app { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 12px 12px 60px; }
 
+/* ------------------------------------------------------------ auto-play */
+.auto-play-btn {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  background: linear-gradient(135deg, rgba(62, 200, 255, 0.9), rgba(105, 240, 174, 0.9));
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #0b0f24;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(62, 200, 255, 0.5);
+  animation: autoPlayPulse 2s ease-in-out infinite;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.auto-play-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 28px rgba(62, 200, 255, 0.7);
+}
+.auto-play-btn.active {
+  background: linear-gradient(135deg, rgba(255, 213, 79, 0.95), rgba(255, 95, 122, 0.95));
+  color: #0b0f24;
+  box-shadow: 0 4px 20px rgba(255, 213, 79, 0.6);
+  animation: autoPlayGlow 1.5s ease-in-out infinite;
+}
+@keyframes autoPlayPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 4px 20px rgba(62, 200, 255, 0.4); }
+  50% { transform: scale(1.04); box-shadow: 0 6px 28px rgba(62, 200, 255, 0.7); }
+}
+@keyframes autoPlayGlow {
+  0%, 100% { box-shadow: 0 4px 20px rgba(255, 213, 79, 0.5); }
+  50% { box-shadow: 0 6px 30px rgba(255, 213, 79, 0.9); }
+}
+
 /* ---------------------------------------------------------------- splash */
 .splash {
   min-height: 100vh;

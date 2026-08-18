@@ -3,16 +3,14 @@
 This document describes the current system. It is kept up to date with every
 change so that any developer or AI can refer to it at any time.
 
-> **Latest update:** **Multi-super-admin + bigger cards + sequential bot joins**
-> — multiple Telegram IDs can now be **Super Admins** (configured via
-> `SUPER_ADMIN_IDS` env var). Bingo cards are **bigger for easy tapping**
-> (single card up to 320 px, cells 14–15 px, padding 12 px). Bots now
-> **join one-by-one during the preparation countdown** (one bot per tick)
-> so players feel like they're watching real humans pick cards. Admin
-> promotion/demotion persists reliably with a two-step upsert that works
-> on all SQLite versions. The 👑 Super panel no longer requires the caller
-> to be in `ADMIN_IDS` — membership in `SUPER_ADMIN_IDS` is the only
-> requirement.
+> **Latest update:** **New rooms + Auto-Play mode** — room bets changed to
+> **10 / 20 / 30 ETB** (was 30 / 50 / 100). A new **🤖 Auto Play** floating
+> button appears when a player's credit exceeds 100 ETB — pressing it enables
+> full automation: cards are **auto-selected** during preparation, called numbers
+> are **auto-daubed** on all cards, and **BINGO is auto-claimed** the instant a
+> winning pattern is detected. Multiple Super Admins supported via
+> `SUPER_ADMIN_IDS`. Cards are bigger (320 px, 14–15 px cells). Bots join
+> one-by-one during countdown.
 
 ---
 
@@ -220,8 +218,8 @@ game state also reports `user.eliminated` for the current round.
 ### 3.4 Rooms — fixed bets, separate games
 
 There is no bet input anymore. The Mini App shows a **room listbox** in the
-card picker with three options: **Room by 30 · Room by 50 · Room by 100**
-(`config.ROOM_BETS = [30, 50, 100]`, overridable via the `ROOM_BETS` env var).
+card picker with three options: **Room by 10 · Room by 20 · Room by 30**
+(`config.ROOM_BETS = [10, 20, 30]`, overridable via the `ROOM_BETS` env var).
 
 Each room is its **own game**: its own `game_state` row (phase, countdown,
 ball order, pool, round number), its own `card_selections`, `called_numbers`
@@ -231,7 +229,7 @@ shared — one credit balance across all rooms. A player may hold cards in
 several rooms at once (max `MAX_CARDS_PER_PLAYER` per room).
 
 API calls carry the room (`room` in the JSON body or query string); old
-clients/tests that omit it default to `config.ROOM_DEFAULT` (30). The bet per
+clients/tests that omit it default to `config.ROOM_DEFAULT` (10). The bet per
 card is always the room's value — any `bet_amount` sent by a client is
 ignored (the server is the authority). Bot players in a room wager the room's
 fixed amount too.
@@ -269,7 +267,39 @@ calls/daubs, medium on the BINGO press and round start, **success on a win
 modal for non-winners), error on a false-BINGO elimination (also when the
 elimination modal opens). Outside Telegram it falls back to `navigator.vibrate`.
 
-### 3.8 Bots — they play, and they win
+### 3.8 Auto-Play mode — hands-free bingo
+
+Players with credit exceeding `AUTO_PLAY_CREDIT_THRESHOLD` (100 ETB) see a
+**🤖 Auto Play** floating button in the top-right corner of the Mini App.
+
+When pressed (toggles on/off):
+
+1. **Preparation phase**: the client automatically calls `POST /api/quick-play`
+   to fill all card slots (up to `MAX_CARDS_PER_PLAYER`). This happens once
+   when entering preparation with auto-play on and the player has fewer cards
+   than the maximum.
+2. **Playing phase (auto-daub)**: every time the server pushes new called
+   numbers via polling, the client automatically marks ALL called numbers on
+   ALL of the player's cards — no manual tapping needed. The `marked` state
+   is updated in bulk on each poll tick.
+3. **Playing phase (auto-claim)**: after each daub update, client-side
+   pattern detection (`bingo.js → checkPatterns`) runs over the player's cards.
+   If ANY card has a complete winning pattern, the client immediately calls
+   `POST /api/claim-bingo` with that card's ID. The server is still the sole
+   judge — a false pattern will still result in elimination.
+
+**Implementation details:**
+- All auto-play logic is **client-side only** — no new backend endpoints.
+- Three `useEffect` hooks in `App.jsx` drive the three phases (auto-select,
+  auto-daub, auto-claim), each gated by the `autoPlay` state flag.
+- The button has a pulsing CSS animation (`autoPlayPulse` keyframes) and
+  changes to a gold gradient when active (`autoPlayGlow`).
+- Auto-play resets when the player switches rooms or when a new round starts
+  (the `marked` state is cleared, but `autoPlay` persists).
+- The threshold is configurable: `AUTO_PLAY_CREDIT_THRESHOLD` constant in
+  `App.jsx` (currently 100).
+
+### 3.9 Bots — they play, and they win
 
 Bots are **enabled by default** (`game_state.bots_enabled` defaults to 1; the
 admin can toggle them via `/api/admin/bots/toggle`). They are **topped up
@@ -515,7 +545,7 @@ Tables: `players`, `game_state`, `cards`, `card_selections`, `called_numbers`,
 `round_eliminations`, `appeals`, `bot_notifications`, `settings`, plus the
 read-only `profiles` view.
 
-Rooms: `game_state` is keyed by **`room`** (the fixed bet, 30/50/100) — one
+Rooms: `game_state` is keyed by **`room`** (the fixed bet, 10/20/30) — one
 row per room, each with its own phase, countdown, ball order, pool and round
 number. `card_selections`, `called_numbers` and `games` carry a `room` column
 (legacy rows migrate to room 30 automatically).
@@ -736,10 +766,10 @@ server + tunnel + bot.
 | `database.py` | schema, migrations, wallet/elimination/accounts storage, admin credit + online + deposit-account selection, appeals + notification queue |
 | `game_loop.py` | round lifecycle, claim validation + elimination, sequential bot joining during preparation |
 | `game_logic.py` | patterns, winner lookup (skips eliminated), prize pool, bot names |
-| `config.py` | `APP_CURRENCY`, rooms (`ROOM_BETS`), timing, `ADMIN_IDS`, `SUPER_ADMIN_IDS`, `ADMIN_APPROVAL_RATE`, `ADMIN_ONLINE_MINUTES` |
+| `config.py` | `APP_CURRENCY`, rooms (`ROOM_BETS` default: 10/20/30), timing, `ADMIN_IDS`, `SUPER_ADMIN_IDS`, `ADMIN_APPROVAL_RATE`, `ADMIN_ONLINE_MINUTES` |
 | `migrate_db.py` | idempotent schema/seed helper |
 | `api_smoke.py` / `smoke_test.py` | offline test suites (incl. super admin, appeals, admin-credit, online model) |
-| `frontend/src/…` | React Mini App (Registration, Settings, AdminPanel, **SuperAdminPanel**, App) |
+| `frontend/src/…` | React Mini App (Registration, Settings, AdminPanel, **SuperAdminPanel**, App with **Auto-Play**) |
 | `frontend/dist/` | Built production assets (Vite/React) — served by Flask |
 | `wsgi.py` | PythonAnywhere WSGI entry point — loads server + bot webhook |
 | `Dockerfile` / `run_prod.py` | cloud image + supervisor (server + bot in one container) |
@@ -789,6 +819,26 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 
 ## Changelog
 
+### 2026-08-18 — New rooms + Auto-Play mode
+
+**Changes:**
+* **Room bets changed**: from [30, 50, 100] to [10, 20, 30] ETB per card.
+  Overridable via `ROOM_BETS` env var.
+* **Auto-Play mode**: floating `🤖 Auto Play` button appears when credit >
+  100 ETB. When active, the client auto-selects cards during preparation,
+  auto-daubs all called numbers on the player's cards, and auto-claims BINGO
+  when a winning pattern is detected. All logic is client-side (no new API).
+* **Bigger bingo cards**: single card max-width 320px, cells 14–15px,
+  padding 12px.
+* **Sequential bot joins**: one bot per tick during countdown.
+* **Multiple Super Admins** + admin promotion/demotion persistence fixes.
+* **Critical `user_id` overwrite fix** in `api.js`.
+
+**Files changed:** `config.py`, `game_loop.py`, `frontend/src/App.jsx`,
+`frontend/src/styles.css`, `technical_documentation.md`
+
+**Database:** untouched — production `bingo_bot.db` preserved.
+
 ### 2026-08-18 — Multi-super-admin + bigger cards + sequential bot joins
 
 **Changes:**
@@ -800,6 +850,16 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 * **Admin promotion persistence**: `set_admin()` uses a two-step upsert
   (UPDATE then INSERT) instead of `ON CONFLICT`, compatible with all SQLite
   versions. Promoted admins now reliably persist after page refresh.
+* **CRITICAL `user_id` overwrite fix in `api.js`**: The `request()` function
+  was `{ ...(options.body), user_id: user.id }` — the spread came first, then
+  `user_id` always overwrote it with the caller's own ID. Fixed to
+  `{ user_id: user.id, ...(options.body) }` so the target user_id from the
+  request body is preserved. This caused ALL super-admin actions (promote,
+  credit, delete) to silently target the super admin instead of the intended
+  user.
+* **Promoted user appears online**: `api_superadmin_set_admin` now calls
+  `db.touch_admin(target)` on promotion so the user's `last_seen` is set
+  immediately instead of showing as offline.
 * **Bigger bingo cards**: single card max-width 320px (was 270px), cell font
   14–15px (was 13–14px), padding 12px (was 9–10px), grid gaps increased.
 * **Sequential bot joins**: during preparation, bots join one per tick (every
@@ -808,6 +868,6 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 * **Technical documentation** updated and placed in the project root.
 
 **Files changed:** `config.py`, `database.py`, `server.py`, `game_loop.py`,
-`frontend/src/styles.css`, `technical_documentation.md`
+`frontend/src/api.js`, `frontend/src/styles.css`, `technical_documentation.md`
 
 **Database:** untouched — production `bingo_bot.db` preserved.

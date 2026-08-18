@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
 import { getTelegramUser, haptic } from './telegram.js';
 import { playBall, playRoundStart, playWin, playLose, playCountdown, playClick, playDaub } from './sound.js';
-import { checkPatterns, PATTERN_LABELS, cellKey } from './bingo.js';
+import { checkPatterns, PATTERN_LABELS, cellKey, LETTERS } from './bingo.js';
 import Header from './components/Header.jsx';
 import CalledBoard, { COLORS as BALL_COLORS } from './components/CalledBoard.jsx';
 import BingoCard from './components/BingoCard.jsx';
@@ -20,6 +20,9 @@ const POLL_MS_IDLE = 4000;   // preparation / ended: fewer requests = lighter se
 // INSTANTLY (stale-while-revalidate) instead of staring at the splash screen
 const SESSION_CACHE_KEY = 'bingo_session_v1';
 const ROOM_CACHE_KEY = 'bingo_room_v1';
+
+// Auto-play threshold: players with more than this credit see the Auto-Play button
+const AUTO_PLAY_CREDIT_THRESHOLD = 100;
 
 function cacheSession(s) {
   try { sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
@@ -41,9 +44,12 @@ export default function App() {
   // claim against the real called numbers when BINGO is pressed.
   // shape: { card_id: Set<"B-7", "N-44", ...> }
   const [marked, setMarked] = useState({});
+  // AUTO-PLAY: when enabled, the client auto-selects cards, auto-daubs called
+  // numbers, and auto-claims BINGO — no manual tapping required.
+  const [autoPlay, setAutoPlay] = useState(false);
   // the room (fixed bet) this player is currently in — picked via a listbox
   // in the card picker. Each room is its own game.
-  const [room, setRoom] = useState(30);
+  const [room, setRoom] = useState(10);
   const prev = useRef({ count: -1, phase: null });
 
   const state = session?.state;
@@ -71,7 +77,7 @@ export default function App() {
   // bootstrap: paint the cached state instantly (if any), then refresh live
   useEffect(() => {
     (async () => {
-      let initialRoom = 30;
+      let initialRoom = 10;
       try {
         const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
         if (raw) {
@@ -209,6 +215,57 @@ export default function App() {
     if (state?.phase === 'preparation') setMarked({});
   }, [state?.phase]);
 
+  // ---- AUTO-PLAY: auto-select cards during preparation ----
+  useEffect(() => {
+    if (!autoPlay || state?.phase !== 'preparation') return;
+    const maxCards = state?.config?.max_cards || 3;
+    if (myCards.length < maxCards && myUser?.credit >= room) {
+      // use quick-play to auto-fill card slots
+      api.quickPlay(room)
+        .then(() => refresh())
+        .catch(() => {}); // silent — credit may be insufficient
+    }
+  }, [autoPlay, state?.phase, myCards.length, myUser?.credit, room, refresh, state?.config?.max_cards]);
+
+  // ---- AUTO-PLAY: auto-daub all called numbers on the player's cards ----
+  useEffect(() => {
+    if (!autoPlay || state?.phase !== 'playing' || myCards.length === 0) return;
+    // mark every called number on every card
+    setMarked((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const c of myCards) {
+        const cur = new Set(prev[c.card_id] || []);
+        for (const key of state.called_numbers || []) {
+          if (!cur.has(key)) {
+            cur.add(key);
+            changed = true;
+          }
+        }
+        next[c.card_id] = cur;
+      }
+      return changed ? next : prev;
+    });
+  }, [autoPlay, state?.phase, state?.called_numbers, myCards]);
+
+  // ---- AUTO-PLAY: auto-claim BINGO when a pattern is detected ----
+  useEffect(() => {
+    if (!autoPlay || state?.phase !== 'playing' || myCards.length === 0) return;
+    if (myUser?.eliminated || state.winner) return;
+    // check if any card has a winning pattern using current daubs
+    for (const c of myCards) {
+      const r = checkPatterns(c.numbers, marked[c.card_id] || new Set());
+      if (r.patterns.length > 0) {
+        // pattern found — auto-claim!
+        haptic('medium');
+        api.claimBingo(c.card_id, room)
+          .then(() => refresh())
+          .catch(() => refresh());
+        break;
+      }
+    }
+  }, [autoPlay, state?.phase, marked, myCards, myUser?.eliminated, state?.winner, room, refresh]);
+
   // client-side pattern highlighting runs over the player's OWN daubs and is
   // VISUAL ONLY — the button stays active for every player with cards so the
   // SERVER can judge the claim against the real called numbers
@@ -305,6 +362,17 @@ export default function App() {
         connected={!error}
       />
 
+      {/* AUTO-PLAY: floating button — appears when credit > threshold */}
+      {(myUser?.credit ?? 0) >= AUTO_PLAY_CREDIT_THRESHOLD && (
+        <button
+          className={`auto-play-btn ${autoPlay ? 'active' : ''}`}
+          onClick={() => { playClick(); haptic('medium'); setAutoPlay((a) => !a); }}
+          title={autoPlay ? 'Disable auto-play' : 'Enable auto-play — cards are selected, numbers daubed, and BINGO claimed automatically!'}
+        >
+          {autoPlay ? '🤖 Auto ON' : '🤖 Auto Play'}
+        </button>
+      )}
+
       {showAdmin && myUser?.is_admin && (
         <AdminPanel room={room} onError={showError} onChanged={handleChanged} />
       )}
@@ -350,7 +418,7 @@ export default function App() {
           <CardPicker
             selections={myCards}
             maxCards={cfg.max_cards || 3}
-            rooms={cfg.rooms || [30, 50, 100]}
+            rooms={cfg.rooms || [10, 20, 30]}
             room={room}
             onRoomChange={changeRoom}
             credit={myUser?.credit ?? 0}
