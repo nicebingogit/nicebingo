@@ -2,17 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { playClick } from '../sound.js';
 
-const PAGE_SIZE = 100; // render the 400-card pool in chunks so the grid stays smooth
-
 export default function CardPicker({ selections, maxCards, rooms, room, onRoomChange, credit, onChanged, onError }) {
   const [cards, setCards] = useState(null);
-  const [visible, setVisible] = useState(PAGE_SIZE);
   const [busy, setBusy] = useState(null);
   const [quickBusy, setQuickBusy] = useState(false);
 
   useEffect(() => {
     setCards(null);
-    setVisible(PAGE_SIZE);
     api.cards(room).then(setCards).catch((e) => onError?.(e.message));
   }, [room, onError]);
 
@@ -95,7 +91,7 @@ export default function CardPicker({ selections, maxCards, rooms, room, onRoomCh
       )}
 
       <div className="card-grid-picker">
-        {cards.slice(0, visible).map((card) => {
+        {cards.map((card) => {
           const status = takenByOthers.get(card.id);
           const mine = status === 'mine';
           const taken = status === 'taken';
@@ -118,14 +114,7 @@ export default function CardPicker({ selections, maxCards, rooms, room, onRoomCh
           );
         })}
       </div>
-      {visible < cards.length && (
-        <button
-          className="btn btn-ghost load-more"
-          onClick={() => { playClick(); setVisible((v) => v + PAGE_SIZE); }}
-        >
-          Show more cards ({cards.length - visible} left)
-        </button>
-      )}
+
       <div className="picker-hint">
         Tap a number to select it · tap again to remove (full refund) · {room} ETB / card
       </div>
