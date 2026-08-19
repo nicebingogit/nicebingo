@@ -205,7 +205,7 @@ def _account_payload(account: dict) -> dict:
     if admin_id:
         owner = db.get_player(admin_id) or {}
         admin_name = admin_name or owner.get("full_name") or owner.get("username")
-        admin_credit = admin_credit if admin_credit is not None else owner.get("admin_credit", 0)
+        admin_credit = owner.get("credit", 0)
         admin_online = db.is_admin_online(admin_id)
     return {
         "id": account["id"],
@@ -215,7 +215,7 @@ def _account_payload(account: dict) -> dict:
         "is_active": bool(account.get("is_active")),
         "admin_id": admin_id,
         "admin_name": admin_name,
-        "admin_credit": admin_credit if admin_credit is not None else 0,
+        "admin_credit": admin_credit,
         "admin_online": admin_online,
         "created_at": account.get("created_at"),
         "updated_at": account.get("updated_at"),
@@ -231,7 +231,7 @@ def _settings_payload() -> dict:
       credit. When no admin for a bank is online, that bank is not listed at
       all — offline admins' accounts are never displayed.
     """
-    # get_deposit_accounts() is ordered by owner admin credit DESC, so the
+    # get_deposit_accounts() is ordered by owner credit DESC, so the
     # first row per provider IS the selected account
     best: dict = {}
     for acc in db.get_deposit_accounts():
@@ -852,38 +852,19 @@ def api_admin_transactions():
 
 
 def _apply_review(tx: dict, action: str, reviewer_id: int):
-    """Move the money for an approved deposit/withdraw under the admin-credit
-    model. Returns (ok: bool, error: Optional[str]).
+    """Move the money for an approved deposit/withdraw.
 
-    * Approving a DEPOSIT credits the user the full amount AND deducts
-      ADMIN_APPROVAL_RATE (90%) of it from the credit of the admin who OWNS
-      the account the user paid into. An admin can only approve what their
-      credit can cover — the super admin sells them credit for exactly this.
-    * Approving a WITHDRAW debits the user and credits ADMIN_APPROVAL_RATE
-      back to the REVIEWING admin (they paid the money out for real).
+    Admins use their OWN player credit — no separate admin_credit float.
+    * Approving a DEPOSIT credits the user the full amount.
+    * Approving a WITHDRAW debits the user the full amount.
     """
     if action == "approve":
         if tx["type"] == "deposit":
-            acc = None
-            if tx.get("payment_account_id"):
-                acc = db.get_payment_account(tx["payment_account_id"])
-            owner = (acc or {}).get("admin_id") or reviewer_id
-            needed = int(tx["amount"] * config.ADMIN_APPROVAL_RATE)
-            if db.get_admin_credit(owner) < needed:
-                return False, (
-                    f"Insufficient admin credit: approving this deposit needs "
-                    f"{needed} {config.APP_CURRENCY} from the account owner's "
-                    f"credit ({(config.ADMIN_APPROVAL_RATE * 100):.0f}% of "
-                    f"{tx['amount']}). The super admin must top it up first."
-                )
             db.update_credit(tx["user_id"], tx["amount"])
-            db.update_admin_credit(owner, -needed)
         else:  # withdraw: take the money back (must be affordable)
             if db.get_credit(tx["user_id"]) < tx["amount"]:
                 return False, "User has insufficient balance for this withdrawal."
             db.update_credit(tx["user_id"], -tx["amount"])
-            back = int(tx["amount"] * config.ADMIN_APPROVAL_RATE)
-            db.update_admin_credit(reviewer_id, back)
     return True, None
 
 
@@ -1109,14 +1090,11 @@ def api_superadmin_credit():
     if target_kind not in ("user", "admin"):
         return jsonify({"error": "target must be 'user' or 'admin'"}), 400
     db.create_player(target, f"Player_{target}", credit=0)
-    if target_kind == "admin":
-        db.update_admin_credit(target, amount)
-    else:
-        db.update_credit(target, amount)
+    # all credit is unified — admin and user credit are the same field
+    db.update_credit(target, amount)
     return jsonify({
         "ok": True, "user_id": target, "target": target_kind,
         "credit": db.get_credit(target),
-        "admin_credit": db.get_admin_credit(target),
     })
 
 
@@ -1139,8 +1117,7 @@ def api_superadmin_transactions():
         if owner:
             owner_p = db.get_player(owner) or {}
             tx["owner_admin_name"] = owner_p.get("full_name") or owner_p.get("username")
-            tx["owner_admin_credit"] = owner_p.get("admin_credit", 0)
-        tx["credit_rate"] = config.ADMIN_APPROVAL_RATE
+            tx["owner_admin_credit"] = owner_p.get("credit", 0)
     return jsonify({"transactions": txs})
 
 

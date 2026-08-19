@@ -16,10 +16,9 @@ export default function SuperAdminPanel({ onError }) {
   const [appeals, setAppeals] = useState([]);
   const [flash, setFlash] = useState('');
 
-  // user detail modal (click a row) — credit editing for USER and ADMIN credit
+  // user detail modal (click a row) — credit editing
   const [selected, setSelected] = useState(null);
   const [editAmt, setEditAmt] = useState('');
-  const [editKind, setEditKind] = useState('user');
   const [detailMsg, setDetailMsg] = useState('');
 
   // account management
@@ -62,11 +61,10 @@ export default function SuperAdminPanel({ onError }) {
     if (!selected) return;
     playClick();
     try {
-      const r = await api.superAdmin.credit(selected.user_id, delta, editKind);
+      const r = await api.superAdmin.credit(selected.user_id, delta, 'user');
       await loadUsers();
       setSelected((s) => (s ? { ...s, ...r } : s));
-      const label = editKind === 'admin' ? 'admin credit' : 'credit';
-      setDetailMsg(`✅ ${delta > 0 ? '+' : ''}${delta} ${label} · now ${editKind === 'admin' ? r.admin_credit : r.credit}`);
+      setDetailMsg(`✅ ${delta > 0 ? '+' : ''}${delta} credit · now ${r.credit}`);
       setTimeout(() => setDetailMsg(''), 3000);
       setEditAmt('');
     } catch (err) {
@@ -172,8 +170,7 @@ export default function SuperAdminPanel({ onError }) {
       {flash && <div className="admin-flash">{flash}</div>}
 
       {/* -------------------------------------------------------- OVERVIEW */}
-      {tab === 'overview' && (
-        <div className="admin-stats">
+      {tab === 'overview' && (            <div className="admin-stats">
           <div>Accounts (users+admins): <b>{users.length}</b></div>
           <div>Admins: <b>{admins.length}</b></div>
           <div>Pending wallet requests: <b>{pendingTxs}</b></div>
@@ -181,7 +178,7 @@ export default function SuperAdminPanel({ onError }) {
           <div>Payment accounts: <b>{accounts.length}</b></div>
           <div className="reg-hint" style={{ marginTop: 8 }}>
             You control every account (admin or user), every transaction log,
-            admin credits (selling credit to admins) and wallet appeals.
+            and wallet appeals.
           </div>
         </div>
       )}
@@ -189,18 +186,15 @@ export default function SuperAdminPanel({ onError }) {
       {/* ------------------------------------------------- ALL ACCOUNTS */}
       {tab === 'users' && (
         <div className="users-tab">
-          <p className="reg-hint">
-            Every account — admins AND users. Tap a row to change their{' '}
-            <b>credit</b> (player wallet) or <b>admin credit</b> (the float
-            admins spend when approving deposits — this is how you sell credit
-            to admins).
+          <p className="reg-hint">              Every account — admins AND users. Tap a row to change their{' '}
+            <b>credit</b>.
           </p>
           <div className="user-list">
             {users.map((u) => (
               <button
                 key={u.user_id}
                 className={`user-row clickable ${u.is_registered ? '' : 'unreg'}`}
-                onClick={() => { playClick(); setSelected(u); setEditAmt(''); setEditKind('user'); setDetailMsg(''); }}
+                onClick={() => { playClick(); setSelected(u); setEditAmt(''); setDetailMsg(''); }}
               >
                 <div className="user-info">
                   <div className="user-name">
@@ -216,9 +210,6 @@ export default function SuperAdminPanel({ onError }) {
                 </div>
                 <div className="user-credit">
                   <b className="gold">{u.credit} ETB</b>
-                  {u.is_admin && (
-                    <span className="user-btn hint">💳 {u.admin_credit ?? 0} admin</span>
-                  )}
                   <span className="user-btn hint">Details ›</span>
                 </div>
               </button>
@@ -249,9 +240,6 @@ export default function SuperAdminPanel({ onError }) {
                     {t.phone ? ` · ${t.phone}` : ''}
                     {t.provider ? ` · ${t.provider}${t.account_holder ? ` / ${t.account_holder}` : ''} ${t.account_number ? `(${t.account_number})` : ''}` : ''}
                     {t.tx_id ? ` · Ref ${t.tx_id}` : ''} · {t.created_at?.slice(0, 16)}
-                    {t.type === 'deposit' && t.owner_admin_name
-                      ? ` · owner ${t.owner_admin_name} (${t.owner_admin_credit ?? 0} credit)`
-                      : ''}
                     {t.status !== 'pending' ? ` · reviewed ${t.reviewed_at?.slice(0, 16)}` : ''}
                   </span>
                 </div>
@@ -291,7 +279,7 @@ export default function SuperAdminPanel({ onError }) {
                   <div className="user-meta">
                     {a.account_number} · owner{' '}
                     <b>{a.admin_name || `#${a.admin_id || '?'}`}</b>
-                    {a.admin_online ? ' 🟢 online' : ' ⚪ offline'} · {a.admin_credit ?? 0} admin credit
+                    {a.admin_online ? ' 🟢 online' : ' ⚪ offline'}
                   </div>
                 </div>
                 <div className="user-credit">
@@ -402,18 +390,8 @@ export default function SuperAdminPanel({ onError }) {
             <div className="credit-edit">
               <div className="wallet-form-title">
                 💰 Credit: <b className="gold">{selected.credit} ETB</b>
-                {selected.is_admin && (
-                  <> · 💳 Admin credit: <b className="gold">{selected.admin_credit ?? 0} ETB</b></>
-                )}
               </div>
               <div className="wallet-form-row">
-                <select
-                  value={editKind}
-                  onChange={(e) => { playClick(); setEditKind(e.target.value); }}
-                >
-                  <option value="user">Player credit</option>
-                  {selected.is_admin && <option value="admin">Admin credit</option>}
-                </select>
                 <input
                   type="number" min="1" placeholder="amount"
                   value={editAmt} onChange={(e) => setEditAmt(e.target.value)}
@@ -435,9 +413,7 @@ export default function SuperAdminPanel({ onError }) {
               </div>
               {detailMsg && <div className="admin-flash">{detailMsg}</div>}
               <p className="reg-hint">
-                {editKind === 'admin'
-                  ? 'Admin credit is the float admins spend when approving deposits (90% of each approved deposit) — sell it to them here.'
-                  : 'Changes the player wallet balance.'}
+                Changes the player wallet balance.
               </p>
             </div>
 
@@ -461,8 +437,7 @@ export default function SuperAdminPanel({ onError }) {
               )}
               <p className="reg-hint">
                 Admins get the 🛠 Admin panel, can post their own payment
-                accounts and approve wallet requests with their own admin
-                credit.
+                accounts and approve wallet requests.
               </p>
             </div>
           </div>
