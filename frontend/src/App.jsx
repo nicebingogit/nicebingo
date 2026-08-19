@@ -362,8 +362,8 @@ export default function App() {
         connected={!error}
       />
 
-      {/* AUTO-PLAY: floating button — appears when credit > threshold */}
-      {(myUser?.credit ?? 0) >= AUTO_PLAY_CREDIT_THRESHOLD && (
+      {/* AUTO-PLAY: floating button — appears when credit > threshold, hidden during play */}
+      {state?.phase !== 'playing' && (myUser?.credit ?? 0) >= AUTO_PLAY_CREDIT_THRESHOLD && (
         <button
           className={`auto-play-btn ${autoPlay ? 'active' : ''}`}
           onClick={() => { playClick(); haptic('medium'); setAutoPlay((a) => !a); }}

@@ -685,6 +685,12 @@ in `ADMIN_IDS` or have `is_admin=1` in the DB.
   server while nothing is changing.
 * **All cards visible** — the card picker renders the full pool at once
   (pagination removed) for instant scrolling on mobile WebViews.
+* **Auto-play button hides during play** — the floating 🤖 Auto Play button
+  disappears once the round starts (`phase === 'playing'`), freeing screen
+  space for cards and the calling board.
+* **Compact 3-card layout** — triple cards use tighter padding (8 px),
+  smaller cells (14 px font), and reduced gaps (3 px) so 3 cards + BINGO
+  button fit on a single phone screen without scrolling.
 * **Concurrency** — Flask runs threaded, SQLite uses WAL (concurrent readers
   with a single writer) and each room already runs independently, so many
   players can sit in the same room at once (bots only top the room up to
