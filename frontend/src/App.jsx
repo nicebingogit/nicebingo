@@ -22,7 +22,7 @@ const SESSION_CACHE_KEY = 'bingo_session_v1';
 const ROOM_CACHE_KEY = 'bingo_room_v1';
 
 // Auto-play threshold: players with more than this credit see the Auto-Play button
-const AUTO_PLAY_CREDIT_THRESHOLD = 100;
+const AUTO_PLAY_CREDIT_THRESHOLD = 4;
 
 function cacheSession(s) {
   try { sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(s)); } catch { /* ignore */ }

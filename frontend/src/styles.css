@@ -177,24 +177,24 @@ body::before {
 .pick-chip:hover { background: rgba(255, 95, 122, 0.18); border-color: var(--danger); }
 .pick-x { opacity: 0.7; margin-left: 4px; }
 
-.card-grid-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 8px; }
+.card-grid-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px; }
 .pick-tile {
   position: relative;
-  background: linear-gradient(180deg, #10152f, #0c1026);
-  border: 1px solid var(--border); border-radius: 12px; padding: 12px 4px 10px; cursor: pointer;
-  font-family: inherit; font-weight: 800; font-size: 14px; color: var(--text);
+  background: linear-gradient(180deg, #12183a, #0c1026);
+  border: 1px solid var(--border); border-radius: 14px; padding: 14px 6px 12px; cursor: pointer;
+  font-family: inherit; font-weight: 800; font-size: 15px; color: var(--text);
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .pick-tile:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--blue); box-shadow: 0 6px 16px rgba(62, 200, 255, 0.18); }
-.pick-tile.mine { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 12px rgba(255, 213, 79, 0.35); }
+.pick-tile.mine { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 16px rgba(255, 213, 79, 0.4); background: linear-gradient(180deg, #1a1d38, #14162e); }
 .pick-tile.taken { opacity: 0.35; cursor: not-allowed; }
 .pick-tile:disabled { pointer-events: none; }
 .pick-tile-id { display: block; line-height: 1.2; }
 .pick-tile-badge {
-  position: absolute; top: -7px; right: -7px;
-  width: 20px; height: 20px; border-radius: 50%; font-size: 12px; line-height: 20px;
+  position: absolute; top: -8px; right: -8px;
+  width: 22px; height: 22px; border-radius: 50%; font-size: 12px; line-height: 22px;
   background: var(--gold); color: #111; font-weight: 900;
-  box-shadow: 0 2px 8px rgba(255, 213, 79, 0.5); animation: pop 0.3s ease both;
+  box-shadow: 0 3px 10px rgba(255, 213, 79, 0.55); animation: pop 0.3s ease both;
 }
 .pick-tile-badge.lock { background: var(--purple); color: #fff; box-shadow: 0 2px 8px rgba(217, 92, 255, 0.5); font-size: 10px; line-height: 20px; }
 .picker-hint { color: var(--muted); font-size: 11px; margin-top: 10px; text-align: center; }
@@ -203,15 +203,15 @@ body::before {
 .phase-play { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 
 .current-call {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 4px 10px; backdrop-filter: blur(10px); box-shadow: var(--shadow);
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: linear-gradient(135deg, rgba(19,26,58,0.8), rgba(19,26,58,0.6)); border: 1px solid rgba(120,132,255,0.18); border-radius: var(--radius);
+  padding: 6px 14px; backdrop-filter: blur(12px); box-shadow: 0 6px 24px rgba(0,0,0,0.3);
 }
 .cc-ball {
-  flex: 0 0 auto; font-size: 14px; font-weight: 900; color: #0b0f24;
+  flex: 0 0 auto; font-size: 15px; font-weight: 900; color: #0b0f24;
   background: radial-gradient(circle at 32% 28%, #ffe9a8, var(--gold) 55%, #c99b1e);
-  border-radius: 50%; width: 34px; height: 34px; line-height: 34px; text-align: center;
-  box-shadow: 0 0 0 5px rgba(255, 213, 79, 0.16), 0 0 22px rgba(255, 213, 79, 0.5), inset 0 -4px 8px rgba(0, 0, 0, 0.3);
+  border-radius: 50%; width: 38px; height: 38px; line-height: 38px; text-align: center;
+  box-shadow: 0 0 0 5px rgba(255, 213, 79, 0.16), 0 0 26px rgba(255, 213, 79, 0.55), inset 0 -4px 8px rgba(0, 0, 0, 0.3);
   animation: ballIn 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
 }
 @keyframes ballIn { 0% { transform: scale(0.3); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
@@ -226,39 +226,39 @@ body::before {
 .game-board { min-width: 0; }
 .game-left { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 
-.my-cards { display: grid; gap: 10px; min-width: 0; }
+.my-cards { display: grid; gap: 12px; min-width: 0; }
 .my-cards .bingo-card { box-shadow: none; min-width: 0; }
 /* a single card must stay compact and centered — a full-width card would push
    the BINGO button below the screen edge on phones */
 .my-cards.single { justify-items: center; }
 .my-cards.single .bingo-card { width: 100%; max-width: 320px; }
 .bingo-card {
-  position: relative; background: linear-gradient(180deg, #121a3d, #0d1230);
-  border: 1px solid var(--border); border-radius: 14px; padding: 10px;
-  box-shadow: var(--shadow);
+  position: relative; background: linear-gradient(180deg, #131c42, #0d1230);
+  border: 1px solid rgba(120, 132, 255, 0.20); border-radius: 16px; padding: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.04);
 }
-.bingo-card.small { padding: 12px; }
+.bingo-card.small { padding: 14px; }
 .bingo-card.winning { border-color: var(--gold); animation: winGlow 1.1s ease infinite; }
 @keyframes winGlow { 0%, 100% { box-shadow: 0 0 10px rgba(255, 213, 79, 0.25); } 50% { box-shadow: 0 0 26px rgba(255, 213, 79, 0.6); } }
-.card-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.card-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 10px; font-weight: 700; }
 .card-bet { color: var(--gold); font-weight: 700; }
-.card-grid { display: flex; flex-direction: column; gap: 3px; }
-.card-row { display: flex; gap: 3px; }
+.card-grid { display: flex; flex-direction: column; gap: 4px; }
+.card-row { display: flex; gap: 4px; }
 .card-cell {
   flex: 1; aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-  background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 8px; font-size: 15px; font-weight: 700; color: var(--text);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px; font-size: 16px; font-weight: 700; color: var(--text);
   padding: 0; margin: 0; font-family: inherit; line-height: 1; cursor: default;
   appearance: none; -webkit-appearance: none;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease;
 }
-.bingo-card.small .card-cell { font-size: 13px; border-radius: 7px; }
-.card-cell.head { background: rgba(255, 255, 255, 0.02); border: none; font-weight: 900; cursor: default; }
-.card-cell.free { background: rgba(255, 213, 79, 0.14); color: var(--gold); border-color: rgba(255, 213, 79, 0.5); }
+.bingo-card.small .card-cell { font-size: 14px; border-radius: 8px; }
+.card-cell.head { background: rgba(255, 255, 255, 0.03); border: none; font-weight: 900; cursor: default; font-size: 14px; letter-spacing: 1px; }
+.card-cell.free { background: rgba(255, 213, 79, 0.16); color: var(--gold); border-color: rgba(255, 213, 79, 0.5); box-shadow: inset 0 0 8px rgba(255,213,79,0.1); }
 /* a number the player daubed themselves (manual play) */
 .card-cell.marked {
   color: #fff; background: rgba(255, 95, 122, 0.30);
-  border-color: rgba(255, 95, 122, 0.75); box-shadow: 0 0 8px rgba(255, 95, 122, 0.35);
+  border-color: rgba(255, 95, 122, 0.75); box-shadow: 0 0 10px rgba(255, 95, 122, 0.35), inset 0 0 6px rgba(255,95,122,0.15);
 }
 .card-cell.daubable { cursor: pointer; }
 .card-cell.daubable:hover { border-color: var(--blue); transform: scale(1.06); }
@@ -277,24 +277,24 @@ body::before {
 .bingo-card.small .card-head { margin-bottom: 8px; }
 .bingo-card.small .card-grid { gap: 4px; }
 .bingo-card.small .card-row { gap: 4px; }
-.bingo-card.small .card-cell { font-size: 14px; border-radius: 8px; }
+.bingo-card.small .card-cell { font-size: 15px; border-radius: 8px; }
 /* 2-3 cards get BIG cells for easy tapping — 3 cards wrap 2+1 (two per row)
    so each card is wide enough to touch; the play layout stays height-capped
    and compact so everything still fits on one screen */
-.bingo-card.triple { padding: 12px; }
+.bingo-card.triple { padding: 14px; }
 .bingo-card.triple .card-head { font-size: 13px; margin-bottom: 8px; }
 .bingo-card.triple .card-grid { gap: 5px; }
 .bingo-card.triple .card-row { gap: 5px; }
-.bingo-card.triple .card-cell { font-size: 15px; border-radius: 9px; }
+.bingo-card.triple .card-cell { font-size: 16px; border-radius: 9px; }
 
 .bingo-btn {
-  width: 100%; font-size: 16px; padding: 12px; border-radius: 14px;
+  width: 100%; font-size: 17px; padding: 14px; border-radius: 16px;
   background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); color: var(--muted);
-  cursor: not-allowed;
+  cursor: not-allowed; font-weight: 800; letter-spacing: 0.5px;
 }
 .bingo-btn.claimable {
-  background: linear-gradient(90deg, var(--pink), #ff9a3d); border: none; color: #fff;
-  font-weight: 900; cursor: pointer;
+  background: linear-gradient(135deg, var(--pink), #ff9a3d); border: none; color: #fff;
+  font-weight: 900; cursor: pointer; box-shadow: 0 6px 24px rgba(255,95,122,0.35);
 }
 .bingo-btn.ready { animation: claimPulse 0.8s ease infinite; }
 @keyframes claimPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 95, 122, 0.7); } 50% { box-shadow: 0 0 0 12px rgba(255, 95, 122, 0); } }
@@ -303,8 +303,8 @@ body::before {
 /* called numbers run horizontally: one row per letter, 15 balls across */
 .board {
   display: flex; flex-direction: column; gap: 2px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 4px; backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(19,26,58,0.75), rgba(19,26,58,0.55)); border: 1px solid rgba(120,132,255,0.18); border-radius: var(--radius);
+  padding: 6px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
 }
 .board-row { display: flex; align-items: center; gap: 4px; }
 .board-letter {
@@ -315,9 +315,9 @@ body::before {
 .ball {
   aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 7.5px; color: rgba(255, 255, 255, 0.45); font-weight: 700;
+  font-size: 8px; color: rgba(255, 255, 255, 0.45); font-weight: 700;
 }
-.ball.on { background: rgba(255, 255, 255, 0.15); font-weight: 900; }
+.ball.on { background: rgba(255, 213, 79, 0.12); border-color: rgba(255,213,79,0.25); color: var(--gold); font-weight: 900; }
 .ball.last { animation: lastPop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1); }
 @keyframes lastPop { 0% { transform: scale(1.6); } 100% { transform: scale(1); } }
 
@@ -624,8 +624,8 @@ body::before {
 /* --------------------------------------------- called strip (multi-card) */
 .called-strip {
   display: flex; align-items: center; gap: 8px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-  padding: 6px 8px; backdrop-filter: blur(10px);
+  background: linear-gradient(135deg, rgba(19,26,58,0.75), rgba(19,26,58,0.55)); border: 1px solid rgba(120,132,255,0.18); border-radius: 14px;
+  padding: 8px 10px; backdrop-filter: blur(12px); box-shadow: 0 4px 16px rgba(0,0,0,0.2);
 }
 .called-strip-label {
   flex: 0 0 auto; color: var(--gold); font-size: 11px; font-weight: 800; letter-spacing: 0.4px;
@@ -635,9 +635,9 @@ body::before {
   scrollbar-width: thin;
 }
 .strip-ball {
-  flex: 0 0 auto; min-width: 34px; padding: 4px 6px; border-radius: 999px;
+  flex: 0 0 auto; min-width: 36px; padding: 5px 7px; border-radius: 999px;
   background: rgba(255, 255, 255, 0.05);
-  font-size: 10px; font-weight: 900; font-family: inherit; line-height: 1;
+  font-size: 11px; font-weight: 900; font-family: inherit; line-height: 1;
   appearance: none; -webkit-appearance: none; cursor: pointer;
   color: var(--ball-color, var(--text)); border: 1px solid var(--ball-color, var(--border));
   transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
@@ -711,14 +711,19 @@ body::before {
 
 /* ------------------------------------------------------------- responsive */
 @media (max-width: 640px) {
-  .card-grid-picker { grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); }
+  .card-grid-picker { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 8px; }
+  .card-cell { font-size: 15px; }
+  .bingo-card { padding: 10px; border-radius: 14px; }
 }
 @media (max-width: 420px) {
   .brand-letter { font-size: 25px; }
   .countdown-num { font-size: 32px; }
   .card-grid-picker { gap: 6px; }
+  .card-grid-picker { grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); }
   .board-balls { gap: 2px; }
   .ball { font-size: 7.5px; }
+  .card-cell { font-size: 14px; }
+  .bingo-card { padding: 8px; }
 }
 /* ------------------------------------------------------------ smooth animations */
 
@@ -727,12 +732,12 @@ body::before {
   transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
               border-color 0.2s ease,
               box-shadow 0.3s ease,
-              background 0.2s ease;
+              background 0.3s ease;
 }
 .pick-tile:hover:not(:disabled) {
-  transform: translateY(-3px) scale(1.05);
+  transform: translateY(-4px) scale(1.08);
   border-color: var(--blue);
-  box-shadow: 0 8px 20px rgba(62, 200, 255, 0.25);
+  box-shadow: 0 10px 24px rgba(62, 200, 255, 0.3);
 }
 .pick-tile:active:not(:disabled) {
   transform: scale(0.92);
@@ -801,9 +806,9 @@ body::before {
   transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .card-cell.daubable:hover {
-  transform: scale(1.08);
+  transform: scale(1.1);
   border-color: var(--blue);
-  box-shadow: 0 0 12px rgba(62, 200, 255, 0.3);
+  box-shadow: 0 0 14px rgba(62, 200, 255, 0.35);
 }
 .card-cell.daubable:active {
   transform: scale(0.88);
@@ -930,16 +935,16 @@ body::before {
   .phase-play { gap: 6px; }
   .game-layout { gap: 8px; }
   .game-left { gap: 6px; }
-  .current-call { padding: 3px 8px; }
-  .cc-ball { width: 30px; height: 30px; line-height: 30px; font-size: 13px; }
+  .current-call { padding: 3px 10px; }
+  .cc-ball { width: 32px; height: 32px; line-height: 32px; font-size: 13px; }
   .board { gap: 2px; padding: 3px; }
   .board-letter { font-size: 12px; }
   .ball { font-size: 7px; }
-  .bingo-btn { padding: 9px; }
+  .bingo-btn { padding: 10px; }
   .my-cards { gap: 8px; }
   .bingo-card.small { padding: 8px; }
-  .bingo-card.small .card-cell { font-size: 12px; }
+  .bingo-card.small .card-cell { font-size: 13px; }
   .bingo-card.triple { padding: 8px; }
-  .bingo-card.triple .card-cell { font-size: 13px; }
+  .bingo-card.triple .card-cell { font-size: 14px; }
   .called-strip { padding: 4px 6px; }
 }

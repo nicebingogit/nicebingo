@@ -3,14 +3,13 @@
 This document describes the current system. It is kept up to date with every
 change so that any developer or AI can refer to it at any time.
 
-> **Latest update:** **New rooms + Auto-Play mode** — room bets changed to
-> **10 / 20 / 30 ETB** (was 30 / 50 / 100). A new **🤖 Auto Play** floating
-> button appears when a player's credit exceeds 100 ETB — pressing it enables
-> full automation: cards are **auto-selected** during preparation, called numbers
-> are **auto-daubed** on all cards, and **BINGO is auto-claimed** the instant a
-> winning pattern is detected. Multiple Super Admins supported via
-> `SUPER_ADMIN_IDS`. Cards are bigger (320 px, 14–15 px cells). Bots join
-> one-by-one during countdown.
+> **Latest update:** **Unified credit + enhanced UI** — admin and player
+> credit merged into a single `credit` field (no more `admin_credit`). Auto-Play
+> threshold lowered to **4 ETB**. Cards enlarged (64 px grid tiles, 16 px cells,
+> 16 px border-radius). Smooth CSS animations added throughout: card picker
+> bounce-in, ball pop-in, cell daub, winning glow pulse, phase slide-in,
+> hero shimmer, button press feedback, modal fade-in. Paginated card grid
+> removed — all cards display at once for instant scrolling.
 
 ---
 
@@ -269,7 +268,7 @@ elimination modal opens). Outside Telegram it falls back to `navigator.vibrate`.
 
 ### 3.8 Auto-Play mode — hands-free bingo
 
-Players with credit exceeding `AUTO_PLAY_CREDIT_THRESHOLD` (100 ETB) see a
+Players with credit exceeding `AUTO_PLAY_CREDIT_THRESHOLD` (4 ETB) see a
 **🤖 Auto Play** floating button in the top-right corner of the Mini App.
 
 When pressed (toggles on/off):
@@ -297,7 +296,7 @@ When pressed (toggles on/off):
 - Auto-play resets when the player switches rooms or when a new round starts
   (the `marked` state is cleared, but `autoPlay` persists).
 - The threshold is configurable: `AUTO_PLAY_CREDIT_THRESHOLD` constant in
-  `App.jsx` (currently 100).
+  `App.jsx` (currently 4).
 
 ### 3.9 Bots — they play, and they win
 
@@ -684,9 +683,8 @@ in `ADMIN_IDS` or have `is_admin=1` in the DB.
 * **Adaptive polling** — polls every **2 s** during a live round and every
   **4 s** during preparation/ended, so hundreds of players don't hammer the
   server while nothing is changing.
-* **Paginated card grid** — the picker renders the pool in chunks of 100
-  ("Show more"), keeping the DOM light and scrolling smooth on mobile
-  WebViews.
+* **All cards visible** — the card picker renders the full pool at once
+  (pagination removed) for instant scrolling on mobile WebViews.
 * **Concurrency** — Flask runs threaded, SQLite uses WAL (concurrent readers
   with a single writer) and each room already runs independently, so many
   players can sit in the same room at once (bots only top the room up to
@@ -819,25 +817,34 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 
 ## Changelog
 
-### 2026-08-18 — New rooms + Auto-Play mode
+### 2026-08-19 — Unified credit + enhanced UI + auto-play threshold
 
 **Changes:**
-* **Room bets changed**: from [30, 50, 100] to [10, 20, 30] ETB per card.
-  Overridable via `ROOM_BETS` env var.
-* **Auto-Play mode**: floating `🤖 Auto Play` button appears when credit >
-  100 ETB. When active, the client auto-selects cards during preparation,
-  auto-daubs all called numbers on the player's cards, and auto-claims BINGO
-  when a winning pattern is detected. All logic is client-side (no new API).
-* **Bigger bingo cards**: single card max-width 320px, cells 14–15px,
-  padding 12px.
-* **Sequential bot joins**: one bot per tick during countdown.
-* **Multiple Super Admins** + admin promotion/demotion persistence fixes.
-* **Critical `user_id` overwrite fix** in `api.js`.
+* **Unified credit system**: removed `admin_credit` field — admin and player
+  share a single `credit`. Deposits credit the user directly; withdrawals
+  debit the user directly. SuperAdmin panel simplified.
+* **Auto-Play threshold lowered**: from 100 ETB to **4 ETB** so more players
+  can use the automation feature.
+* **Paginated card grid removed**: all cards now render at once — no more
+  "Show more cards" button.
+* **Enlarged card picker tiles**: grid min-width 56→64 px, padding 12→14 px,
+  font 14→15 px, badge 20→22 px.
+* **Enlarged bingo card cells**: base font 15→16 px, small-card cells
+  13→15 px, triple cells 15→16 px. Card border-radius 14→16 px, padding
+  10→12 px.
+* **Current call ball enlarged**: 34→38 px diameter with brighter gold glow.
+* **Smooth animations added**: card picker bounce-in + hover lift, pick chip
+  fade-in, ball pop-in, strip-ball daub, cell mark, winning glow pulse,
+  phase slide-in, hero shimmer, button press feedback, bingo-ready pulse,
+  modal fade-in + slide-in.
+* **Called board polish**: gradient panel background, larger ball font,
+  gold tint on called balls.
 
-**Files changed:** `config.py`, `game_loop.py`, `frontend/src/App.jsx`,
-`frontend/src/styles.css`, `technical_documentation.md`
+**Files changed:** `server.py`, `database.py`, `frontend/src/App.jsx`,
+`frontend/src/styles.css`, `frontend/src/components/SuperAdminPanel.jsx`,
+`frontend/src/components/CardPicker.jsx`, `technical_documentation.md`
 
-**Database:** untouched — production `bingo_bot.db` preserved.
+**Database:** production `bingo_bot.db` preserved (no schema change).
 
 ### 2026-08-18 — Multi-super-admin + bigger cards + sequential bot joins
 
