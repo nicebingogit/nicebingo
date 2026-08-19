@@ -11,7 +11,7 @@ const TX_STATUS = {
 const PROVIDER_SUGGESTIONS = ['TeleBirr', 'CBE', 'CBB', 'Bank', 'Other'];
 
 export default function AdminPanel({ room, onError, onChanged }) {
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState('users');
   const [stats, setStats] = useState(null);
   const [bots, setBots] = useState(null);
   const [users, setUsers] = useState([]);
@@ -202,7 +202,6 @@ export default function AdminPanel({ room, onError, onChanged }) {
 
       <div className="settings-tabs">
         {[
-          ['overview', '📊 Overview'],
           ['users', '👥 Users'],
           ['transactions', '🧾 Wallet'],
           ['accounts', '💳 Accounts'],
@@ -218,37 +217,6 @@ export default function AdminPanel({ room, onError, onChanged }) {
       </div>
 
       {flash && <div className="admin-flash">{flash}</div>}
-
-      {/* -------------------------------------------------------- OVERVIEW */}
-      {tab === 'overview' && (
-        <>
-          <div className="admin-room-line">
-            🎯 Acting on <b>Room by {room}</b> ({room} ETB/card) — the other rooms keep running.
-          </div>
-          <div className="admin-grid">
-            <button className="btn btn-primary" onClick={() => act(() => api.admin.forceStart(room), '✅ Round started')}>▶️ Force Start</button>
-            <button className="btn btn-ghost" onClick={() => act(() => api.admin.forceCall(room), '✅ Ball called')}>🎯 Force Call</button>
-            <button className="btn btn-ghost" onClick={() => act(() => api.admin.reset(room), '✅ Round reset')}>🔄 Reset Round</button>
-            <button className="btn btn-ghost" onClick={() => act(() => api.admin.addBots(room), '✅ Bots added')}>🤖 Add Bots</button>
-            <button
-              className="btn btn-ghost"
-              onClick={() => act(() => api.admin.toggleBots(!bots?.enabled), bots?.enabled ? '🔇 Bots OFF' : '🔊 Bots ON')}
-            >
-              {bots?.enabled ? '🔇 Disable Bots' : '🔊 Enable Bots'}
-            </button>
-          </div>
-          {stats && (
-            <div className="admin-stats">
-              <div>Rounds: <b>{stats.rounds}</b></div>
-              <div>Bets: <b>{stats.total_bets} ETB</b></div>
-              <div>Paid out: <b>{stats.prize_paid} ETB</b></div>
-              <div>House: <b>{stats.house_kept} ETB</b></div>
-              <div>Real winners: <b>{stats.real_winners}</b></div>
-              <div>Bots: <b>{bots?.enabled ? 'ON' : 'OFF'} · {bots?.count} accounts</b></div>
-            </div>
-          )}
-        </>
-      )}
 
       {/* ----------------------------------------------------------- USERS */}
       {tab === 'users' && (

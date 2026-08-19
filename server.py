@@ -832,11 +832,35 @@ def api_admin_user_delete():
 
 @app.route("/api/admin/transactions")
 def api_admin_transactions():
-    """All wallet requests (pending deposits/withdraws) for review."""
-    if _require_admin() is None:
+    """Wallet requests visible to this admin:
+    - Deposits paid into THIS admin's own account(s)
+    - All withdrawals (any admin can handle them)
+    """
+    admin_id = _require_admin()
+    if admin_id is None:
         return jsonify({"error": "Unauthorized"}), 403
     txs = db.get_all_transactions()
+    # Collect the admin's own payment account IDs
+    own_acc_ids = set()
+    for acc in db.get_payment_accounts():
+        if acc.get("admin_id") == admin_id:
+            own_acc_ids.add(acc["id"])
+    filtered = []
     for tx in txs:
+        # Show withdrawals (any admin can handle)
+        if tx["type"] == "withdraw":
+            filtered.append(tx)
+            continue
+        # Deposits: only show those paid into this admin's own account
+        acc_id = tx.get("payment_account_id")
+        if acc_id and acc_id in own_acc_ids:
+            filtered.append(tx)
+            continue
+        # Deposits without a linked account (legacy) — show to all admins
+        if not acc_id:
+            filtered.append(tx)
+            continue
+    for tx in filtered:
         # the row already snapshots user_name/provider/account — only fill
         # gaps for legacy rows created before the snapshot columns existed
         if not tx.get("user_name"):
@@ -848,7 +872,7 @@ def api_admin_transactions():
                 tx["provider"] = acc["provider"]
                 tx["account_number"] = acc["account_number"]
                 tx["account_holder"] = acc["account_name"]
-    return jsonify({"transactions": txs})
+    return jsonify({"transactions": filtered})
 
 
 def _apply_review(tx: dict, action: str, reviewer_id: int):
@@ -889,6 +913,13 @@ def api_admin_transaction_review():
     if tx["status"] != "pending":
         return jsonify({"error": "Transaction already reviewed"}), 400
     if action == "approve":
+        # Admins can only approve deposits paid into THEIR OWN account.
+        # Withdrawals can be approved by any admin (the money comes from the
+        # user's balance, not the admin's).
+        if tx["type"] == "deposit" and tx.get("payment_account_id"):
+            acc = db.get_payment_account(tx["payment_account_id"])
+            if acc and acc.get("admin_id") and acc["admin_id"] != admin_id:
+                return jsonify({"error": "You can only approve deposits paid into your own account."}), 403
         ok, err = _apply_review(tx, "approve", admin_id)
         if not ok:
             return jsonify({"error": err}), 400

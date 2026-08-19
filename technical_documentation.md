@@ -3,13 +3,12 @@
 This document describes the current system. It is kept up to date with every
 change so that any developer or AI can refer to it at any time.
 
-> **Latest update:** **Unified credit + enhanced UI** — admin and player
-> credit merged into a single `credit` field (no more `admin_credit`). Auto-Play
-> threshold lowered to **4 ETB**. Cards enlarged (64 px grid tiles, 16 px cells,
-> 16 px border-radius). Smooth CSS animations added throughout: card picker
-> bounce-in, ball pop-in, cell daub, winning glow pulse, phase slide-in,
-> hero shimmer, button press feedback, modal fade-in. Paginated card grid
-> removed — all cards display at once for instant scrolling.
+> **Latest update:** **Bank selection + admin account restriction** — wallet
+> deposit picker now lists all Ethiopian banks; user picks a bank, only
+> ONLINE admins' accounts shown. Admins can only approve deposits paid into
+> their OWN account. Admin panel Overview tab restricted to Super Admin only.
+> Auto-Play button hides during gameplay. Cards enlarged, smooth animations.
+> Unified credit (no more `admin_credit`). Auto-Play threshold at 4 ETB.
 
 ---
 
@@ -822,6 +821,33 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 ---
 
 ## Changelog
+
+### 2026-08-19 — Bank selection + admin account restriction
+
+**Changes:**
+* **Full Ethiopian bank list in wallet**: deposit picker now shows all 27+
+  Ethiopian banks and mobile wallets. User picks a bank, then sees the
+  matching online admin's account details (account holder, number, copy button).
+  Banks with no online admin are shown as unavailable (grayed out).
+* **Admin review restricted**: admins can only approve deposits paid into
+  their OWN payment account. Withdrawals can be approved by any admin.
+  Server returns 403 if an admin tries to approve another admin's deposit.
+* **Admin transactions filtered**: the Wallet tab in Admin Panel now only
+  shows deposits paid into the logged-in admin's own accounts, plus all
+  withdrawals (any admin can handle withdrawals).
+* **Admin Overview removed**: the 📊 Overview tab (Force Start, Force Call,
+  Reset, Bots, Stats) is now Super Admin only — regular admins see
+  Users, Wallet, and Accounts only.
+* **Auto-play button hides during play**: the 🤖 Auto Play floating button
+  disappears once the round starts (phase = playing).
+* **Compact 3-card layout**: triple cards use tighter padding (8 px),
+  smaller cells (14 px font), and reduced gaps (3 px) so 3 cards +
+  BINGO button fit on a single phone screen.
+
+**Files changed:** `server.py`, `frontend/src/components/Settings.jsx`,
+`frontend/src/components/AdminPanel.jsx`, `technical_documentation.md`
+
+**Database:** no schema change.
 
 ### 2026-08-19 — Unified credit + enhanced UI + auto-play threshold
 

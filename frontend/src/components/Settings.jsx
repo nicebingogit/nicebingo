@@ -9,6 +9,37 @@ const TX_STATUS = {
   rejected: { label: '❌ Rejected', cls: 'rejected' },
 };
 
+// All banks and mobile wallets available in Ethiopia
+const ETHIOPIAN_BANKS = [
+  { name: 'TeleBirr', icon: '📱' },
+  { name: 'CBE Birr', icon: '🏦' },
+  { name: 'CBE', icon: '🏦' },
+  { name: 'CBB', icon: '🏦' },
+  { name: 'Awash Bank', icon: '🏦' },
+  { name: 'Dashen Bank', icon: '🏦' },
+  { name: 'Wegagen Bank', icon: '🏦' },
+  { name: 'United Bank', icon: '🏦' },
+  { name: 'Abyssinia Bank', icon: '🏦' },
+  { name: 'Nib International Bank', icon: '🏦' },
+  { name: 'Berhan Bank', icon: '🏦' },
+  { name: 'Bunna Bank', icon: '🏦' },
+  { name: 'Abay Bank', icon: '🏦' },
+  { name: 'Cooperative Bank', icon: '🏦' },
+  { name: 'Hijra Bank', icon: '🏦' },
+  { name: 'Zemen Bank', icon: '🏦' },
+  { name: 'Lion International Bank', icon: '🏦' },
+  { name: 'Oromia International Bank', icon: '🏦' },
+  { name: 'Global Bank', icon: '🏦' },
+  { name: 'Enat Bank', icon: '🏦' },
+  { name: 'Ahadu Bank', icon: '🏦' },
+  { name: 'Gadahad Bank', icon: '🏦' },
+  { name: 'Meb bank', icon: '🏦' },
+  { name: 'Samuel Bank', icon: '🏦' },
+  { name: 'Tsedey Bank', icon: '🏦' },
+  { name: 'Amhara Bank', icon: '🏦' },
+  { name: 'ZamZam Bank', icon: '🏦' },
+];
+
 const WINNING_PATTERNS = [
   { key: 'Row', desc: 'All 5 numbers in any horizontal row.' },
   { key: 'Column', desc: 'All 5 numbers in any vertical column.' },
@@ -47,9 +78,20 @@ export default function Settings({ user, settings, config, onChanged, onError, o
 
   // deposit_accounts = ONE account per bank/provider — always the account of
   // the ONLINE admin with the most credit; offline admins' accounts are never
-  // listed
+  // listed. We merge with the full bank list so users see ALL Ethiopian banks.
   const depositAccounts = settings?.deposit_accounts || [];
-  const selectedDep = depositAccounts.find((d) => d.provider === depProvider) || null;
+  // Build a lookup of online admin accounts by provider name (case-insensitive)
+  const onlineAccountsMap = {};
+  depositAccounts.forEach((d) => {
+    onlineAccountsMap[d.provider.toLowerCase()] = d;
+  });
+  // All banks that have an online admin account available
+  const availableBanks = ETHIOPIAN_BANKS.filter((b) => onlineAccountsMap[b.name.toLowerCase()]);
+  // Banks with no online admin (shown as unavailable)
+  const unavailableBanks = ETHIOPIAN_BANKS.filter((b) => !onlineAccountsMap[b.name.toLowerCase()]);
+  // Selected bank's online admin account
+  const selectedBank = ETHIOPIAN_BANKS.find((b) => b.name === depProvider);
+  const selectedDep = selectedBank ? (onlineAccountsMap[selectedBank.name.toLowerCase()] || null) : null;
   const accId = selectedDep ? selectedDep.account.id : null;
 
   const loadTxs = useCallback(async () => {
@@ -74,10 +116,10 @@ export default function Settings({ user, settings, config, onChanged, onError, o
 
   // default the deposit picker to the first available bank
   useEffect(() => {
-    if (!depProvider && depositAccounts.length) {
-      setDepProvider(depositAccounts[0].provider);
+    if (!depProvider && availableBanks.length) {
+      setDepProvider(availableBanks[0].name);
     }
-  }, [depositAccounts, depProvider]);
+  }, [availableBanks.length, depProvider]);
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
 
@@ -228,46 +270,87 @@ export default function Settings({ user, settings, config, onChanged, onError, o
             </span>
           </div>
 
-          {depositAccounts.length === 0 ? (
-            <div className="reg-hint">
-              ⏳ No payment account is available right now — every admin is
-              offline. Check again in a few minutes.
-            </div>
-          ) : (
-            <div className="acc-picker">
-              <div className="wallet-form-title">💳 Where can you pay?</div>
-              {/* one account per bank — always the ONLINE admin with the most
-                  credit; offline admins' accounts are never shown */}
-              {depositAccounts.map((d) => (
-                <label
-                  key={d.provider}
-                  className={`acc-option ${depProvider === d.provider ? 'selected' : ''}`}
-                >
-                  <input
-                    type="radio"
-                    name="payacc"
-                    checked={depProvider === d.provider}
-                    onChange={() => setDepProvider(d.provider)}
-                  />
-                  <span className="acc-provider">{d.provider}</span>
-                  <span className="acc-holder">— {d.account.account_name}</span>
-                  <span className="acc-number">{d.account.account_number}</span>
-                  <button
-                    type="button"
-                    className="chip chip-btn acc-copy"
-                    onClick={() => copyAccount(d.account)}
-                    title="Copy number"
-                  >
-                    {copied === d.account.id ? '✓' : '📋'}
-                  </button>
-                </label>
-              ))}
-              {selectedDep && selectedDep.account.admin_name && (
-                <p className="reg-hint">
-                  👤 Online admin: <b>{selectedDep.account.admin_name}</b> — this
-                  is the only {selectedDep.provider} account available right now.
-                </p>
-              )}
+          <div className="acc-picker">
+            <div className="wallet-form-title">💳 Select your bank</div>
+            <p className="reg-hint" style={{ marginTop: -4, marginBottom: 8 }}>
+              Choose the bank or mobile wallet you want to pay into. Only banks
+              with an online admin are available for payment.
+            </p>
+
+            {/* Available banks — online admin account ready */}
+            {availableBanks.length > 0 && (
+              <>
+                <div className="reg-hint" style={{ fontWeight: 800, color: 'var(--green)', marginBottom: 4 }}>
+                  ✅ Available now
+                </div>
+                {availableBanks.map((b) => {
+                  const d = onlineAccountsMap[b.name.toLowerCase()];
+                  if (!d) return null;
+                  return (
+                    <label
+                      key={b.name}
+                      className={`acc-option ${depProvider === b.name ? 'selected' : ''}`}
+                    >
+                      <input
+                        type="radio"
+                        name="payacc"
+                        checked={depProvider === b.name}
+                        onChange={() => setDepProvider(b.name)}
+                      />
+                      <span className="acc-provider">{b.icon} {b.name}</span>
+                      <span className="acc-holder">— {d.account.account_name}</span>
+                      <span className="acc-number">{d.account.account_number}</span>
+                      <button
+                        type="button"
+                        className="chip chip-btn acc-copy"
+                        onClick={() => copyAccount(d.account)}
+                        title="Copy number"
+                      >
+                        {copied === d.account.id ? '✓' : '📋'}
+                      </button>
+                    </label>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Unavailable banks — no online admin */}
+            {unavailableBanks.length > 0 && (
+              <>
+                <div className="reg-hint" style={{ fontWeight: 800, color: 'var(--muted)', marginTop: 10, marginBottom: 4 }}>
+                  ⏳ Not available (admin offline)
+                </div>
+                {unavailableBanks.map((b) => (
+                  <div key={b.name} className="acc-option" style={{ opacity: 0.4, cursor: 'default', pointerEvents: 'none' }}>
+                    <span className="acc-provider">{b.icon} {b.name}</span>
+                    <span className="acc-holder muted">— No admin online</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {availableBanks.length === 0 && unavailableBanks.length === 0 && (
+              <div className="reg-hint">
+                ⏳ No banks available right now. Check again in a few minutes.
+              </div>
+            )}
+          </div>
+
+          {/* Show selected bank's admin account details */}
+          {selectedDep && (
+            <div style={{ background: 'rgba(255,213,79,0.06)', border: '1px dashed rgba(255,213,79,0.4)', borderRadius: 12, padding: 12, marginTop: 10 }}>
+              <div className="wallet-form-title">💰 {selectedDep.provider} — Account Details</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                <div className="profile-row"><span className="muted">Account holder</span><b>{selectedDep.account.account_name}</b></div>
+                <div className="profile-row"><span className="muted">Account number</span><b style={{ letterSpacing: 1 }}>{selectedDep.account.account_number}</b></div>
+                {selectedDep.account.admin_name && (
+                  <div className="profile-row"><span className="muted">Admin</span><b>{selectedDep.account.admin_name}</b></div>
+                )}
+              </div>
+              <p className="reg-hint" style={{ marginTop: 8 }}>
+                Send money to this account using your wallet app, then submit a
+                deposit request below with the transaction number.
+              </p>
             </div>
           )}
 
@@ -316,8 +399,9 @@ export default function Settings({ user, settings, config, onChanged, onError, o
               </button>
             </div>
             <p className="reg-hint">
-              1. Select the account you paid into above. 2. Enter the amount and
-              the <b>transaction number</b> shown in your wallet app. The admin
+              1. Select a bank above and copy the account number. 2. Send the
+              money using your wallet app. 3. Enter the amount and the
+              <b> transaction number</b> shown in your wallet app. The admin
               verifies it and credits your balance.
             </p>
           </form>
