@@ -127,6 +127,12 @@ export const api = {
     appeals: () => superAdminRequest('/api/superadmin/appeals', { method: 'GET' }),
     resolveAppeal: (id, action, resolution) =>
       superAdminRequest('/api/superadmin/appeals/resolve', { body: { id, action, resolution } }),
+    // game controls
+    pauseGame: (room) => superAdminRequest('/api/superadmin/game/pause', { body: roomParams(room) }),
+    resumeGame: (room) => superAdminRequest('/api/superadmin/game/resume', { body: roomParams(room) }),
+    stopGame: (room) => superAdminRequest('/api/superadmin/game/stop', { body: roomParams(room) }),
+    startGame: (room) => superAdminRequest('/api/superadmin/game/start', { body: roomParams(room) }),
+    addBots: (room) => superAdminRequest('/api/superadmin/game/add-bots', { body: roomParams(room) }),
   },
 };
 

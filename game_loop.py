@@ -105,6 +105,9 @@ class GameLoop:
                     if end and now >= end:
                         self.start_round(room)
                 elif phase == "playing":
+                    # skip calling when paused by the super admin
+                    if state.get("paused"):
+                        continue
                     nxt = _parse(state.get("next_call_time"))
                     if nxt and now >= nxt:
                         self.call_step(room)

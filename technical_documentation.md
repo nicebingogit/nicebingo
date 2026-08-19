@@ -3,12 +3,7 @@
 This document describes the current system. It is kept up to date with every
 change so that any developer or AI can refer to it at any time.
 
-> **Latest update:** **Bank selection + admin account restriction** — wallet
-> deposit picker now lists all Ethiopian banks; user picks a bank, only
-> ONLINE admins' accounts shown. Admins can only approve deposits paid into
-> their OWN account. Admin panel Overview tab restricted to Super Admin only.
-> Auto-Play button hides during gameplay. Cards enlarged, smooth animations.
-> Unified credit (no more `admin_credit`). Auto-Play threshold at 4 ETB.
+> **Latest update:** **Admin transaction visibility + super admin game controls + bot prize doubling** — admins only see their own transactions and those they've approved/declined. Super admins see all transactions and have game controls (start/pause/stop + add bots). Bot entry fees double the prize pool. Only available banks shown to users. High-priority Telegram alerts when no admin available.
 
 ---
 
@@ -232,12 +227,18 @@ card is always the room's value — any `bet_amount` sent by a client is
 ignored (the server is the authority). Bot players in a room wager the room's
 fixed amount too.
 
-### 3.5 Dynamic prize pool
+### 3.5 Dynamic prize pool (bot bonus)
 
-Per room: `total_bets = SUM(card_selections.bet_amount)` for the room's round
-(actual bets, all equal to the room's fixed bet), `winner_prize =
-int(total_bets × PRIZE_PERCENT)` (80% default), `house_kept = total_bets −
-winner_prize`. Eliminated players' bets still count toward the pool.
+Per room: real players' bets are summed normally. **Bot entry fees are
+doubled** — each bot's bet adds **2× its value** to the pool, so the
+winner's prize is significantly larger when bots are in the game.
+
+Formula: `total_bets = real_bets + (bot_bets × 2)`, then `winner_prize =
+int(total_bets × PRIZE_PERCENT)` (80% default), `house_kept =
+total_bets − winner_prize`. Eliminated players' bets still count toward
+the pool.
+
+This incentivizes real players to compete against bots for a bigger reward.
 
 ### 3.6 Announcements — no round numbers
 
@@ -309,6 +310,11 @@ cards at the room's fixed bet and **contributes to the prize pool**
 (`BOTS_CONTRIBUTE_TO_POOL`). The prep hero shows the room as "X players · Y
 bots · Z cards".
 
+**Bot prize doubling:** When bots are present, the prize pool is doubled —
+bot entry fees are added to the total, and the winner receives 80% of the
+entire pool (including bot contributions). This incentivizes real players to
+compete against bots for larger prizes.
+
 * **Names:** every bot gets a deterministic **human** first name + surname
   (e.g. "Abel Girma") from `game_logic.bot_name` — no "Bot_12345".
 * **They join sequentially:** during the preparation countdown, the game loop
@@ -343,27 +349,19 @@ has: `id`, `provider`, `account_name` (holder), `account_number`, `is_active`,
   the **first** admin in `ADMIN_IDS` on startup, so existing installations
   keep working. The Super Admin can re-assign any account to any admin.
 
-### 4.2 Admin credit — the approval float
+### 4.2 Unified credit system
 
-Every admin has their **own credit** (`players.admin_credit`, default 0),
-**sold to them manually by the Super Admin** (👑 Super → All accounts →
-Admin credit, or the bot's `/admin` shows the current float). This credit is
-what allows them to approve wallet requests:
+There is **no separate `admin_credit` float**. Admins and players share a
+single `credit` field on the `players` table. The Super Admin can adjust any
+user's or admin's credit directly.
 
-* **Approving a DEPOSIT** credits the user the full amount AND deducts
-  **`ADMIN_APPROVAL_RATE` (default 90 %)** of it from the credit of the admin
-  who **owns the account the user paid into** (`payment_accounts.admin_id`;
-  falls back to the reviewing admin if the account was deleted). If the owner
-  admin's credit cannot cover the deduction, the approval is **rejected**
-  with a clear error — the Super Admin must top the admin up first.
-* **Approving a WITHDRAW** debits the user (must have balance) and credits
-  **`ADMIN_APPROVAL_RATE` (90 %)** of the amount back to the **reviewing**
-  admin (they paid the money out for real).
+When a deposit is approved, the user is credited the full amount. When a
+withdrawal is approved, the user is debited. No admin's balance is affected
+by approvals — this simplifies the financial model.
 
-This is the Super Admin's business loop: **users buy credit** (deposits,
-paid to an admin's account) and **sell credit** (withdrawals, paid out by an
-admin); **admins buy admin credit from the Super Admin** and spend it as they
-approve deposits.
+The deposit picker only shows admins who are **online AND have sufficient
+credit** (>= the minimum room bet) to cover the transaction, so players
+never see an account whose admin can't handle the request.
 
 ### 4.3 Online status & ONE account per bank
 
@@ -438,8 +436,9 @@ drains the queue and sends it (`notify_admins` / `notify_user`). This works in
 processes (local desktop: two processes, one SQLite file).
 
 * **Deposit request** → alert to the **owner admin** of the paid-in account
-  (only they can approve it, and it consumes THEIR credit).
+  (only they can approve it).
 * **Withdraw request** → alert to **every admin**.
+* **No admin available** → high-priority alert to **every Super Admin** when a player tries to deposit/withdraw but no admin is online or has sufficient balance.
 * **Appeal filed** → alert to **every Super Admin**.
 * **Appeal resolved** → alert to the user.
 
@@ -474,6 +473,12 @@ Deposits show the admin account paid into; **withdrawals show the destination
 account (provider / holder / number) the user provided**, so the admin knows
 exactly where to pay out.
 
+**Admin transaction visibility:** Regular admins only see:
+* Deposits paid into their OWN payment accounts
+* Withdrawals they've reviewed (approved/declined)
+
+Super admins see ALL transactions.
+
 ### 5.3 Accounts
 
 List (provider, holder, number, active badge), Add form (provider datalist +
@@ -497,27 +502,19 @@ console immediately, even before being promoted to regular admin.
 
 The 👑 **Super** button opens the **SuperAdminPanel** with five tabs:
 
-* **📊 Overview** — counts: total accounts, admins, pending wallet requests,
-  pending appeals, payment accounts.
+* **📊 Overview** — **game controls** (Start / Pause / Resume / Stop / Add Bots with room selector), counts: total accounts, admins, pending wallet requests, pending appeals, payment accounts. Super admins can pause/resume/stop/start rounds and manually add bots.
 * **👥 All accounts** — EVERY account (admins AND users) with name, phone,
-  credit, admin credit, role badge and online/offline badge. Tapping a row
-  opens a detail modal with **＋/− controls for BOTH the player credit and the
-  admin credit** — this is how the Super Admin **sells credit to admins**
-  (and buys it back / adjusts anyone's balance). The modal also has a
-  **🛠 Make admin / Demote to user** button: promoted admins immediately get
+  credit, role badge and online/offline badge. Tapping a row
+  opens a detail modal with **＋/− controls for player credit**.
+  The modal also has a **🛠 Make admin / Demote to user** button: promoted admins immediately get
   the full 🛠 Admin panel, can post their own payment accounts and approve
-  wallet requests with their own admin credit. Core admins (from
+  wallet requests. Core admins (from
   `ADMIN_IDS` in `.env`) are marked "core admin" and cannot be demoted from
   the panel.
-* **🧾 All logs** — every transaction (any status) with the deposit's
-  **owner admin + their credit**, and ✓ Approve / ✕ Reject for pending ones
-  (same money movement rules as the admin panel).
-* **💳 Accounts** — every admin's payment account with owner name + online
-  status + owner credit; **reassign owner** (dropdown of admins),
-  activate/deactivate and delete.
+* **🧾 All logs** — every transaction (any status) with ✓ Approve / ✕ Reject for pending ones.
+* **💳 Accounts** — every admin's payment account with owner name + online status; **reassign owner** (dropdown of admins), activate/deactivate and delete.
 * **⚖️ Appeals** — every wallet appeal (user, amount, reason, tx status);
-  **✓ Approve** (credits the user + charges the owner admin's credit, even if
-  the admin had rejected the deposit) or **✕ Reject** with a resolution note.
+  **✓ Approve** (credits the user) or **✕ Reject** with a resolution note.
 
 ### 5.5 Wallet appeals
 
@@ -552,11 +549,11 @@ Key columns:
 
 ```sql
 players(user_id, username, full_name, phone, is_registered, credit,
-        admin_credit, is_admin, last_seen, created_at)
-        -- admin_credit: the float the SUPER ADMIN sells each admin; spent
-        --   when the admin approves deposits (90% of the amount)
-        -- last_seen:    ISO timestamp touched on every admin API/bot action;
+        is_admin, last_seen, created_at)
+        -- credit:      unified balance (admin + player share the same field)
+        -- last_seen:   ISO timestamp touched on every admin API/bot action;
         --   an admin is "online" when last_seen < ADMIN_ONLINE_MINUTES ago
+        -- admin_credit: legacy column (always 0 now; kept for schema compat)
 
 card_selections(user_id, card_id, room, bet_amount, UNIQUE(user_id, card_id))
 called_numbers(room, number, UNIQUE(room, number))  -- per-room: the same ball
@@ -570,8 +567,7 @@ transactions(id, user_id, type, amount, tx_id, phone, user_name,
 payment_accounts(id, provider, account_name, account_number, is_active,
                  admin_id, created_at, updated_at)
                  -- admin_id: the OWNING admin; only ONLINE owners' accounts
-                 --   are shown/selectable, and approving a deposit into it
-                 --   charges THAT admin's credit
+                 --   with sufficient credit are shown/selectable
 
 round_eliminations(id, game_id, user_id, reason, eliminated_at)
 
@@ -618,9 +614,16 @@ Super Admin endpoints:
 * `POST /api/superadmin/admin` — `{user_id, is_admin}` **promote/demote** a
   user to admin (`players.is_admin`); demoting a core `.env` admin is rejected;
   uses a two-step upsert so the player row is created if it doesn't exist;
-* `POST /api/superadmin/credit` — `{user_id, amount, target: "user"|"admin"}`
-  manually increase/decrease ANY account's player credit or admin credit
-  (selling credit to admins);
+* `POST /api/superadmin/credit` — `{user_id, amount}` manually
+  increase/decrease ANY account's credit;
+* `POST /api/superadmin/game/pause` — `{room}` pause the game (ball
+  calling stops, round stays active);
+* `POST /api/superadmin/game/resume` — `{room}` resume a paused game;
+* `POST /api/superadmin/game/stop` — `{room}` force-stop the current round
+  (no winner, resets to preparation);
+* `POST /api/superadmin/game/start` — `{room}` force-start from
+  preparation;
+* `POST /api/superadmin/game/add-bots` — `{room}` manually add bots;
 * `GET /api/superadmin/transactions` — every wallet log with the deposit's
   owner admin + their credit;
 * `POST /api/superadmin/transactions/review` — approve/reject any pending
@@ -655,12 +658,13 @@ in `ADMIN_IDS` or have `is_admin=1` in the DB.
   admin (even one in `ADMIN_IDS`) gets 403 from every `/api/superadmin/*`
   route unless they're also in `SUPER_ADMIN_IDS`. The Super Admin console
   button is only rendered for IDs in `SUPER_ADMIN_IDS`.
-* **Admin-credit enforcement is server-side**: approving a deposit is blocked
-  when the account owner's admin credit can't cover `ADMIN_APPROVAL_RATE` of
-  the amount — an admin can never approve more than their float.
-* Deposit accounts are only selectable while their **owner admin is online**
-  (last_seen within `ADMIN_ONLINE_MINUTES`), matching what the user sees in
-  the picker.
+* **Deposit account filtering is server-side**: the deposit picker only
+  shows accounts whose owner admin is online AND has sufficient credit
+  (>= minimum room bet). Players never see an account that can't cover
+  the transaction.
+* **Admin transaction visibility is enforced server-side**: regular admins
+  only see their own deposits + transactions they reviewed. Super admins
+  bypass this restriction.
 * User-supplied names and appeal reasons are length-validated; names are
   Markdown-escaped before any Telegram message; bot notifications are sent as
   plain text (no Markdown parsing) so user input can never break a message.
@@ -850,6 +854,40 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 `frontend/src/components/AdminPanel.jsx`, `technical_documentation.md`
 
 **Database:** no schema change.
+
+### 2026-08-19 — Admin visibility + game controls + bot prize doubling
+
+**Changes:**
+* **Admin transaction visibility**: regular admins only see deposits paid into
+  their OWN payment accounts + withdrawals they've reviewed. Super admins
+  see ALL transactions.
+* **Super admin game controls**: the 👑 Overview tab now has Start / Pause /
+  Resume / Stop / Add Bots buttons with a room selector. Super admins can
+  pause the game (ball calling stops but the round stays active), resume,
+  force-stop (no winner), force-start from preparation, and manually add
+  bots.
+* **Bot prize doubling**: bot entry fees now count **2× toward the prize
+  pool** — real players compete for a significantly larger reward when bots
+  are in the game.
+* **Deposit picker shows only available banks**: only banks with an online
+  admin AND sufficient credit are shown. Unavailable banks are not listed
+  at all (no grayed-out entries).
+* **High-priority super admin alerts**: when a deposit/withdraw request
+  arrives but no admin is online or has enough credit, every Super Admin
+  receives a high-priority Telegram notification to handle it manually.
+* **`paused` flag on game_state**: the super admin can pause/resume the
+  game loop per room. The `paused` column is exposed in the game state
+  payload.
+* **`get_deposit_accounts()` fix**: now uses `p.credit` (the unified
+  balance) instead of the legacy `admin_credit` column for ordering and
+  filtering, and only returns admins with credit >= minimum room bet.
+
+**Files changed:** `server.py`, `database.py`, `game_logic.py`,
+`frontend/src/components/SuperAdminPanel.jsx`,
+`frontend/src/components/Settings.jsx`, `frontend/src/api.js`,
+`technical_documentation.md`
+
+**Database:** `paused` column added to `game_state` (idempotent migration).
 
 ### 2026-08-19 — Unified credit + enhanced UI + auto-play threshold
 

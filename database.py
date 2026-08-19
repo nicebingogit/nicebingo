@@ -23,7 +23,7 @@ _GAME_STATE_COLUMNS = {
     "phase", "preparation_end_time", "current_call", "winner_user_id",
     "winning_pattern", "prize_pool", "total_bets", "ball_order",
     "round_number", "current_game_id", "bots_enabled", "next_call_time",
-    "reset_time",
+    "reset_time", "paused",
 }
 
 
@@ -277,6 +277,7 @@ class Database:
             self._ensure_column(conn, "game_state", "bots_enabled", "INTEGER DEFAULT 1")
             self._ensure_column(conn, "game_state", "next_call_time", "TEXT")
             self._ensure_column(conn, "game_state", "reset_time", "TEXT")
+            self._ensure_column(conn, "game_state", "paused", "INTEGER DEFAULT 0")
             # rooms: existing rows join the default room (30) until a player
             # picks a room from the listbox
             self._ensure_column(conn, "card_selections", "room", "INTEGER NOT NULL DEFAULT 30")
@@ -1065,25 +1066,31 @@ class Database:
             return int(cur.lastrowid)
 
     def get_deposit_accounts(self) -> List[Dict]:
-        """Active payment accounts whose OWNER admin is currently ONLINE,
-        joined with the owner's name + admin credit (the selection pool for
-        user deposits). Ordered by admin credit DESC so the richest ONLINE
-        admin comes first for every provider — the caller picks the first row
-        per provider and that is the ONE account shown to the user."""
+        """Active payment accounts whose OWNER admin is currently ONLINE
+        and has sufficient credit to cover a deposit, joined with the owner's
+        name + credit. Ordered by credit DESC so the richest ONLINE admin
+        comes first for every provider — the caller picks the first row
+        per provider and that is the ONE account shown to the user.
+
+        Only admins with enough credit (>= room bet) are included, so
+        players never see an account whose admin can't cover the approval."""
         cutoff = (datetime.now() -
                   timedelta(minutes=config.ADMIN_ONLINE_MINUTES)).isoformat()
+        # minimum credit an admin needs to cover any room's deposit
+        min_credit = min(config.ROOM_BETS) if config.ROOM_BETS else 10
         with self._session() as conn:
             rows = conn.execute(
                 """
-                SELECT pa.*, p.full_name AS admin_name, p.admin_credit,
+                SELECT pa.*, p.full_name AS admin_name, p.credit AS admin_credit,
                        p.last_seen
                 FROM payment_accounts pa
                 JOIN players p ON p.user_id = pa.admin_id
                 WHERE pa.is_active = 1 AND pa.admin_id IS NOT NULL
                   AND p.last_seen IS NOT NULL AND p.last_seen >= ?
-                ORDER BY p.admin_credit DESC, pa.id
+                  AND p.credit >= ?
+                ORDER BY p.credit DESC, pa.id
                 """,
-                (cutoff,),
+                (cutoff, min_credit),
             ).fetchall()
             return [dict(r) for r in rows]
 

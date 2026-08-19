@@ -55,7 +55,31 @@ export default function SuperAdminPanel({ onError }) {
     await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals()]);
   }, [loadUsers, loadTxs, loadAccounts, loadAppeals]);
 
+  // game state for controls
+  const [gamePhase, setGamePhase] = useState('preparation');
+  const [gamePaused, setGamePaused] = useState(false);
+  const [room, setRoom] = useState(10);
+
+  const loadGameState = useCallback(async () => {
+    try {
+      const d = await api.gameState(room);
+      setGamePhase(d.phase || 'preparation');
+      setGamePaused(!!d.paused);
+    } catch (e) { /* silent */ }
+  }, [room]);
+
+  useEffect(() => { loadGameState(); const i = setInterval(loadGameState, 3000); return () => clearInterval(i); }, [loadGameState]);
+
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  const gameControl = async (fn, okMsg) => {
+    playClick();
+    try {
+      await fn(room);
+      flashMsg(okMsg);
+      await loadGameState();
+    } catch (e) { flashMsg(`❌ ${e.message}`); }
+  };
 
   const adjustCredit = async (delta) => {
     if (!selected) return;
@@ -170,15 +194,48 @@ export default function SuperAdminPanel({ onError }) {
       {flash && <div className="admin-flash">{flash}</div>}
 
       {/* -------------------------------------------------------- OVERVIEW */}
-      {tab === 'overview' && (            <div className="admin-stats">
+      {tab === 'overview' && (
+        <div className="admin-stats">
           <div>Accounts (users+admins): <b>{users.length}</b></div>
           <div>Admins: <b>{admins.length}</b></div>
           <div>Pending wallet requests: <b>{pendingTxs}</b></div>
           <div>Pending appeals: <b>{pendingAppeals}</b></div>
           <div>Payment accounts: <b>{accounts.length}</b></div>
-          <div className="reg-hint" style={{ marginTop: 8 }}>
-            You control every account (admin or user), every transaction log,
-            and wallet appeals.
+
+          {/* ---- GAME CONTROLS ---- */}
+          <div style={{ marginTop: 16 }}>
+            <div className="wallet-form-title">🎮 Game Controls</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+              <select
+                value={room}
+                onChange={(e) => setRoom(Number(e.target.value))}
+                style={{ padding: '6px 10px', borderRadius: 8, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)' }}
+              >
+                {[10, 20, 30].map((r) => <option key={r} value={r}>Room {r}</option>)}
+              </select>
+              <span className="user-badge" style={{ alignSelf: 'center' }}>
+                {gamePhase} {gamePaused ? '⏸ paused' : ''}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+              {gamePhase === 'preparation' && (
+                <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.startGame, '▶️ Round started!')}>▶️ Start</button>
+              )}
+              {gamePhase === 'playing' && !gamePaused && (
+                <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.pauseGame, '⏸️ Game paused.')}>⏸️ Pause</button>
+              )}
+              {gamePhase === 'playing' && gamePaused && (
+                <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.resumeGame, '▶️ Game resumed.')}>▶️ Resume</button>
+              )}
+              {gamePhase === 'playing' && (
+                <button className="btn btn-ghost user-btn danger" onClick={() => gameControl(api.superAdmin.stopGame, '⏹️ Round stopped.')}>⏹️ Stop</button>
+              )}
+              <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.addBots, '🤖 Bots added!')}>🤖 Add Bots</button>
+            </div>
+            <p className="reg-hint" style={{ marginTop: 8 }}>
+              You control every account, every transaction log, wallet appeals,
+              and the game itself.
+            </p>
           </div>
         </div>
       )}

@@ -314,22 +314,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
               </>
             )}
 
-            {/* Unavailable banks — no online admin */}
-            {unavailableBanks.length > 0 && (
-              <>
-                <div className="reg-hint" style={{ fontWeight: 800, color: 'var(--muted)', marginTop: 10, marginBottom: 4 }}>
-                  ⏳ Not available (admin offline)
-                </div>
-                {unavailableBanks.map((b) => (
-                  <div key={b.name} className="acc-option" style={{ opacity: 0.4, cursor: 'default', pointerEvents: 'none' }}>
-                    <span className="acc-provider">{b.icon} {b.name}</span>
-                    <span className="acc-holder muted">— No admin online</span>
-                  </div>
-                ))}
-              </>
-            )}
-
-            {availableBanks.length === 0 && unavailableBanks.length === 0 && (
+            {availableBanks.length === 0 && (
               <div className="reg-hint">
                 ⏳ No banks available right now. Check again in a few minutes.
               </div>

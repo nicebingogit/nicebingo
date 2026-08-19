@@ -289,6 +289,7 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
         "bots_players": logic.player_breakdown(room)["bots"],
         "cards_in_play": len(db.get_all_selections(room)),
         "bots_enabled": bool(state.get("bots_enabled", 1)),
+        "paused": bool(state.get("paused", 0)),
         "winner": winner,
         "settings": _settings_payload(),
         "config": {
@@ -550,7 +551,25 @@ def api_create_transaction():
         if details:
             lines.append("Details: " + details)
         if type_ == "deposit" and account and account.get("admin_id"):
-            notify_user(account["admin_id"], lines)
+            owner_id = account["admin_id"]
+            owner_online = db.is_admin_online(owner_id)
+            owner_credit = db.get_credit(owner_id)
+            if owner_online and owner_credit >= amount:
+                # admin is online and has enough credit — notify them
+                notify_user(owner_id, lines)
+            else:
+                # admin offline or insufficient credit — HIGH PRIORITY alert to super admin
+                alert_lines = ["🚨⚠️ HIGH PRIORITY: No admin available for this transaction!",
+                               "User: " + who,
+                               "Amount: " + str(amount) + " " + config.APP_CURRENCY,
+                               "Bank: " + str((account or {}).get("provider", "?"))]
+                if not owner_online:
+                    alert_lines.append("Reason: Admin offline")
+                else:
+                    alert_lines.append("Reason: Admin has insufficient credit (" + str(owner_credit) + " ETB)")
+                alert_lines.append("Please handle this transaction manually.")
+                for sa_id in config.SUPER_ADMIN_IDS:
+                    notify_user(sa_id, alert_lines)
         else:
             notify_admins(lines)
     except Exception:
@@ -832,9 +851,11 @@ def api_admin_user_delete():
 
 @app.route("/api/admin/transactions")
 def api_admin_transactions():
-    """Wallet requests visible to this admin:
+    """Wallet requests visible to THIS admin only:
     - Deposits paid into THIS admin's own account(s)
-    - All withdrawals (any admin can handle them)
+    - Transactions this admin has personally reviewed (approved/rejected)
+    - Pending transactions that need attention
+    Super admins see ALL transactions via their own endpoint.
     """
     admin_id = _require_admin()
     if admin_id is None:
@@ -847,17 +868,17 @@ def api_admin_transactions():
             own_acc_ids.add(acc["id"])
     filtered = []
     for tx in txs:
-        # Show withdrawals (any admin can handle)
-        if tx["type"] == "withdraw":
+        # 1. Transactions this admin personally reviewed
+        if tx.get("reviewed_by") == admin_id:
             filtered.append(tx)
             continue
-        # Deposits: only show those paid into this admin's own account
+        # 2. Deposits paid into THIS admin's own account (pending or not)
         acc_id = tx.get("payment_account_id")
         if acc_id and acc_id in own_acc_ids:
             filtered.append(tx)
             continue
-        # Deposits without a linked account (legacy) — show to all admins
-        if not acc_id:
+        # 3. Withdrawals pending that any admin can handle
+        if tx["type"] == "withdraw" and tx["status"] == "pending":
             filtered.append(tx)
             continue
     for tx in filtered:
@@ -1180,6 +1201,59 @@ def api_superadmin_transaction_review():
     updated = db.get_transaction(tx_id)
     updated["credit"] = db.get_credit(tx["user_id"])
     return jsonify({"ok": True, "transaction": updated})
+
+
+# ------------------------------------------------ super admin game controls
+@app.route("/api/superadmin/game/pause", methods=["POST"])
+def api_superadmin_game_pause():
+    """Pause the game — ball calling stops but the round stays active."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    room = _room_from_request()
+    state = db.get_game_state(room)
+    if state.get("phase") != "playing":
+        return jsonify({"error": "Can only pause during playing phase."}), 400
+    db.update_game_state(room, paused=1)
+    return jsonify({"ok": True, "paused": True})
+
+
+@app.route("/api/superadmin/game/resume", methods=["POST"])
+def api_superadmin_game_resume():
+    """Resume a paused game."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    room = _room_from_request()
+    db.update_game_state(room, paused=0)
+    return jsonify({"ok": True, "paused": False})
+
+
+@app.route("/api/superadmin/game/stop", methods=["POST"])
+def api_superadmin_game_stop():
+    """Force stop the current round (no winner). Resets to preparation."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    room = _room_from_request()
+    loop.end_round_no_winner(room)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/superadmin/game/start", methods=["POST"])
+def api_superadmin_game_start():
+    """Force start the round from preparation."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    room = _room_from_request()
+    result = loop.force_start(room)
+    return jsonify(result)
+
+
+@app.route("/api/superadmin/game/add-bots", methods=["POST"])
+def api_superadmin_game_add_bots():
+    """Manually add bots to the game."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    room = _room_from_request()
+    return jsonify(loop.add_bots(room))
 
 
 @app.route("/api/superadmin/accounts")

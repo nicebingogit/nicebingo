@@ -173,14 +173,23 @@ class GameLogic:
 
     # -------------------------------------------------------------- prize pool
     def calculate_prize_pool(self, room: int = 30) -> Dict:
-        """Return {'total_bets', 'prize_pool', 'house_fee', 'real_players'}."""
-        total_bets = 0
+        """Return {'total_bets', 'prize_pool', 'house_fee', 'real_players'}.
+
+        Bot entry fees are counted TWICE — doubling the effective prize pool
+        so real players compete for a bigger reward when bots are in the game.
+        This incentivizes playing even when the room looks crowded with bots.
+        """
+        real_bets = 0
+        bot_bets = 0
         real_ids: Set[int] = set()
         for sel in self.db.get_all_selections(room):
             if sel["user_id"] > 0:
                 real_ids.add(sel["user_id"])
-            if sel["user_id"] > 0 or config.BOTS_CONTRIBUTE_TO_POOL:
-                total_bets += sel["bet_amount"]
+                real_bets += sel["bet_amount"]
+            elif config.BOTS_CONTRIBUTE_TO_POOL:
+                bot_bets += sel["bet_amount"]
+        # bot bets are doubled: each bot bet adds double to the pool
+        total_bets = real_bets + (bot_bets * 2)
         prize_pool = int(total_bets * config.PRIZE_PERCENT)
         return {
             "total_bets": total_bets,
