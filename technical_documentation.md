@@ -272,24 +272,24 @@ Players with credit exceeding `AUTO_PLAY_CREDIT_THRESHOLD` (4 ETB) see a
 
 When pressed (toggles on/off):
 
-1. **Preparation phase**: the client automatically calls `POST /api/quick-play`
-   to fill all card slots (up to `MAX_CARDS_PER_PLAYER`). This happens once
-   when entering preparation with auto-play on and the player has fewer cards
-   than the maximum.
-2. **Playing phase (auto-daub)**: every time the server pushes new called
+1. **Playing phase (auto-daub)**: every time the server pushes new called
    numbers via polling, the client automatically marks ALL called numbers on
    ALL of the player's cards — no manual tapping needed. The `marked` state
    is updated in bulk on each poll tick.
-3. **Playing phase (auto-claim)**: after each daub update, client-side
+2. **Playing phase (auto-claim)**: after each daub update, client-side
    pattern detection (`bingo.js → checkPatterns`) runs over the player's cards.
    If ANY card has a complete winning pattern, the client immediately calls
    `POST /api/claim-bingo` with that card's ID. The server is still the sole
    judge — a false pattern will still result in elimination.
 
+> **Note:** Auto-play does NOT select cards — the player chooses their own
+> cards manually first, then enables auto-play for hands-free daubing and
+> claiming.
+
 **Implementation details:**
 - All auto-play logic is **client-side only** — no new backend endpoints.
-- Three `useEffect` hooks in `App.jsx` drive the three phases (auto-select,
-  auto-daub, auto-claim), each gated by the `autoPlay` state flag.
+- Two `useEffect` hooks in `App.jsx` drive auto-daub and auto-claim,
+  each gated by the `autoPlay` state flag.
 - The button has a pulsing CSS animation (`autoPlayPulse` keyframes) and
   changes to a gold gradient when active (`autoPlayGlow`).
 - Auto-play resets when the player switches rooms or when a new round starts
@@ -840,6 +840,8 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
   Users, Wallet, and Accounts only.
 * **Auto-play button hides during play**: the 🤖 Auto Play floating button
   disappears once the round starts (phase = playing).
+* **Auto-play no longer auto-selects cards**: the 🤖 Auto Play button now
+  only handles auto-daub and auto-claim. Card selection remains fully manual.
 * **Compact 3-card layout**: triple cards use tighter padding (8 px),
   smaller cells (14 px font), and reduced gaps (3 px) so 3 cards +
   BINGO button fit on a single phone screen.

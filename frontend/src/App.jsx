@@ -44,8 +44,8 @@ export default function App() {
   // claim against the real called numbers when BINGO is pressed.
   // shape: { card_id: Set<"B-7", "N-44", ...> }
   const [marked, setMarked] = useState({});
-  // AUTO-PLAY: when enabled, the client auto-selects cards, auto-daubs called
-  // numbers, and auto-claims BINGO — no manual tapping required.
+  // AUTO-PLAY: when enabled, the client auto-daubs called numbers and
+  // auto-claims BINGO — no manual tapping required. Card selection is manual.
   const [autoPlay, setAutoPlay] = useState(false);
   // the room (fixed bet) this player is currently in — picked via a listbox
   // in the card picker. Each room is its own game.
@@ -215,18 +215,6 @@ export default function App() {
     if (state?.phase === 'preparation') setMarked({});
   }, [state?.phase]);
 
-  // ---- AUTO-PLAY: auto-select cards during preparation ----
-  useEffect(() => {
-    if (!autoPlay || state?.phase !== 'preparation') return;
-    const maxCards = state?.config?.max_cards || 3;
-    if (myCards.length < maxCards && myUser?.credit >= room) {
-      // use quick-play to auto-fill card slots
-      api.quickPlay(room)
-        .then(() => refresh())
-        .catch(() => {}); // silent — credit may be insufficient
-    }
-  }, [autoPlay, state?.phase, myCards.length, myUser?.credit, room, refresh, state?.config?.max_cards]);
-
   // ---- AUTO-PLAY: auto-daub all called numbers on the player's cards ----
   useEffect(() => {
     if (!autoPlay || state?.phase !== 'playing' || myCards.length === 0) return;
@@ -366,8 +354,7 @@ export default function App() {
       {state?.phase !== 'playing' && (myUser?.credit ?? 0) >= AUTO_PLAY_CREDIT_THRESHOLD && (
         <button
           className={`auto-play-btn ${autoPlay ? 'active' : ''}`}
-          onClick={() => { playClick(); haptic('medium'); setAutoPlay((a) => !a); }}
-          title={autoPlay ? 'Disable auto-play' : 'Enable auto-play — cards are selected, numbers daubed, and BINGO claimed automatically!'}
+          onClick={() => { playClick(); haptic('medium'); setAutoPlay((a) => !a); }}            title={autoPlay ? 'Disable auto-play' : 'Enable auto-play — daubs numbers and claims BINGO automatically! Select cards manually, then enable auto-play.'}
         >
           {autoPlay ? '🤖 Auto ON' : '🤖 Auto Play'}
         </button>
