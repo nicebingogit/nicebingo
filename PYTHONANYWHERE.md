@@ -1,4 +1,4 @@
-# ☁️ Run Bingo Royale 24/7 on PythonAnywhere — free, no PC, no credit card
+# ☁️ Run Nice Bingo 24/7 on PythonAnywhere — free, no PC, no credit card
 
 PythonAnywhere's free tier runs your web app **24/7 without sleeping** and
 gives you a permanent `https://<username>.pythonanywhere.com` address (HTTPS —
@@ -86,8 +86,8 @@ Dashboard → **Web** tab → **Add a new web app** → Next → choose
 ### 6. Point it at our WSGI file
 On the web app page:
 - **Code → WSGI configuration file**: change the path to
-  `/home/<username>/2xbingo/wsgi.py`
-- **Virtualenv**: `/home/<username>/2xbingo/venv`
+  `/home/<username>/nicebingo/wsgi.py`
+- **Virtualenv**: `/home/<username>/nicebingo/venv`
 - **Security → Force HTTPS**: tick it (Telegram needs https on the button)
 
 ### 7. Environment variables
@@ -102,6 +102,10 @@ SERVER_HOST   = 0.0.0.0
 ```
 (`DB_PATH` is optional — the database stays at `~/nicebingo/bingo_bot.db`,
 which is persistent. `WEBHOOK_SECRET` is auto-derived from the bot token.)
+
+> **Tip:** If you can't find the Environment Variables section in the Web tab,
+> add them directly in the WSGI file using `os.environ.setdefault(...)` at the
+> top (see the `wsgi.py` file in the repo for the pattern).
 
 ### 8. Reload and check the logs
 Click the green **Reload** button. Then open **Web → Error log** and
@@ -131,9 +135,9 @@ Game loop started · rooms=[30, 50, 100]
 
 - The free web app **never sleeps** — the game loop ticks 24/7.
 - **Updating the game:** SSH or Bash console → download the zip to your **home
-  folder**, extract it, and copy the files over the existing `~/2xbingo`
-  (never download/unzip *inside* `~/2xbingo` — the zip extracts to a
-  `2xbingo-main/` subfolder and the old code would stay in place!):
+  folder**, extract it, and copy the files over the existing `~/nicebingo`
+  (never download/unzip *inside* `~/nicebingo` — the zip extracts to a
+  `nicebingo-main/` subfolder and the old code would stay in place!):
 
   ```bash
   cd ~
@@ -183,11 +187,11 @@ rm -rf nicebingo-main bingo.zip
 | Bot answers nothing after Reload | Telegram needs the webhook re-registered — it happens on every Reload; give it a few seconds and retry `/play` |
 | Bot still not responding after Reload | Visit `https://<username>.pythonanywhere.com/health` — check `bot.thread_alive` and `bot.webhook_registered`; if thread is dead, Reload again |
 | Error log shows a `setWebhook` / connection failure to `api.telegram.org` | Free accounts can normally reach Telegram; if the bank of the account blocks it, contact PythonAnywhere support and ask them to whitelist `api.telegram.org` |
-| Updated the code but the game still runs the old version | The zip was unzipped *inside* `~/2xbingo` (it lands in `~/nicebingo/2xbingo-main/` and nothing is replaced). Run the corrected update command above from `cd ~`, then **Reload**. Verify the new code is there: `grep -n superadmin ~/nicebingo/server.py` should print lines |
+| Updated the code but the game still runs the old version | The zip was unzipped *inside* `~/nicebingo` (it lands in `~/nicebingo/nicebingo-main/` and nothing is replaced). Run the corrected update command above from `cd ~`, then **Reload**. Verify the new code is there: `grep -n superadmin ~/nicebingo/server.py` should print lines |
 | `unzip` says `End-of-central-directory signature not found` and the download is only 14 bytes | Your repo is **private** — the anonymous zip URL returns `404: Not Found`. Don't use the zip; use git with a personal access token (see *Keeping it running* → *Private repo?*) |
 
 ## Your existing players & balance?
 
 The cloud starts with a fresh empty database. To bring your current
-`bingo_bot.db` along: upload it from your PC into `/home/<username>/2xbingo/`
+`bingo_bot.db` along: upload it from your PC into `/home/<username>/nicebingo/`
 (via the dashboard **Files** tab) so it replaces `bingo_bot.db`, then Reload.

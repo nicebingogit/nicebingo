@@ -303,35 +303,40 @@ body::before {
 @keyframes claimPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 95, 122, 0.7); } 50% { box-shadow: 0 0 0 12px rgba(255, 95, 122, 0); } }
 .claim-hint { text-align: center; color: var(--gold); font-size: 13px; font-weight: 700; }
 
-/* called numbers: vertical columns with letters on top */
+/* called numbers: vertical columns with letters on top — COMPACT */
 .board {
-  background: linear-gradient(180deg, rgba(19,26,58,0.75), rgba(19,26,58,0.55)); border: 1px solid rgba(120,132,255,0.18); border-radius: var(--radius);
-  padding: 8px 6px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
-  overflow-x: auto;
+  background: linear-gradient(180deg, rgba(19,26,58,0.85), rgba(19,26,58,0.65)); border: 1px solid rgba(120,132,255,0.18); border-radius: 12px;
+  padding: 5px 4px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  max-height: 220px; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; scrollbar-color: rgba(255,213,79,0.25) transparent;
   -webkit-overflow-scrolling: touch;
 }
+.board::-webkit-scrollbar { width: 3px; }
+.board::-webkit-scrollbar-track { background: transparent; }
+.board::-webkit-scrollbar-thumb { background: rgba(255,213,79,0.25); border-radius: 99px; }
 .board-headers {
-  display: flex; gap: 4px; margin-bottom: 4px; padding: 0 2px;
+  display: flex; gap: 3px; margin-bottom: 2px; padding: 0 1px; position: sticky; top: 0;
+  background: rgba(19,26,58,0.95); z-index: 2; border-radius: 8px 8px 0 0; padding: 3px 2px;
 }
 .board-header {
   flex: 1; min-width: 0; text-align: center;
-  font-size: 13px; font-weight: 900; letter-spacing: 1px;
+  font-size: 10px; font-weight: 900; letter-spacing: 1px;
 }
 .board-columns {
-  display: flex; gap: 4px;
+  display: flex; gap: 2px;
 }
 .board-column {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;
 }
 .board-column .ball {
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 .ball {
-  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 8px; color: rgba(255, 255, 255, 0.45); font-weight: 700;
+  width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 7px; color: rgba(255, 255, 255, 0.35); font-weight: 600;
 }
-.ball.on { background: rgba(255, 213, 79, 0.12); border-color: rgba(255,213,79,0.25); color: var(--gold); font-weight: 900; }
+.ball.on { background: rgba(255, 213, 79, 0.15); border-color: rgba(255,213,79,0.35); color: var(--gold); font-weight: 900; font-size: 8px; }
 .ball.last { animation: lastPop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1); }
 @keyframes lastPop { 0% { transform: scale(1.6); } 100% { transform: scale(1); } }
 
@@ -784,14 +789,7 @@ body::before {
 }
 
 /* Ball calling: smooth pop-in for each new number */
-.ball {
-  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.3s ease;
-}
 .ball.on {
-  animation: ballOn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.ball.last {
-  animation: lastBallPop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1);
   z-index: 2;
 }
 @keyframes ballOn {
@@ -943,17 +941,16 @@ body::before {
   box-shadow: 0 4px 12px rgba(255, 213, 79, 0.15);
 }
 
-/* short screens: slim the chrome so the cards + BINGO button ALWAYS fit —
-   the no-overflow guarantee holds even on small phones */
+/* short screens: slim the chrome so the cards + BINGO button ALWAYS fit */
 @media (max-height: 640px) {
   .phase-play { gap: 6px; }
   .game-layout { gap: 8px; }
   .game-left { gap: 6px; }
   .current-call { padding: 3px 10px; }
   .cc-ball { width: 32px; height: 32px; line-height: 32px; font-size: 13px; }
-  .board { gap: 2px; padding: 3px; }
-  .board-letter { font-size: 12px; }
-  .ball { font-size: 7px; }
+  .board { max-height: 160px; padding: 3px; }
+  .board-header { font-size: 9px; }
+  .ball { font-size: 6px; }
   .bingo-btn { padding: 10px; }
   .my-cards { gap: 8px; }
   .bingo-card.small { padding: 8px; }
@@ -962,3 +959,313 @@ body::before {
   .bingo-card.triple .card-cell { font-size: 14px; }
   .called-strip { padding: 4px 6px; }
 }
+
+/* =========================================================== EXTRA POLISH */
+
+/* Ambient glow on game layout — subtle purple/blue haze behind the board */
+.game-layout {
+  position: relative;
+}
+.game-layout::before {
+  content: '';
+  position: absolute;
+  top: -20px; left: 50%; transform: translateX(-50%);
+  width: 80%; height: 60px;
+  background: radial-gradient(ellipse, rgba(120,132,255,0.12) 0%, transparent 70%);
+  pointer-events: none; z-index: 0;
+  filter: blur(20px);
+}
+.game-board, .game-left { position: relative; z-index: 1; }
+
+/* Board subtle glow border when balls are called */
+.board.has-calls {
+  border-color: rgba(255, 213, 79, 0.15);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3), 0 0 40px rgba(255, 213, 79, 0.04);
+}
+
+/* Card entrance animation — each card fades + slides up */
+.my-cards .bingo-card {
+  animation: cardEnter 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.my-cards .bingo-card:nth-child(1) { animation-delay: 0.05s; }
+.my-cards .bingo-card:nth-child(2) { animation-delay: 0.12s; }
+.my-cards .bingo-card:nth-child(3) { animation-delay: 0.19s; }
+@keyframes cardEnter {
+  0% { opacity: 0; transform: translateY(14px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Bingo button gradient shine on hover */
+.bingo-btn.claimable {
+  position: relative;
+  overflow: hidden;
+}
+.bingo-btn.claimable::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; width: 60%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  animation: btnShine 3s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes btnShine {
+  0%, 70%, 100% { left: -100%; }
+  85% { left: 150%; }
+}
+
+/* Header brand letters — staggered bounce-in */
+.brand-letter {
+  display: inline-block;
+  animation: letterBounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.brand-letter:nth-child(1) { animation-delay: 0s; }
+.brand-letter:nth-child(2) { animation-delay: 0.06s; }
+.brand-letter:nth-child(3) { animation-delay: 0.12s; }
+.brand-letter:nth-child(4) { animation-delay: 0.18s; }
+.brand-letter:nth-child(5) { animation-delay: 0.24s; }
+@keyframes letterBounce {
+  0% { opacity: 0; transform: translateY(-12px) scale(0.6); }
+  60% { transform: translateY(2px) scale(1.08); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Chips — smooth glass morphism on hover */
+.chip {
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.25s ease;
+}
+.chip:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+
+/* Countdown bar — animated gradient shimmer */
+.countdown-fill {
+  position: relative;
+  overflow: hidden;
+}
+.countdown-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.2) 50%, transparent 70%);
+  animation: barShimmer 2s ease-in-out infinite;
+}
+@keyframes barShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Current call ball — gold pulse ring */
+.cc-ball {
+  position: relative;
+}
+.cc-ball::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 213, 79, 0.2);
+  animation: ballRing 2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes ballRing {
+  0%, 100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.15); opacity: 0; }
+}
+
+/* Pick tiles — staggered entrance on load */
+.card-grid-picker .pick-tile {
+  animation: tileEntrance 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.card-grid-picker .pick-tile:nth-child(1) { animation-delay: 0.02s; }
+.card-grid-picker .pick-tile:nth-child(2) { animation-delay: 0.04s; }
+.card-grid-picker .pick-tile:nth-child(3) { animation-delay: 0.06s; }
+.card-grid-picker .pick-tile:nth-child(4) { animation-delay: 0.08s; }
+.card-grid-picker .pick-tile:nth-child(5) { animation-delay: 0.10s; }
+.card-grid-picker .pick-tile:nth-child(6) { animation-delay: 0.12s; }
+.card-grid-picker .pick-tile:nth-child(n+7) { animation-delay: 0.14s; }
+@keyframes tileEntrance {
+  0% { opacity: 0; transform: translateY(10px) scale(0.9); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Winner modal — dramatic entrance with confetti burst */
+.modal-card.won {
+  border-color: rgba(255, 213, 79, 0.5);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 60px rgba(255, 213, 79, 0.15);
+}
+.modal-card.won .trophy {
+  animation: trophyBounce 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+}
+@keyframes trophyBounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  30% { transform: translateY(-16px) scale(1.1); }
+  50% { transform: translateY(0) scale(0.95); }
+  70% { transform: translateY(-6px) scale(1.03); }
+}
+
+/* Prize amount — counting up feel */
+.prize-amount {
+  animation: prizeReveal 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.3s;
+}
+@keyframes prizeReveal {
+  0% { opacity: 0; transform: scale(0.5) translateY(10px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Splash screen — smooth brand entrance */
+.splash-brand {
+  animation: splashBrand 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes splashBrand {
+  0% { opacity: 0; transform: scale(0.7); letter-spacing: 12px; }
+  100% { opacity: 1; transform: scale(1); letter-spacing: 4px; }
+}
+.spinner {
+  animation: spin 0.9s linear infinite, fadeIn 0.5s ease both;
+  animation-delay: 0s, 0.3s;
+}
+
+/* Registration card — beautiful glass entrance */
+.reg-card {
+  animation: regEnter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes regEnter {
+  0% { opacity: 0; transform: translateY(24px) scale(0.95); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Admin panel — smooth tab transitions */
+.admin-panel, .settings-panel {
+  animation: panelSlide 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes panelSlide {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Eliminated banner — shake on appear */
+.eliminated-banner {
+  animation: elimShake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes elimShake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-6px); }
+  30% { transform: translateX(5px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(3px); }
+  75% { transform: translateX(-2px); }
+  90% { transform: translateX(1px); }
+}
+
+/* Toast notification — slide up + fade */
+.toast {
+  animation: toastSlide 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes toastSlide {
+  0% { opacity: 0; transform: translate(-50%, 16px); }
+  100% { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Winner card in modal — glow shimmer */
+.winner-card {
+  animation: winnerShimmer 2s ease-in-out infinite;
+}
+@keyframes winnerShimmer {
+  0%, 100% { box-shadow: 0 0 20px rgba(255, 213, 79, 0.2); }
+  50% { box-shadow: 0 0 40px rgba(255, 213, 79, 0.45); }
+}
+
+/* Winner cell hit — golden pulse */
+.winner-cell.hit {
+  animation: hitPulse 1.2s ease-in-out infinite;
+}
+@keyframes hitPulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(255, 213, 79, 0.5); transform: scale(1); }
+  50% { box-shadow: 0 0 14px rgba(255, 213, 79, 0.9); transform: scale(1.04); }
+}
+
+/* Auto-play button — floating glow */
+.auto-play-btn {
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+/* Settings panel — smooth entrance */
+.settings-panel {
+  animation: settingsIn 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes settingsIn {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Wallet balance — number glow */
+.wallet-balance-num {
+  text-shadow: 0 0 12px rgba(75, 227, 160, 0.3);
+}
+
+/* Profile rows — hover lift */
+.profile-row {
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+.profile-row:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+/* Transaction rows — status glow */
+.tx-row.pending {
+  box-shadow: 0 0 0 1px rgba(255, 213, 79, 0.15);
+}
+.tx-row.approved {
+  box-shadow: 0 0 0 1px rgba(75, 227, 160, 0.15);
+}
+
+/* User row hover — smooth blue glow */
+.user-row.clickable:hover {
+  box-shadow: 0 4px 16px rgba(62, 200, 255, 0.12);
+}
+
+/* Pool chip — golden pulse when visible */
+.chip-pool {
+  animation: poolGlow 3s ease-in-out infinite;
+}
+@keyframes poolGlow {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 12px rgba(255, 213, 79, 0.2); }
+}
+
+/* Dot connection status — smooth blink */
+.dot.on {
+  animation: dotPulse 2s ease-in-out infinite;
+}
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 6px var(--green); }
+  50% { box-shadow: 0 0 12px var(--green); }
+}
+
+/* Responsive fine-tuning */
+@media (max-width: 420px) {
+  .brand-letter { font-size: 22px; }
+  .brand-royale { font-size: 9px; letter-spacing: 3px; }
+  .countdown-num { font-size: 28px; }
+  .board { max-height: 180px; }
+  .board-header { font-size: 8px; }
+  .ball { font-size: 6px; }
+  .ball.on { font-size: 7px; }
+  .cc-ball { width: 30px; height: 30px; line-height: 30px; font-size: 12px; }
+  .bingo-card { padding: 8px; border-radius: 12px; }
+  .bingo-card.small .card-cell { font-size: 12px; }
+  .bingo-card.triple .card-cell { font-size: 13px; }
+  .bingo-btn { font-size: 14px; padding: 10px; border-radius: 12px; }
+  .chip { padding: 5px 8px; font-size: 11px; }
+  .chip-num { font-size: 13px; }
+  .auto-play-btn { font-size: 11px; padding: 6px 12px; }
+}
+
+/* Dark mode scrollbar for all scrollable areas */
+*::-webkit-scrollbar { width: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }

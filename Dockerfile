@@ -1,4 +1,4 @@
-# Bingo Royale — cloud image
+# Nice Bingo — cloud image
 #
 # Runs the Flask game server (server.py) AND the Telegram bot (bot.py) inside
 # ONE container. They share a single SQLite file (config.DB_PATH), so they must

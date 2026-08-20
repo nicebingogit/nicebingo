@@ -1,4 +1,4 @@
-# 🎰 Bingo Royale — Technical Documentation
+# 🎰 Nice Bingo — Technical Documentation
 
 This document describes the current system. It is kept up to date with every
 change so that any developer or AI can refer to it at any time.
@@ -42,7 +42,7 @@ When a brand-new user sends `/start`, `bot.py`:
 1. Creates a placeholder account (credit 0, `is_registered = 0`) if needed.
 2. If the user has **no stored full name**, the bot asks:
 
-   > 🎰 **Welcome to Bingo Royale!** Before you continue, please enter your **full name**.
+   > 🎰 **Welcome to Nice Bingo!** Before you continue, please enter your **full name**.
 
 3. The bot waits for the next text message (`text_handler`, gated by
    `context.user_data["awaiting_full_name"]`).
@@ -791,7 +791,7 @@ server + tunnel + bot.
 1. Push code to GitHub from your local machine.
 2. On PythonAnywhere Bash console:
    ```
-   cd ~/2xbingo
+   cd ~/nicebingo
    git pull
    ```
 3. **Reload the Web app**: Go to the **Web** tab and click **Reload**.
@@ -842,8 +842,9 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 * **Admin Overview removed**: the 📊 Overview tab (Force Start, Force Call,
   Reset, Bots, Stats) is now Super Admin only — regular admins see
   Users, Wallet, and Accounts only.
-* **Auto-play button hides during play**: the 🤖 Auto Play floating button
-  disappears once the round starts (phase = playing).
+* **Auto-play toggleable during gameplay**: the 🤖 Auto Play floating button
+  is always visible during preparation AND gameplay — players can turn
+  auto-play on/off at any time, even mid-round.
 * **Auto-play no longer auto-selects cards**: the 🤖 Auto Play button now
   only handles auto-daub and auto-claim. Card selection remains fully manual.
 * **Compact 3-card layout**: triple cards use tighter padding (8 px),

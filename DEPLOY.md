@@ -1,4 +1,4 @@
-# ☁️ Run Bingo Royale 24/7 — free, no PC needed
+# ☁️ Run Nice Bingo 24/7 — free, no PC needed
 
 This guide deploys your repo to a free
 cloud host so the game runs **24/7 without your PC being on**. Total cost: **$0**.
@@ -50,7 +50,7 @@ Top-right **profile menu → Git** → **Connect GitHub** → grant access to
 `nicebingogit/nicebingo` (private or public, either works).
 
 ### 3. Import the repo
-**New Project** → name it `bingo-royale`, pick a region close to your players
+**New Project** → name it `nice-bingo`, pick a region close to your players
 (e.g. Europe West) → **Add a combined service** → **Import from Git** → choose
 `nicebingogit/nicebingo` → branch `main`.
 

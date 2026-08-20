@@ -14,9 +14,9 @@ processes (PythonAnywhere):
   * SQLite (bingo_bot.db in the project home dir) persists everything.
 
 PythonAnywhere web app configuration:
-  * Code → WSGI configuration file → /home/<user>/2xbingo/wsgi.py
-  * Virtualenv → /home/<user>/2xbingo/venv
-  * Environment variables (Web tab):
+  * Code → WSGI configuration file → /home/<user>/nicebingo/wsgi.py
+  * Virtualenv → /home/<user>/nicebingo/venv
+  * Environment variables (Web tab or os.environ in wsgi.py):
       BOT_TOKEN=...              ADMIN_IDS=...
       APP_URL=https://<user>.pythonanywhere.com
       BOT_WEBHOOK=1              SERVER_HOST=0.0.0.0   (DB_PATH optional)
@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 # Load .env from THIS file's directory. A bare load_dotenv() searches the
 # process working directory, which on PythonAnywhere is /home/<user> (uWSGI
 # is treated as "interactive" so dotenv falls back to os.getcwd()). It would
-# silently miss 2xbingo/.env, BOT_WEBHOOK would stay unset, and the bot would
+# silently miss nicebingo/.env, BOT_WEBHOOK would stay unset, and the bot would
 # never start — exactly the bug this explicit path fixes.
 _HERE = Path(__file__).resolve().parent
 load_dotenv(_HERE / ".env")

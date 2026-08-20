@@ -46,7 +46,7 @@ export default function App() {
   const [marked, setMarked] = useState({});
   // AUTO-PLAY: when enabled, the client auto-daubs called numbers and
   // auto-claims BINGO — no manual tapping required. Card selection is manual.
-  const [autoPlay, setAutoPlay] = useState(false);
+  const [autoPlay, setAutoPlay] = useState(true);
   // the room (fixed bet) this player is currently in — picked via a listbox
   // in the card picker. Each room is its own game.
   const [room, setRoom] = useState(10);

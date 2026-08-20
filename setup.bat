@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 echo ============================================
-echo   Bingo Royale - one-time setup
+echo   Nice Bingo - one-time setup
 echo ============================================
 echo.
 

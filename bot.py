@@ -178,7 +178,7 @@ class PremiumBingoBot:
             # first-time onboarding: collect the full name in the chat
             context.user_data["awaiting_full_name"] = True
             await update.message.reply_text(
-                "🎰 **Welcome to Bingo Royale!**\n\n"
+                "🎰 **Welcome to Nice Bingo!**\n\n"
                 "Before you continue, please enter your **full name**.",
                 parse_mode="Markdown",
             )
@@ -193,7 +193,7 @@ class PremiumBingoBot:
         credit = db.get_credit(user.id)
         hint = f"\n\n{HTTPS_HINT}" if not self._webapp_ok() else ""
         await update.message.reply_text(
-            f"🎲 **BINGO ROYALE** 🎲\n\n"
+            f"🎲 **NICE BINGO** 🎲\n\n"
             f"Welcome, {_md(name)}!\n"
             f"💰 Balance: **{credit} {config.APP_CURRENCY}**\n\n"
             f"🎰 Rooms:\n{self._rooms_line()}\n\n"
@@ -425,7 +425,7 @@ class PremiumBingoBot:
         room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
         room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
         await msg.reply_text(
-            "🎲 **Bingo Royale**\n\n"
+            "🎲 **Nice Bingo**\n\n"
             f"1. Tap **Play Mini App** → full-screen arena opens in Telegram\n"
             f"2. Pick a room (**{room_names}**) — each room has a FIXED bet per "
             f"card ({room_bets}); no bet input needed\n"

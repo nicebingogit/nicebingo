@@ -12,13 +12,13 @@ export default function CalledBoard({ called, currentCall }) {
 
   return (
     <div className="board board-vertical">
-      {/* Letter headers at the top */}
+      {/* Letter headers at the top — sticky so they stay visible when scrolling */}
       <div className="board-headers">
         {LETTERS.map((letter) => (
           <div
             key={letter}
             className="board-header"
-            style={{ color: COLORS[letter], textShadow: `0 0 14px ${COLORS[letter]}66` }}
+            style={{ color: COLORS[letter], textShadow: `0 0 10px ${COLORS[letter]}55` }}
           >
             {letter}
           </div>
@@ -40,7 +40,7 @@ export default function CalledBoard({ called, currentCall }) {
                       ? {
                           borderColor: COLORS[letter],
                           color: COLORS[letter],
-                          boxShadow: `0 0 8px ${COLORS[letter]}55`,
+                          boxShadow: `0 0 6px ${COLORS[letter]}44`,
                         }
                       : {}
                   }

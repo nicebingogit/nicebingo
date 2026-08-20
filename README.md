@@ -1,4 +1,4 @@
-# 🎰 Bingo Royale — Immersive Telegram Mini App Edition
+# 🎰 Nice Bingo — Immersive Telegram Mini App Edition
 
 A professional, fully immersive Bingo system. The Telegram bot is the launcher:
 tapping **Play Mini App** opens a full-screen interactive game inside Telegram
@@ -64,6 +64,7 @@ routes, depending on whether you can provide a card:
 | 🏆 **Winner celebration** | Confetti modal with the winning pattern + instant payout |
 | 🛠 **Admin controls** | Force start / force call / reset / add bots / toggle bots / **user list with inline credit editing** / **wallet request review** / **wallet account number** (in-app panel *and* bot `/admin`) |
 | 📝 **In-app registration** | First time you press Play, the Mini App asks your **full name** and **phone number** (shared automatically) — no chat setup needed |
+| 🤖 **Auto-Play mode** | Toggle auto-play anytime — auto-daubs called numbers and auto-claims BINGO when a winning pattern is detected |
 | 💰 **Wallet** | Your phone number is your wallet. Send deposits to the admin's account (TeleBirr / CBB) and submit the **transaction number**; request withdrawals to your phone — all reviewed in the admin panel |
 | ⚙️ **Settings & Help** | Deposit/withdraw wallet (withdrawals need destination account details), editable name **and phone (wallet)** profile, and full help & guide including the **winning patterns** |
 | 🗄️ **Persistence** | SQLite — the game even resumes mid-round after a restart |
