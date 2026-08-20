@@ -226,16 +226,24 @@ def _settings_payload() -> dict:
     """Public wallet settings shown in every user's Settings -> Wallet panel.
 
     * `payment_accounts` — every ACTIVE account (kept for compatibility).
-    * `deposit_accounts` — the NEW deposit picker: ONE account per bank/
-      provider, always the account of the ONLINE admin with the MOST admin
-      credit. When no admin for a bank is online, that bank is not listed at
-      all — offline admins' accounts are never displayed.
+    * `deposit_accounts` — ONE account per bank/provider: always the ONLINE
+      admin with the MOST credit. If NO admin is online for a provider, the
+      SUPER ADMIN's account is used as fallback so users can always pay.
     """
     # get_deposit_accounts() is ordered by owner credit DESC, so the
     # first row per provider IS the selected account
     best: dict = {}
     for acc in db.get_deposit_accounts():
         best.setdefault(acc["provider"], acc)
+    # If no online admin has a certain provider, fall back to the super admin's
+    # account so users always have somewhere to pay.
+    super_accounts = {}
+    for acc in db.get_payment_accounts(active_only=True):
+        if acc.get("admin_id") in config.SUPER_ADMIN_IDS:
+            super_accounts.setdefault(acc["provider"], acc)
+    for provider, acc in super_accounts.items():
+        if provider not in best:
+            best[provider] = acc
     return {
         "currency": config.APP_CURRENCY,
         "payment_accounts": [_account_payload(a)

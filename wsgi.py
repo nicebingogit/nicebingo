@@ -1,51 +1,28 @@
 """
-PythonAnywhere (free) WSGI entry point — runs the whole system 24/7 with no PC.
-
-How it works on always-on hosts whose free tier cannot run background
-processes (PythonAnywhere):
-
-  * This file is the WSGI application PythonAnywhere serves.
-  * The Flask app (server.py) serves the Mini App + JSON API, and the game
-    loop (APScheduler) runs INSIDE the same web process — always-on, never
-    sleeping, exactly like `python server.py` on your PC.
-  * With BOT_WEBHOOK=1 the Telegram bot runs in webhook mode in this same
-    process: Telegram POSTs updates to APP_URL/webhook/<secret>, server.py
-    forwards them to the bot, and the bot answers / announces normally.
-  * SQLite (bingo_bot.db in the project home dir) persists everything.
-
-PythonAnywhere web app configuration:
-  * Code → WSGI configuration file → /home/<user>/nicebingo/wsgi.py
-  * Virtualenv → /home/<user>/nicebingo/venv
-  * Environment variables (Web tab or os.environ in wsgi.py):
-      BOT_TOKEN=...              ADMIN_IDS=...
-      APP_URL=https://<user>.pythonanywhere.com
-      BOT_WEBHOOK=1              SERVER_HOST=0.0.0.0   (DB_PATH optional)
-
-Run locally (testing):  python -c "import wsgi"
+PythonAnywhere WSGI entry point
 """
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env from THIS file's directory. A bare load_dotenv() searches the
-# process working directory, which on PythonAnywhere is /home/<user> (uWSGI
-# is treated as "interactive" so dotenv falls back to os.getcwd()). It would
-# silently miss nicebingo/.env, BOT_WEBHOOK would stay unset, and the bot would
-# never start — exactly the bug this explicit path fixes.
 _HERE = Path(__file__).resolve().parent
 load_dotenv(_HERE / ".env")
 
+# --- Environment variables (defaults for PythonAnywhere) ---
+os.environ.setdefault('BOT_TOKEN', '8813404978:AAHupEGJSdvEuaPmP9GRnZ7BOeOs0oZN4ac')
+os.environ.setdefault('APP_URL', 'https://nicebingo.pythonanywhere.com')
+os.environ.setdefault('BOT_WEBHOOK', '1')
+os.environ.setdefault('SERVER_HOST', '0.0.0.0')
+os.environ.setdefault('ADMIN_IDS', '1512842545,903313112')
+os.environ.setdefault('SUPER_ADMIN_IDS', '1512842545,903313112')
+
 import migrate_db
-import server  # noqa: E402  (defines app, db, game loop; reads .env above)
+import server  # noqa: E402
 
-# idempotent migration + card seed (same as run_prod.py does before booting)
 migrate_db.main()
-
-# start the game loop (idempotent — safe across WSGI reloads)
 server.loop.start()
 
-# always-on hosts run the bot in webhook mode inside this same process
 if os.getenv("BOT_WEBHOOK", "0").strip().lower() in ("1", "true", "yes"):
     try:
         import bot  # noqa: E402
@@ -53,7 +30,5 @@ if os.getenv("BOT_WEBHOOK", "0").strip().lower() in ("1", "true", "yes"):
     except Exception as _bot_exc:
         import logging as _log
         _log.getLogger("wsgi").error("Bot webhook startup failed: %s", _bot_exc)
-        # The game loop and Flask app still work — the webhook will be
-        # retried by _ensure_webhook_running() when the next delivery arrives.
 
 from server import app as application  # noqa: E402

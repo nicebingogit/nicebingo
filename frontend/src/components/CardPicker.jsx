@@ -115,9 +115,6 @@ export default function CardPicker({ selections, maxCards, rooms, room, onRoomCh
         })}
       </div>
 
-      <div className="picker-hint">
-        Tap a number to select it · tap again to remove (full refund) · {room} ETB / card
-      </div>
     </div>
   );
 }

@@ -85,9 +85,9 @@ export default function Settings({ user, settings, config, onChanged, onError, o
   depositAccounts.forEach((d) => {
     onlineAccountsMap[d.provider.toLowerCase()] = d;
   });
-  // All banks that have an online admin account available
+  // All banks that have an account available (online admin OR super admin fallback)
   const availableBanks = ETHIOPIAN_BANKS.filter((b) => onlineAccountsMap[b.name.toLowerCase()]);
-  // Banks with no online admin (shown as unavailable)
+  // Banks with no account at all
   const unavailableBanks = ETHIOPIAN_BANKS.filter((b) => !onlineAccountsMap[b.name.toLowerCase()]);
   // Selected bank's online admin account
   const selectedBank = ETHIOPIAN_BANKS.find((b) => b.name === depProvider);
@@ -299,6 +299,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
                       />
                       <span className="acc-provider">{b.icon} {b.name}</span>
                       <span className="acc-holder">— {d.account.account_name}</span>
+                      {d.account.admin_online === false && <span style={{ fontSize: 10, color: 'var(--purple)' }}>⚡ Super Admin</span>}
                       <span className="acc-number">{d.account.account_number}</span>
                       <button
                         type="button"
@@ -315,8 +316,8 @@ export default function Settings({ user, settings, config, onChanged, onError, o
             )}
 
             {availableBanks.length === 0 && (
-              <div className="reg-hint">
-                ⏳ No banks available right now. Check again in a few minutes.
+              <div className="reg-hint" style={{ color: 'var(--gold)' }}>
+                ⏳ No admin is online right now. Super admin's account will be shown below if available.
               </div>
             )}
           </div>
@@ -335,6 +336,11 @@ export default function Settings({ user, settings, config, onChanged, onError, o
               <p className="reg-hint" style={{ marginTop: 8 }}>
                 Send money to this account using your wallet app, then submit a
                 deposit request below with the transaction number.
+                {selectedDep.account.admin_online === false && (
+                  <span style={{ color: 'var(--gold)', display: 'block', marginTop: 4, fontWeight: 700 }}>
+                    ⚡ No admin is online — using super admin's account as fallback.
+                  </span>
+                )}
               </p>
             </div>
           )}

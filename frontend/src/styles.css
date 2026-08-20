@@ -303,35 +303,30 @@ body::before {
 @keyframes claimPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 95, 122, 0.7); } 50% { box-shadow: 0 0 0 12px rgba(255, 95, 122, 0); } }
 .claim-hint { text-align: center; color: var(--gold); font-size: 13px; font-weight: 700; }
 
-/* called numbers: vertical columns with letters on top — NO SCROLL, all 15 rows visible */
+/* called numbers: vertical columns with letters on top — ULTRA COMPACT, fits on screen */
 .board {
   background: linear-gradient(180deg, rgba(19,26,58,0.85), rgba(19,26,58,0.65)); border: 1px solid rgba(120,132,255,0.18); border-radius: 10px;
-  padding: 3px 3px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
-  display: flex; flex-direction: column;
-}
-.board-headers {
-  display: flex; gap: 2px; margin-bottom: 1px; padding: 2px 1px;
+  padding: 2px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
 }
 .board-header {
-  flex: 1; min-width: 0; text-align: center;
-  font-size: 9px; font-weight: 900; letter-spacing: 1px;
-}
-.board-columns {
-  display: flex; gap: 2px;
+  text-align: center;
+  font-size: 10px; font-weight: 900; letter-spacing: 0.5px;
+  padding: 2px 0 1px;
 }
 .board-column {
-  flex: 1; min-width: 0; display: grid; grid-template-rows: repeat(15, 1fr); gap: 1px;
+  display: flex; flex-direction: column; gap: 0;
 }
 .board-column .ball {
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 .ball {
-  width: 100%; display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 7px; color: rgba(255, 255, 255, 0.35); font-weight: 600;
-  aspect-ratio: 1; max-height: 16px;
+  width: 14px; height: 14px; margin: 0 auto;
 }
-.ball.on { background: rgba(255, 213, 79, 0.15); border-color: rgba(255,213,79,0.35); color: var(--gold); font-weight: 900; font-size: 8px; }
+.ball.on { background: rgba(255, 213, 79, 0.2); border-color: rgba(255,213,79,0.45); color: var(--gold); font-weight: 900; font-size: 7px; }
 .ball.last { animation: lastPop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1); }
 @keyframes lastPop { 0% { transform: scale(1.6); } 100% { transform: scale(1); } }
 

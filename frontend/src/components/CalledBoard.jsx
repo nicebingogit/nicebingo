@@ -5,29 +5,19 @@ export const COLORS = { B: '#ff5f7a', I: '#4be3a0', N: '#ffd54f', G: '#3ec8ff', 
 
 export default function CalledBoard({ called, currentCall }) {
   const set = new Set(called || []);
-  // the most recently drawn ball is the LAST entry of the called list — prefer
-  // it over current_call so the board always pops/highlights the newest ball
-  // even if a poll snapshot carried a stale current_call
   const last = called?.[called.length - 1] || currentCall;
 
   return (
-    <div className="board board-vertical">
-      {/* Letter headers at the top — sticky so they stay visible when scrolling */}
-      <div className="board-headers">
-        {LETTERS.map((letter) => (
+    <div className="board">
+      {LETTERS.map((letter) => (
+        <div key={letter}>
           <div
-            key={letter}
             className="board-header"
-            style={{ color: COLORS[letter], textShadow: `0 0 10px ${COLORS[letter]}55` }}
+            style={{ color: COLORS[letter], textShadow: `0 0 8px ${COLORS[letter]}44` }}
           >
             {letter}
           </div>
-        ))}
-      </div>
-      {/* Numbers in vertical columns below each letter */}
-      <div className="board-columns">
-        {LETTERS.map((letter) => (
-          <div className="board-column" key={letter}>
+          <div className="board-column">
             {Array.from({ length: 15 }, (_, i) => RANGES[letter][0] + i).map((n) => {
               const key = `${letter}-${n}`;
               const on = set.has(key);
@@ -40,7 +30,7 @@ export default function CalledBoard({ called, currentCall }) {
                       ? {
                           borderColor: COLORS[letter],
                           color: COLORS[letter],
-                          boxShadow: `0 0 6px ${COLORS[letter]}44`,
+                          boxShadow: `0 0 4px ${COLORS[letter]}33`,
                         }
                       : {}
                   }
@@ -50,8 +40,8 @@ export default function CalledBoard({ called, currentCall }) {
               );
             })}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   );
 }
