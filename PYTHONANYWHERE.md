@@ -51,26 +51,26 @@ Open a **Bash** console from the dashboard, then:
 
 ```bash
 cd ~
-curl -L https://codeload.github.com/elcotech/2xbingo/zip/refs/heads/main -o bingo.zip
-unzip bingo.zip && mv 2xbingo-main 2xbingo && rm bingo.zip
-cd ~/2xbingo
+curl -L https://codeload.github.com/nicebingogit/nicebingo/zip/refs/heads/main -o bingo.zip
+unzip bingo.zip && mv nicebingo-main nicebingo && rm bingo.zip
+cd ~/nicebingo
 # the built Mini App is already in frontend/dist — no npm build needed
 ```
 
-> If you prefer git: `git clone --depth 1 https://github.com/elcotech/2xbingo.git`
+> If you prefer git: `git clone --depth 1 https://github.com/nicebingogit/nicebingo.git`
 
 > **Private repo?** The `curl`/zip download above only works for **public**
 > repos — a private repo returns `404: Not Found` (a 14-byte file that `unzip`
 > rejects with *"End-of-central-directory signature not found"*). Use git with
 > a **personal access token** instead:
-> `git clone --depth 1 https://<USERNAME>:<TOKEN>@github.com/elcotech/2xbingo.git`
+> `git clone --depth 1 https://<USERNAME>:<TOKEN>@github.com/nicebingogit/nicebingo.git`
 > (create the token at https://github.com/settings/tokens → *Generate new
 > token (classic)* → tick `repo`; or a fine-grained token with *Contents:
 > Read-only* on this repo).
 
 ### 4. Python environment (use 3.11 so every pinned wheel exists)
 ```bash
-cd ~/2xbingo
+cd ~/nicebingo
 python3.11 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
@@ -100,7 +100,7 @@ APP_URL       = https://<username>.pythonanywhere.com
 BOT_WEBHOOK   = 1
 SERVER_HOST   = 0.0.0.0
 ```
-(`DB_PATH` is optional — the database stays at `~/2xbingo/bingo_bot.db`,
+(`DB_PATH` is optional — the database stays at `~/nicebingo/bingo_bot.db`,
 which is persistent. `WEBHOOK_SECRET` is auto-derived from the bot token.)
 
 ### 8. Reload and check the logs
@@ -137,13 +137,13 @@ Game loop started · rooms=[30, 50, 100]
 
   ```bash
   cd ~
-  curl -L https://codeload.github.com/elcotech/2xbingo/zip/refs/heads/main -o bingo.zip
-  unzip -o bingo.zip
-  cp -r 2xbingo-main/. 2xbingo/    # overwrite code only — bingo_bot.db, .env, venv survive
-  rm -rf 2xbingo-main bingo.zip
+curl -L https://codeload.github.com/nicebingogit/nicebingo/zip/refs/heads/main -o bingo.zip
+unzip -o bingo.zip
+cp -r nicebingo-main/. nicebingo/    # overwrite code only — bingo_bot.db, .env, venv survive
+rm -rf nicebingo-main bingo.zip
   ```
 
-  (If you cloned with git, `cd ~/2xbingo && git pull` does the same.) If
+  (If you cloned with git, `cd ~/nicebingo && git pull` does the same.) If
   `requirements.txt` changed, re-run `pip install -r requirements.txt` inside
   the venv. Then press **Reload** on the web app page.
 
@@ -152,14 +152,14 @@ Game loop started · rooms=[30, 50, 100]
   found"*). Use git with a token instead — set it once, then `git pull`:
 
   ```bash
-  cd ~/2xbingo
-  git remote set-url origin https://<USERNAME>:<TOKEN>@github.com/elcotech/2xbingo.git
+  cd ~/nicebingo
+  git remote set-url origin https://<USERNAME>:<TOKEN>@github.com/nicebingogit/nicebingo.git
   git pull
   ```
 
   (or just `git pull` and type your GitHub username + the token as the
   password each time).
-- **Backups:** download `~/2xbingo/bingo_bot.db` regularly (while the app is
+- **Backups:** download `~/nicebingo/bingo_bot.db` regularly (while the app is
   reloaded, or just copy the file — SQLite handles it).
 
 ---
@@ -183,7 +183,7 @@ Game loop started · rooms=[30, 50, 100]
 | Bot answers nothing after Reload | Telegram needs the webhook re-registered — it happens on every Reload; give it a few seconds and retry `/play` |
 | Bot still not responding after Reload | Visit `https://<username>.pythonanywhere.com/health` — check `bot.thread_alive` and `bot.webhook_registered`; if thread is dead, Reload again |
 | Error log shows a `setWebhook` / connection failure to `api.telegram.org` | Free accounts can normally reach Telegram; if the bank of the account blocks it, contact PythonAnywhere support and ask them to whitelist `api.telegram.org` |
-| Updated the code but the game still runs the old version | The zip was unzipped *inside* `~/2xbingo` (it lands in `~/2xbingo/2xbingo-main/` and nothing is replaced). Run the corrected update command above from `cd ~`, then **Reload**. Verify the new code is there: `grep -n superadmin ~/2xbingo/server.py` should print lines |
+| Updated the code but the game still runs the old version | The zip was unzipped *inside* `~/2xbingo` (it lands in `~/nicebingo/2xbingo-main/` and nothing is replaced). Run the corrected update command above from `cd ~`, then **Reload**. Verify the new code is there: `grep -n superadmin ~/nicebingo/server.py` should print lines |
 | `unzip` says `End-of-central-directory signature not found` and the download is only 14 bytes | Your repo is **private** — the anonymous zip URL returns `404: Not Found`. Don't use the zip; use git with a personal access token (see *Keeping it running* → *Private repo?*) |
 
 ## Your existing players & balance?

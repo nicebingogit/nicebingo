@@ -193,8 +193,8 @@ Admins also get the **🛠 Admin** tab inside the Mini App itself.
 Everything is optional except `BOT_TOKEN` / `ADMIN_IDS` (already in your file):
 
 ```ini
-BOT_TOKEN=8830584239:AAFNHQE1CxVuwNlpWi9vW7KhmqK3RczyO4c   # unchanged
-ADMIN_IDS=1512842545,903313112                             # unchanged
+BOT_TOKEN=your-bot-token-here           # from @BotFather
+ADMIN_IDS=your-telegram-id-here        # find yours via @userinfobot
 
 # SERVER_HOST=127.0.0.1
 # SERVER_PORT=5000

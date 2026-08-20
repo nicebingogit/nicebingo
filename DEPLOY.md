@@ -1,6 +1,6 @@
 # ☁️ Run Bingo Royale 24/7 — free, no PC needed
 
-This guide deploys your repo (already at `github.com/elcotech/2xbingo`) to a free
+This guide deploys your repo to a free
 cloud host so the game runs **24/7 without your PC being on**. Total cost: **$0**.
 
 | | |
@@ -47,12 +47,12 @@ needed on the free plan.
 
 ### 2. Connect GitHub
 Top-right **profile menu → Git** → **Connect GitHub** → grant access to
-`elcotech/2xbingo` (private or public, either works).
+`nicebingogit/nicebingo` (private or public, either works).
 
 ### 3. Import the repo
 **New Project** → name it `bingo-royale`, pick a region close to your players
 (e.g. Europe West) → **Add a combined service** → **Import from Git** → choose
-`elcotech/2xbingo` → branch `main`.
+`nicebingogit/nicebingo` → branch `main`.
 
 ### 4. Service settings
 - **Build method:** `Dockerfile` — auto-detected from the new `Dockerfile` at
@@ -83,7 +83,7 @@ DB_PATH=/data/bingo_bot.db
 **Secrets** (hidden values — paste from your `.env`):
 ```
 BOT_TOKEN=<your token>
-ADMIN_IDS=<your ids, e.g. 1512842545,903313112>
+ADMIN_IDS=<your-telegram-id>
 ```
 
 > Do **not** set `APP_URL` yet — you'll set it after the first deploy (step 8).

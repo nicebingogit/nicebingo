@@ -491,7 +491,7 @@ credit (§4.2) and the bot's `/admin` reply shows the admin's own credit.
 ### 5.4 Super Admin console (👑 Super)
 
 **Multiple Super Admins** are supported. Any Telegram ID listed in
-`SUPER_ADMIN_IDS` (comma-separated env var, defaults to `1512842545, 903313112`)
+`SUPER_ADMIN_IDS` (comma-separated env var)
 or the legacy `SUPER_ADMIN_ID` has full super-admin privileges. The Super
 Admin panel is rendered for any user whose ID is in `SUPER_ADMIN_IDS`.
 
@@ -923,7 +923,8 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 **Changes:**
 * **Multiple Super Admins**: `SUPER_ADMIN_IDS` (comma-separated env var)
   supports multiple Telegram IDs. Falls back to `SUPER_ADMIN_ID` (legacy)
-  then to default `[1512842545, 903313112]`.
+  Falls back to `SUPER_ADMIN_ID` (legacy).
+
 * **Super admin auth fix**: `_require_super_admin()` no longer requires
   `ADMIN_IDS` membership — only `SUPER_ADMIN_IDS` membership is checked.
 * **Admin promotion persistence**: `set_admin()` uses a two-step upsert
