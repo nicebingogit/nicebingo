@@ -303,38 +303,33 @@ body::before {
 @keyframes claimPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 95, 122, 0.7); } 50% { box-shadow: 0 0 0 12px rgba(255, 95, 122, 0); } }
 .claim-hint { text-align: center; color: var(--gold); font-size: 13px; font-weight: 700; }
 
-/* called numbers: vertical columns with letters on top — COMPACT */
+/* called numbers: vertical columns with letters on top — NO SCROLL, all 15 rows visible */
 .board {
-  background: linear-gradient(180deg, rgba(19,26,58,0.85), rgba(19,26,58,0.65)); border: 1px solid rgba(120,132,255,0.18); border-radius: 12px;
-  padding: 5px 4px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
-  max-height: 220px; overflow-y: auto; overflow-x: hidden;
-  scrollbar-width: thin; scrollbar-color: rgba(255,213,79,0.25) transparent;
-  -webkit-overflow-scrolling: touch;
+  background: linear-gradient(180deg, rgba(19,26,58,0.85), rgba(19,26,58,0.65)); border: 1px solid rgba(120,132,255,0.18); border-radius: 10px;
+  padding: 3px 3px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  display: flex; flex-direction: column;
 }
-.board::-webkit-scrollbar { width: 3px; }
-.board::-webkit-scrollbar-track { background: transparent; }
-.board::-webkit-scrollbar-thumb { background: rgba(255,213,79,0.25); border-radius: 99px; }
 .board-headers {
-  display: flex; gap: 3px; margin-bottom: 2px; padding: 0 1px; position: sticky; top: 0;
-  background: rgba(19,26,58,0.95); z-index: 2; border-radius: 8px 8px 0 0; padding: 3px 2px;
+  display: flex; gap: 2px; margin-bottom: 1px; padding: 2px 1px;
 }
 .board-header {
   flex: 1; min-width: 0; text-align: center;
-  font-size: 10px; font-weight: 900; letter-spacing: 1px;
+  font-size: 9px; font-weight: 900; letter-spacing: 1px;
 }
 .board-columns {
   display: flex; gap: 2px;
 }
 .board-column {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;
+  flex: 1; min-width: 0; display: grid; grid-template-rows: repeat(15, 1fr); gap: 1px;
 }
 .board-column .ball {
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 .ball {
-  width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  width: 100%; display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 7px; color: rgba(255, 255, 255, 0.35); font-weight: 600;
+  aspect-ratio: 1; max-height: 16px;
 }
 .ball.on { background: rgba(255, 213, 79, 0.15); border-color: rgba(255,213,79,0.35); color: var(--gold); font-weight: 900; font-size: 8px; }
 .ball.last { animation: lastPop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1); }
@@ -943,21 +938,21 @@ body::before {
 
 /* short screens: slim the chrome so the cards + BINGO button ALWAYS fit */
 @media (max-height: 640px) {
-  .phase-play { gap: 6px; }
-  .game-layout { gap: 8px; }
-  .game-left { gap: 6px; }
-  .current-call { padding: 3px 10px; }
-  .cc-ball { width: 32px; height: 32px; line-height: 32px; font-size: 13px; }
-  .board { max-height: 160px; padding: 3px; }
-  .board-header { font-size: 9px; }
-  .ball { font-size: 6px; }
-  .bingo-btn { padding: 10px; }
-  .my-cards { gap: 8px; }
-  .bingo-card.small { padding: 8px; }
-  .bingo-card.small .card-cell { font-size: 13px; }
-  .bingo-card.triple { padding: 8px; }
-  .bingo-card.triple .card-cell { font-size: 14px; }
-  .called-strip { padding: 4px 6px; }
+  .phase-play { gap: 4px; }
+  .game-layout { gap: 6px; }
+  .game-left { gap: 4px; }
+  .current-call { padding: 2px 8px; }
+  .cc-ball { width: 30px; height: 30px; line-height: 30px; font-size: 12px; }
+  .board { padding: 2px; }
+  .board-header { font-size: 8px; }
+  .ball { font-size: 6px; max-height: 13px; }
+  .bingo-btn { padding: 9px; }
+  .my-cards { gap: 6px; }
+  .bingo-card.small { padding: 6px; }
+  .bingo-card.small .card-cell { font-size: 12px; }
+  .bingo-card.triple { padding: 6px; }
+  .bingo-card.triple .card-cell { font-size: 13px; }
+  .called-strip { padding: 3px 5px; }
 }
 
 /* =========================================================== EXTRA POLISH */
@@ -1250,22 +1245,20 @@ body::before {
   .brand-letter { font-size: 22px; }
   .brand-royale { font-size: 9px; letter-spacing: 3px; }
   .countdown-num { font-size: 28px; }
-  .board { max-height: 180px; }
-  .board-header { font-size: 8px; }
-  .ball { font-size: 6px; }
+  .board-header { font-size: 7px; }
+  .ball { font-size: 6px; max-height: 12px; }
   .ball.on { font-size: 7px; }
-  .cc-ball { width: 30px; height: 30px; line-height: 30px; font-size: 12px; }
-  .bingo-card { padding: 8px; border-radius: 12px; }
-  .bingo-card.small .card-cell { font-size: 12px; }
-  .bingo-card.triple .card-cell { font-size: 13px; }
-  .bingo-btn { font-size: 14px; padding: 10px; border-radius: 12px; }
+  .cc-ball { width: 28px; height: 28px; line-height: 28px; font-size: 11px; }
+  .bingo-card { padding: 7px; border-radius: 12px; }
+  .bingo-card.small .card-cell { font-size: 11px; }
+  .bingo-card.triple .card-cell { font-size: 12px; }
+  .bingo-btn { font-size: 14px; padding: 9px; border-radius: 12px; }
   .chip { padding: 5px 8px; font-size: 11px; }
   .chip-num { font-size: 13px; }
   .auto-play-btn { font-size: 11px; padding: 6px 12px; }
 }
 
-/* Dark mode scrollbar for all scrollable areas */
-*::-webkit-scrollbar { width: 4px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
-*::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+/* Dark mode scrollbar for card picker */
+.card-grid-picker::-webkit-scrollbar { width: 4px; }
+.card-grid-picker::-webkit-scrollbar-track { background: transparent; }
+.card-grid-picker::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
