@@ -301,7 +301,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="splash">
-        <div className="splash-brand">B·I·N·G·O</div>
+        <div className="splash-brand">NICE BINGO</div>
         <div className="splash-sub">Connecting to the arena…</div>
         <div className="spinner" />
       </div>
@@ -350,11 +350,12 @@ export default function App() {
         connected={!error}
       />
 
-      {/* AUTO-PLAY: floating button — appears when credit > threshold, hidden during play */}
-      {state?.phase !== 'playing' && (myUser?.credit ?? 0) >= AUTO_PLAY_CREDIT_THRESHOLD && (
+      {/* AUTO-PLAY: floating button — always visible during preparation and play */}
+      {(state?.phase === 'preparation' || state?.phase === 'playing') && (myUser?.credit ?? 0) >= AUTO_PLAY_CREDIT_THRESHOLD && (
         <button
           className={`auto-play-btn ${autoPlay ? 'active' : ''}`}
-          onClick={() => { playClick(); haptic('medium'); setAutoPlay((a) => !a); }}            title={autoPlay ? 'Disable auto-play' : 'Enable auto-play — daubs numbers and claims BINGO automatically! Select cards manually, then enable auto-play.'}
+          onClick={() => { playClick(); haptic('medium'); setAutoPlay((a) => !a); }}
+          title={autoPlay ? 'Disable auto-play' : 'Enable auto-play — daubs numbers and claims BINGO automatically!'}
         >
           {autoPlay ? '🤖 Auto ON' : '🤖 Auto Play'}
         </button>
@@ -390,7 +391,7 @@ export default function App() {
                   {state.real_players} players · {state.bots_players || 0} bots · {state.cards_in_play} cards
                 </div>
               </div>
-              <div className="countdown" key={Math.floor(state.preparation_remaining / 1)}>
+              <div className="countdown">
                 <div className="countdown-num">{state.preparation_remaining}</div>
                 <div className="countdown-label">seconds</div>
               </div>

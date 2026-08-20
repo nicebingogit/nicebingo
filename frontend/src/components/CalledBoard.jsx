@@ -11,16 +11,23 @@ export default function CalledBoard({ called, currentCall }) {
   const last = called?.[called.length - 1] || currentCall;
 
   return (
-    <div className="board">
-      {LETTERS.map((letter) => (
-        <div className="board-row" key={letter}>
+    <div className="board board-vertical">
+      {/* Letter headers at the top */}
+      <div className="board-headers">
+        {LETTERS.map((letter) => (
           <div
-            className="board-letter"
+            key={letter}
+            className="board-header"
             style={{ color: COLORS[letter], textShadow: `0 0 14px ${COLORS[letter]}66` }}
           >
             {letter}
           </div>
-          <div className="board-balls">
+        ))}
+      </div>
+      {/* Numbers in vertical columns below each letter */}
+      <div className="board-columns">
+        {LETTERS.map((letter) => (
+          <div className="board-column" key={letter}>
             {Array.from({ length: 15 }, (_, i) => RANGES[letter][0] + i).map((n) => {
               const key = `${letter}-${n}`;
               const on = set.has(key);
@@ -43,8 +50,8 @@ export default function CalledBoard({ called, currentCall }) {
               );
             })}
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

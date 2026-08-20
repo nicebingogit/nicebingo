@@ -1,4 +1,4 @@
-/* ============================================================ Bingo Royale UI */
+/* ============================================================ Nice Bingo UI */
 :root {
   --bg-0: #070a1c;
   --bg-1: #0b0f24;
@@ -90,7 +90,7 @@ body::before {
   justify-content: center;
   gap: 14px;
 }
-.splash-brand { font-size: 34px; font-weight: 900; letter-spacing: 8px; color: var(--gold); text-shadow: 0 0 24px rgba(255, 213, 79, 0.5); }
+.splash-brand { font-size: 28px; font-weight: 900; letter-spacing: 4px; color: var(--gold); text-shadow: 0 0 24px rgba(255, 213, 79, 0.5); }
 .splash-sub { color: var(--muted); font-size: 14px; }
 .spinner {
   width: 34px; height: 34px; border-radius: 50%;
@@ -112,7 +112,7 @@ body::before {
 .brand-letter:nth-child(4) { animation-delay: 0.18s; }
 .brand-letter:nth-child(5) { animation-delay: 0.24s; }
 @keyframes glowIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
-.brand-royale { font-size: 13px; font-weight: 700; letter-spacing: 6px; color: var(--muted); margin-left: 8px; }
+.brand-royale { font-size: 11px; font-weight: 700; letter-spacing: 4px; color: var(--muted); margin-left: 8px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
 .chip {
@@ -150,10 +150,10 @@ body::before {
 .hero-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .hero-title { font-size: 17px; font-weight: 800; }
 .hero-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
-.countdown { text-align: center; animation: pop 1s ease both; }
-.countdown-num { font-size: 40px; font-weight: 900; color: var(--gold); line-height: 1; text-shadow: 0 0 22px rgba(255, 213, 79, 0.6); }
+.countdown { text-align: center; }
+.countdown-num { font-size: 40px; font-weight: 900; color: var(--gold); line-height: 1; text-shadow: 0 0 22px rgba(255, 213, 79, 0.6); transition: transform 0.3s cubic-bezier(0.2, 1.6, 0.4, 1), opacity 0.3s ease; animation: countdownTick 1s ease infinite; }
 .countdown-label { color: var(--muted); font-size: 11px; letter-spacing: 2px; }
-@keyframes pop { 0% { transform: scale(1.25); } 100% { transform: scale(1); } }
+@keyframes countdownTick { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 .countdown-bar { height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 99px; margin-top: 12px; overflow: hidden; }
 .countdown-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--gold), var(--pink)); transition: width 1s linear; }
 
@@ -177,7 +177,10 @@ body::before {
 .pick-chip:hover { background: rgba(255, 95, 122, 0.18); border-color: var(--danger); }
 .pick-x { opacity: 0.7; margin-left: 4px; }
 
-.card-grid-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px; }
+.card-grid-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px; max-height: 260px; overflow-y: auto; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; padding: 4px 2px 8px; }
+.card-grid-picker::-webkit-scrollbar { width: 4px; }
+.card-grid-picker::-webkit-scrollbar-track { background: transparent; }
+.card-grid-picker::-webkit-scrollbar-thumb { background: rgba(255, 213, 79, 0.3); border-radius: 99px; }
 .pick-tile {
   position: relative;
   background: linear-gradient(180deg, #12183a, #0c1026);
@@ -300,18 +303,29 @@ body::before {
 @keyframes claimPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 95, 122, 0.7); } 50% { box-shadow: 0 0 0 12px rgba(255, 95, 122, 0); } }
 .claim-hint { text-align: center; color: var(--gold); font-size: 13px; font-weight: 700; }
 
-/* called numbers run horizontally: one row per letter, 15 balls across */
+/* called numbers: vertical columns with letters on top */
 .board {
-  display: flex; flex-direction: column; gap: 2px;
   background: linear-gradient(180deg, rgba(19,26,58,0.75), rgba(19,26,58,0.55)); border: 1px solid rgba(120,132,255,0.18); border-radius: var(--radius);
-  padding: 6px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  padding: 8px 6px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
-.board-row { display: flex; align-items: center; gap: 4px; }
-.board-letter {
-  flex: 0 0 auto; width: 14px; text-align: center;
-  font-size: 13px; font-weight: 900;
+.board-headers {
+  display: flex; gap: 4px; margin-bottom: 4px; padding: 0 2px;
 }
-.board-balls { flex: 1; display: grid; grid-template-columns: repeat(15, 1fr); gap: 2px; }
+.board-header {
+  flex: 1; min-width: 0; text-align: center;
+  font-size: 13px; font-weight: 900; letter-spacing: 1px;
+}
+.board-columns {
+  display: flex; gap: 4px;
+}
+.board-column {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+}
+.board-column .ball {
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
 .ball {
   aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);

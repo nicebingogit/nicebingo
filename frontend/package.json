@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Bingo Royale — Telegram Mini App (immersive bingo arena)",
+  "description": "Nice Bingo — Telegram Mini App (immersive bingo arena)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

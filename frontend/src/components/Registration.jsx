@@ -23,10 +23,10 @@ export default function Registration({ user, onDone, onError }) {
     return (
       <div className="registration">
         <div className="reg-card">
-          <div className="reg-logo">🎰 B·I·N·G·O</div>
+          <div className="reg-logo">🎰 NICE BINGO</div>
           <h1 className="reg-title">One quick step first ✍️</h1>
           <p className="reg-sub">
-            To create your account, open the <b>Bingo Royale bot chat</b>, send{' '}
+            To create your account, open the <b>Nice Bingo bot chat</b>, send{' '}
             <b>/start</b> and type your <b>full name</b> when the bot asks for
             it. Then come back here and tap the button below.
           </p>
@@ -82,7 +82,7 @@ export default function Registration({ user, onDone, onError }) {
   return (
     <div className="registration">
       <div className="reg-card">
-        <div className="reg-logo">🎰 B·I·N·G·O</div>
+        <div className="reg-logo">🎰 NICE BINGO</div>
         <h1 className="reg-title">Almost there!</h1>
         <p className="reg-sub">
           Just add your phone number — it becomes your wallet for deposits and

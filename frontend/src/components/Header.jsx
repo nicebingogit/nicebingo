@@ -18,7 +18,7 @@ export default function Header({ credit, pool, room, isAdmin, isSuperAdmin, show
         {Object.entries(BRAND).map(([letter, color]) => (
           <span key={letter} className="brand-letter" style={{ color }}>{letter}</span>
         ))}
-        <span className="brand-royale">ROYALE</span>
+        <span className="brand-royale">NICE BINGO</span>
       </div>
 
       <div className="chips">
