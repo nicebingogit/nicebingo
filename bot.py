@@ -203,6 +203,7 @@ class PremiumBingoBot:
             reply_markup=self.get_main_menu(),
             parse_mode="Markdown",
         )
+        
 
     async def text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Captures the full name when the bot is waiting for it (after /start)."""
