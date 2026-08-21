@@ -203,18 +203,18 @@ body::before {
 .picker-hint { color: var(--muted); font-size: 11px; margin-top: 10px; text-align: center; }
 
 /* ---------------------------------------------------------------- playing */
-.phase-play { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.phase-play { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
 
 .current-call {
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  background: linear-gradient(135deg, rgba(19,26,58,0.8), rgba(19,26,58,0.6)); border: 1px solid rgba(120,132,255,0.18); border-radius: 10px;
-  padding: 3px 10px; backdrop-filter: blur(12px); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  background: linear-gradient(135deg, rgba(19,26,58,0.8), rgba(19,26,58,0.6)); border: 1px solid rgba(120,132,255,0.18); border-radius: 8px;
+  padding: 2px 8px; backdrop-filter: blur(12px); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
 }
 .cc-ball {
-  flex: 0 0 auto; font-size: 13px; font-weight: 900; color: #0b0f24;
+  flex: 0 0 auto; font-size: 12px; font-weight: 900; color: #0b0f24;
   background: radial-gradient(circle at 32% 28%, #ffe9a8, var(--gold) 55%, #c99b1e);
-  border-radius: 50%; width: 30px; height: 30px; line-height: 30px; text-align: center;
-  box-shadow: 0 0 0 3px rgba(255, 213, 79, 0.16), 0 0 16px rgba(255, 213, 79, 0.5), inset 0 -3px 6px rgba(0, 0, 0, 0.3);
+  border-radius: 50%; width: 28px; height: 28px; line-height: 28px; text-align: center;
+  box-shadow: 0 0 0 2px rgba(255, 213, 79, 0.16), 0 0 12px rgba(255, 213, 79, 0.5), inset 0 -3px 6px rgba(0, 0, 0, 0.3);
   animation: ballIn 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
 }
 @keyframes ballIn { 0% { transform: scale(0.3); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
@@ -225,11 +225,11 @@ body::before {
 
 /* vertical cascade: horizontal calling board on TOP, the user's cards at the
    bottom of the screen (matches the requested layout) */
-.game-layout { display: grid; grid-template-columns: 1fr; gap: 4px; align-items: start; min-height: 0; }
+.game-layout { display: grid; grid-template-columns: 1fr; gap: 2px; align-items: start; min-height: 0; }
 .game-board { min-width: 0; }
-.game-left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.game-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 
-.my-cards { display: grid; gap: 6px; min-width: 0; }
+.my-cards { display: grid; gap: 4px; min-width: 0; }
 .my-cards .bingo-card { box-shadow: none; min-width: 0; }
 /* a single card must stay compact and centered — a full-width card would push
    the BINGO button below the screen edge on phones */
@@ -277,21 +277,19 @@ body::before {
 }
 .no-cards { text-align: center; color: var(--muted); padding: 18px; }
 
-.bingo-card.small .card-head { margin-bottom: 4px; }
-.bingo-card.small .card-grid { gap: 2px; }
-.bingo-card.small .card-row { gap: 2px; }
-.bingo-card.small .card-cell { font-size: 13px; border-radius: 5px; }
-/* 2-3 cards get BIG cells for easy tapping — 3 cards wrap 2+1 (two per row)
-   so each card is wide enough to touch; the play layout stays height-capped
-   and compact so everything still fits on one screen */
-.bingo-card.triple { padding: 5px; }
-.bingo-card.triple .card-head { font-size: 10px; margin-bottom: 3px; }
-.bingo-card.triple .card-grid { gap: 2px; }
-.bingo-card.triple .card-row { gap: 2px; }
-.bingo-card.triple .card-cell { font-size: 12px; border-radius: 5px; }
+.bingo-card.small .card-head { margin-bottom: 3px; font-size: 10px; }
+.bingo-card.small .card-grid { gap: 1px; }
+.bingo-card.small .card-row { gap: 1px; }
+.bingo-card.small .card-cell { font-size: 12px; border-radius: 4px; aspect-ratio: 1.2; }
+/* 2-3 cards: ultra compact so board + all cards + BINGO fit on one screen */
+.bingo-card.triple { padding: 3px; }
+.bingo-card.triple .card-head { font-size: 9px; margin-bottom: 2px; }
+.bingo-card.triple .card-grid { gap: 1px; }
+.bingo-card.triple .card-row { gap: 1px; }
+.bingo-card.triple .card-cell { font-size: 11px; border-radius: 4px; aspect-ratio: 1.2; }
 
 .bingo-btn {
-  width: 100%; font-size: 14px; padding: 9px; border-radius: 12px;
+  width: 100%; font-size: 13px; padding: 8px; border-radius: 10px;
   background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); color: var(--muted);
   cursor: not-allowed; font-weight: 800; letter-spacing: 0.5px;
 }
@@ -303,32 +301,32 @@ body::before {
 @keyframes claimPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 95, 122, 0.7); } 50% { box-shadow: 0 0 0 12px rgba(255, 95, 122, 0); } }
 .claim-hint { text-align: center; color: var(--gold); font-size: 11px; font-weight: 700; }
 
-/* called numbers: vertical columns with letters on top — ULTRA COMPACT, fits on screen */
+/* called numbers: vertical columns with letters on top — TINY balls, no scrolling */
 .board {
-  background: linear-gradient(180deg, rgba(19,26,58,0.85), rgba(19,26,58,0.65)); border: 1px solid rgba(120,132,255,0.18); border-radius: 10px;
-  padding: 2px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  background: linear-gradient(180deg, rgba(19,26,58,0.9), rgba(19,26,58,0.7)); border: 1px solid rgba(120,132,255,0.15); border-radius: 8px;
+  padding: 2px 1px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
   display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
 }
 .board-header {
   text-align: center;
-  font-size: 10px; font-weight: 900; letter-spacing: 0.5px;
-  padding: 2px 0 1px;
+  font-size: 11px; font-weight: 900; letter-spacing: 0.5px;
+  padding: 1px 0; line-height: 1.4;
 }
 .board-column {
-  display: flex; flex-direction: column; gap: 0;
+  display: flex; flex-direction: column; gap: 1px;
 }
 .board-column .ball {
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 .ball {
   display: flex; align-items: center; justify-content: center;
-  border-radius: 4px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 8px; color: rgba(255, 255, 255, 0.4); font-weight: 600;
-  padding: 1px 0; line-height: 1; min-height: 0;
+  border-radius: 3px; background: transparent; border: none;
+  font-size: 9px; color: rgba(255, 255, 255, 0.3); font-weight: 600;
+  padding: 1px 0; line-height: 1.2; min-height: 0;
 }
-.ball.on { background: rgba(255, 213, 79, 0.2); border-color: rgba(255,213,79,0.45); color: var(--gold); font-weight: 900; font-size: 8px; }
-.ball.last { animation: lastPop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1); }
-@keyframes lastPop { 0% { transform: scale(1.6); } 100% { transform: scale(1); } }
+.ball.on { background: rgba(255, 213, 79, 0.18); border: 1px solid rgba(255,213,79,0.5); color: var(--gold); font-weight: 900; font-size: 10px; border-radius: 5px; }
+.ball.last { animation: lastPop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes lastPop { 0% { transform: scale(1.5); } 100% { transform: scale(1); } }
 
 /* ----------------------------------------------------------------- ended */
 .phase-ended { text-align: center; }
@@ -933,28 +931,29 @@ body::before {
 
 /* short screens: slim the chrome so the cards + BINGO button ALWAYS fit */
 @media (max-height: 640px) {
-  .phase-play { gap: 2px; }
-  .game-layout { gap: 2px; }
-  .game-left { gap: 2px; }
+  .phase-play { gap: 1px; }
+  .game-layout { gap: 1px; }
+  .game-left { gap: 1px; }
   .current-call { padding: 2px 6px; }
-  .cc-ball { width: 24px; height: 24px; line-height: 24px; font-size: 11px; }
+  .cc-ball { width: 22px; height: 22px; line-height: 22px; font-size: 10px; }
   .board { padding: 1px; }
-  .board-header { font-size: 8px; }
-  .ball { font-size: 6px; }
-  .bingo-btn { padding: 7px; font-size: 13px; }
-  .my-cards { gap: 4px; }
-  .bingo-card.small { padding: 4px; }
-  .bingo-card.small .card-cell { font-size: 11px; border-radius: 4px; }
-  .bingo-card.small .card-head { margin-bottom: 2px; font-size: 10px; }
+  .board-header { font-size: 9px; }
+  .ball { font-size: 8px; }
+  .ball.on { font-size: 9px; }
+  .bingo-btn { padding: 6px; font-size: 12px; }
+  .my-cards { gap: 3px; }
+  .bingo-card.small { padding: 3px; }
+  .bingo-card.small .card-cell { font-size: 11px; border-radius: 3px; aspect-ratio: 1.2; }
+  .bingo-card.small .card-head { margin-bottom: 1px; font-size: 9px; }
   .bingo-card.small .card-grid, .bingo-card.small .card-row { gap: 1px; }
-  .bingo-card.triple { padding: 3px; }
-  .bingo-card.triple .card-cell { font-size: 11px; border-radius: 4px; }
-  .bingo-card.triple .card-head { margin-bottom: 2px; font-size: 9px; }
+  .bingo-card.triple { padding: 2px; }
+  .bingo-card.triple .card-cell { font-size: 10px; border-radius: 3px; aspect-ratio: 1.2; }
+  .bingo-card.triple .card-head { margin-bottom: 1px; font-size: 8px; }
   .bingo-card.triple .card-grid, .bingo-card.triple .card-row { gap: 1px; }
-  .called-strip { padding: 2px 4px; }
-  .strip-ball { min-width: 28px; padding: 3px 5px; font-size: 10px; }
-  .daub-hint { font-size: 9px; }
-  .claim-hint { font-size: 10px; }
+  .called-strip { padding: 1px 3px; }
+  .strip-ball { min-width: 24px; padding: 2px 4px; font-size: 9px; }
+  .daub-hint { font-size: 8px; }
+  .claim-hint { font-size: 9px; }
 }
 
 /* =========================================================== EXTRA POLISH */
@@ -1247,14 +1246,14 @@ body::before {
   .brand-letter { font-size: 22px; }
   .brand-royale { font-size: 9px; letter-spacing: 3px; }
   .countdown-num { font-size: 28px; }
-  .board-header { font-size: 7px; }
-  .ball { font-size: 6px; }
-  .ball.on { font-size: 7px; }
-  .cc-ball { width: 26px; height: 26px; line-height: 26px; font-size: 11px; }
-  .bingo-card { padding: 5px; border-radius: 10px; }
+  .board-header { font-size: 9px; }
+  .ball { font-size: 8px; }
+  .ball.on { font-size: 9px; }
+  .cc-ball { width: 24px; height: 24px; line-height: 24px; font-size: 10px; }
+  .bingo-card { padding: 4px; border-radius: 10px; }
   .bingo-card.small .card-cell { font-size: 11px; }
   .bingo-card.triple .card-cell { font-size: 10px; }
-  .bingo-btn { font-size: 13px; padding: 8px; border-radius: 10px; }
+  .bingo-btn { font-size: 12px; padding: 7px; border-radius: 8px; }
   .chip { padding: 4px 7px; font-size: 10px; }
   .chip-num { font-size: 12px; }
   .auto-play-btn { font-size: 10px; padding: 5px 10px; }

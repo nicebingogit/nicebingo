@@ -47,6 +47,10 @@ export default function App() {
   // AUTO-PLAY: when enabled, the client auto-daubs called numbers and
   // auto-claims BINGO — no manual tapping required. Card selection is manual.
   const [autoPlay, setAutoPlay] = useState(true);
+  // Smooth countdown: interpolates between server polls so the number
+  // ticks down every second without skipping
+  const [smoothCountdown, setSmoothCountdown] = useState(0);
+  const prepRef = useRef({ remaining: 0, timestamp: 0 });
   // the room (fixed bet) this player is currently in — picked via a listbox
   // in the card picker. Each room is its own game.
   const [room, setRoom] = useState(10);
@@ -121,6 +125,30 @@ export default function App() {
     // the room only needs to be re-fetched when the player switches rooms
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Sync smooth countdown with server value whenever it changes
+  useEffect(() => {
+    if (state?.phase !== 'preparation') return;
+    const remaining = state.preparation_remaining || 0;
+    prepRef.current = { remaining, timestamp: Date.now() };
+    setSmoothCountdown(remaining);
+  }, [state?.phase, state?.preparation_remaining]);
+
+  // Tick countdown every second for smooth display (no skipped numbers)
+  useEffect(() => {
+    if (state?.phase !== 'preparation') return;
+    const tick = setInterval(() => {
+      const { remaining, timestamp } = prepRef.current;
+      const elapsed = (Date.now() - timestamp) / 1000;
+      const current = Math.max(0, Math.ceil(remaining - elapsed));
+      setSmoothCountdown((prev) => {
+        // Avoid unnecessary re-renders if value hasn't changed
+        if (current === prev) return prev;
+        return current;
+      });
+    }, 250); // tick 4x/sec for ultra-smooth display
+    return () => clearInterval(tick);
+  }, [state?.phase]);
 
   // switching rooms in the picker reloads that room's game
   const changeRoom = useCallback((r) => {
@@ -392,14 +420,14 @@ export default function App() {
                 </div>
               </div>
               <div className="countdown">
-                <div className="countdown-num">{state.preparation_remaining}</div>
+                <div className="countdown-num">{smoothCountdown}</div>
                 <div className="countdown-label">seconds</div>
               </div>
             </div>
             <div className="countdown-bar">
               <div
                 className="countdown-fill"
-                style={{ width: `${Math.min(100, (state.preparation_remaining / (cfg.preparation || 60)) * 100)}%` }}
+                style={{ width: `${Math.min(100, (smoothCountdown / (cfg.preparation || 60)) * 100)}%` }}
               />
             </div>
           </div>
@@ -510,8 +538,7 @@ export default function App() {
 
                 {!myUser?.eliminated && myCards.length === 1 && (
                   <div className="daub-hint">
-                    Numbers are called on the board above — tap each one on your
-                    card to mark it. Press BINGO when you believe you've won!
+                    Tap marked numbers on your card · Press BINGO to claim
                   </div>
                 )}
 

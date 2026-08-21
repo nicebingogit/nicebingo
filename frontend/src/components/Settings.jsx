@@ -273,62 +273,70 @@ export default function Settings({ user, settings, config, onChanged, onError, o
           <div className="acc-picker">
             <div className="wallet-form-title">💳 Select your bank</div>
             <p className="reg-hint" style={{ marginTop: -4, marginBottom: 8 }}>
-              Choose the bank or mobile wallet you want to pay into. Only banks
-              with an online admin are available for payment.
+              Choose the bank or mobile wallet you want to pay into.
             </p>
 
-            {/* Available banks — online admin account ready */}
-            {availableBanks.length > 0 && (
-              <>
-                <div className="reg-hint" style={{ fontWeight: 800, color: 'var(--green)', marginBottom: 4 }}>
-                  ✅ Available now
-                </div>
-                {availableBanks.map((b) => {
-                  const d = onlineAccountsMap[b.name.toLowerCase()];
-                  if (!d) return null;
-                  return (
-                    <label
-                      key={b.name}
-                      className={`acc-option ${depProvider === b.name ? 'selected' : ''}`}
-                    >
-                      <input
-                        type="radio"
-                        name="payacc"
-                        checked={depProvider === b.name}
-                        onChange={() => setDepProvider(b.name)}
-                      />
-                      <span className="acc-provider">{b.icon} {b.name}</span>
-                      <span className="acc-holder">— {d.account.account_name}</span>
-                      {d.account.admin_online === false && <span style={{ fontSize: 10, color: 'var(--purple)' }}>⚡ Super Admin</span>}
-                      <span className="acc-number">{d.account.account_number}</span>
-                      <button
-                        type="button"
-                        className="chip chip-btn acc-copy"
-                        onClick={() => copyAccount(d.account)}
-                        title="Copy number"
-                      >
-                        {copied === d.account.id ? '✓' : '📋'}
-                      </button>
-                    </label>
-                  );
-                })}
-              </>
-            )}
+            {/* Bank listbox — clean dropdown */}
+            <select
+              className="room-select"
+              style={{ width: '100%', maxWidth: '100%', padding: '10px 12px', fontSize: 14 }}
+              value={depProvider}
+              onChange={(e) => { playClick(); setDepProvider(e.target.value); }}
+            >
+              <option value="">— Pick a bank —</option>
+              {availableBanks.length > 0 && (
+                <optgroup label="✅ Available now">
+                  {availableBanks.map((b) => (
+                    <option key={b.name} value={b.name}>{b.icon} {b.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              {unavailableBanks.length > 0 && (
+                <optgroup label="⏳ Unavailable (no admin online)">
+                  {unavailableBanks.map((b) => (
+                    <option key={b.name} value={b.name} disabled>{b.icon} {b.name}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
 
             {availableBanks.length === 0 && (
-              <div className="reg-hint" style={{ color: 'var(--gold)' }}>
+              <div className="reg-hint" style={{ color: 'var(--gold)', marginTop: 8 }}>
                 ⏳ No admin is online right now. Super admin's account will be shown below if available.
               </div>
             )}
           </div>
 
-          {/* Show selected bank's admin account details */}
+          {/* Show selected bank's admin account as a beautiful inline card */}
           {selectedDep && (
-            <div style={{ background: 'rgba(255,213,79,0.06)', border: '1px dashed rgba(255,213,79,0.4)', borderRadius: 12, padding: 12, marginTop: 10 }}>
-              <div className="wallet-form-title">💰 {selectedDep.provider} — Account Details</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(62,200,255,0.08), rgba(255,213,79,0.06))',
+              border: '1px solid rgba(62,200,255,0.3)', borderRadius: 14, padding: 14, marginTop: 10,
+              animation: 'modalIn 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) both'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 24 }}>{selectedBank?.icon}</span>
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: 15, color: 'var(--text)' }}>{selectedDep.provider}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>Payment Account</div>
+                </div>
+                {selectedDep.account.admin_online === false && (
+                  <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: 'var(--purple)', background: 'rgba(217,92,255,0.15)', border: '1px solid rgba(217,92,255,0.3)', borderRadius: 999, padding: '2px 8px' }}>
+                    ⚡ SUPER ADMIN
+                  </span>
+                )}
+                {selectedDep.account.admin_online === true && (
+                  <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: 'var(--green)', background: 'rgba(75,227,160,0.15)', border: '1px solid rgba(75,227,160,0.3)', borderRadius: 999, padding: '2px 8px' }}>
+                    ● ONLINE
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div className="profile-row"><span className="muted">Account holder</span><b>{selectedDep.account.account_name}</b></div>
-                <div className="profile-row"><span className="muted">Account number</span><b style={{ letterSpacing: 1 }}>{selectedDep.account.account_number}</b></div>
+                <div className="profile-row" style={{ cursor: 'pointer' }} onClick={() => copyAccount(selectedDep.account)}>
+                  <span className="muted">Account number — tap to copy</span>
+                  <b style={{ letterSpacing: 1, color: 'var(--blue)' }}>{selectedDep.account.account_number} {copied === selectedDep.account.id ? '✓' : '📋'}</b>
+                </div>
                 {selectedDep.account.admin_name && (
                   <div className="profile-row"><span className="muted">Admin</span><b>{selectedDep.account.admin_name}</b></div>
                 )}
@@ -338,7 +346,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
                 deposit request below with the transaction number.
                 {selectedDep.account.admin_online === false && (
                   <span style={{ color: 'var(--gold)', display: 'block', marginTop: 4, fontWeight: 700 }}>
-                    ⚡ No admin is online — using super admin's account as fallback.
+                    ⚡ No admin is online — super admin's account is being used as fallback.
                   </span>
                 )}
               </p>
