@@ -22,7 +22,7 @@ export default function BingoCard({
   return (
     <div className={`bingo-card ${size} ${isWinning ? 'winning' : ''}`}>
       <div className="card-head">
-        <span className="card-id">🎯 Card #{card.card_id}</span>
+        <span className="card-id">🎯 Card {card.card_id}</span>
         <span className="card-bet">{card.bet_amount} ETB</span>
       </div>
       <div className="card-grid">

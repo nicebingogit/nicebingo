@@ -2,10 +2,12 @@
 // Each effect layers a fundamental tone with a quieter harmonic overtone so
 // the sounds feel fuller and more satisfying (players want that dopamine hit).
 export const PACKS = [
-  { id: 'classic', label: '🎵 Classic' },
-  { id: 'retro', label: '👾 Retro' },
-  { id: 'digital', label: '🔊 Digital' },
-  { id: 'mute', label: '🔇 Mute' },
+  { id: 'classic', label: 'Classic', icon: '🎵' },
+  { id: 'retro', label: 'Retro', icon: '👾' },
+  { id: 'digital', label: 'Digital', icon: '🔊' },
+  { id: 'chime', label: 'Chime', icon: '🔔' },
+  { id: 'celebrate', label: 'Celebrate', icon: '🎉' },
+  { id: 'mute', label: 'Mute', icon: '🔇' },
 ];
 
 let current = 'classic';
@@ -60,7 +62,13 @@ function tone(freq, type, dur, gain, delay = 0, slideTo = null, harmonic = true)
   }
 }
 
-const wave = () => (current === 'retro' ? 'square' : current === 'digital' ? 'triangle' : 'sine');
+const wave = () => {
+  if (current === 'retro') return 'square';
+  if (current === 'digital') return 'triangle';
+  if (current === 'chime') return 'sine';
+  if (current === 'celebrate') return 'sine';
+  return 'sine';
+};
 
 // Each letter of BINGO has its own pitch family.
 const LETTER_FREQ = { B: 220, I: 277, N: 330, G: 392, O: 440 };
@@ -69,9 +77,22 @@ const LETTER_FREQ = { B: 220, I: 277, N: 330, G: 392, O: 440 };
 export function playBall(number) {
   const letter = String(number || '').split('-')[0];
   const base = LETTER_FREQ[letter] || 330;
-  tone(base, wave(), 0.16, 0.26);
-  tone(base * 1.5, wave(), 0.22, 0.16, 0.08);
-  tone(base * 2, wave(), 0.2, 0.08, 0.14, null, false); // sparkle on top
+  if (current === 'chime') {
+    // crystalline chime
+    tone(base * 2, 'sine', 0.2, 0.2, 0, null, false);
+    tone(base * 3, 'sine', 0.15, 0.12, 0.05, null, false);
+    tone(base * 4, 'sine', 0.12, 0.06, 0.1, null, false);
+  } else if (current === 'celebrate') {
+    // party fanfare
+    tone(base, wave(), 0.14, 0.22);
+    tone(base * 1.25, wave(), 0.12, 0.18, 0.08);
+    tone(base * 1.5, wave(), 0.12, 0.15, 0.16);
+    tone(base * 2, wave(), 0.18, 0.12, 0.22);
+  } else {
+    tone(base, wave(), 0.16, 0.26);
+    tone(base * 1.5, wave(), 0.22, 0.16, 0.08);
+    tone(base * 2, wave(), 0.2, 0.08, 0.14, null, false);
+  }
 }
 
 // A satisfying "pop" when the player daubs a number on their card — a soft
@@ -88,8 +109,22 @@ export function playRoundStart() {
 
 // Triumphant ascending fanfare with a final chord — winning feels amazing.
 export function playWin() {
-  [523.3, 659.3, 784, 1046.5, 1318.5, 1568].forEach((f, i) => tone(f, wave(), 0.3, 0.22, i * 0.12));
-  [523.3, 659.3, 1046.5].forEach((f) => tone(f, wave(), 0.55, 0.16, 0.78));
+  if (current === 'celebrate') {
+    // big celebration fanfare
+    [523.3, 659.3, 784, 880, 1046.5, 1174.7, 1318.5, 1568].forEach((f, i) => tone(f, wave(), 0.25, 0.2, i * 0.08));
+    [523.3, 659.3, 784, 1046.5].forEach((f) => tone(f, wave(), 0.6, 0.15, 0.7));
+    // sparkle overlay
+    [1568, 1760, 2093, 2637].forEach((f, i) => tone(f, 'sine', 0.15, 0.06, 0.8 + i * 0.06, null, false));
+  } else if (current === 'chime') {
+    [523.3, 659.3, 784, 1046.5, 1318.5, 1568].forEach((f, i) => {
+      tone(f, 'sine', 0.35, 0.18, i * 0.12);
+      tone(f * 1.5, 'sine', 0.2, 0.06, i * 0.12 + 0.05, null, false);
+    });
+    [523.3, 659.3, 1046.5].forEach((f) => tone(f, 'sine', 0.55, 0.12, 0.78));
+  } else {
+    [523.3, 659.3, 784, 1046.5, 1318.5, 1568].forEach((f, i) => tone(f, wave(), 0.3, 0.22, i * 0.12));
+    [523.3, 659.3, 1046.5].forEach((f) => tone(f, wave(), 0.55, 0.16, 0.78));
+  }
 }
 
 // Gentle "so close" descent.

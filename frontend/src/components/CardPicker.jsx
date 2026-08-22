@@ -84,7 +84,7 @@ export default function CardPicker({ selections, maxCards, rooms, room, onRoomCh
         <div className="my-picks">
           {selections.map((s) => (
             <button key={s.card_id} className="pick-chip" onClick={() => toggle({ id: s.card_id })}>
-              #{s.card_id} · {s.bet_amount} ETB <span className="pick-x">✕</span>
+              {s.card_id} · {s.bet_amount} ETB <span className="pick-x">✕</span>
             </button>
           ))}
         </div>
@@ -102,9 +102,9 @@ export default function CardPicker({ selections, maxCards, rooms, room, onRoomCh
               className={`pick-tile ${mine ? 'mine' : ''} ${taken ? 'taken' : ''}`}
               disabled={disabled || busy === card.id}
               onClick={() => toggle(card)}
-              title={taken ? 'Taken' : mine ? 'Your card' : `Card #${card.id}`}
+              title={taken ? 'Taken' : mine ? 'Your card' : `Card ${card.id}`}
             >
-              <span className="pick-tile-id">#{card.id}</span>
+              <span className="pick-tile-id">{card.id}</span>
               {mine ? (
                 <span className="pick-tile-badge">✓</span>
               ) : taken ? (

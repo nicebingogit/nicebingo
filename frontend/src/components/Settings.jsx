@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { playClick } from '../sound.js';
+import { playClick, PACKS, getPack, setPack } from '../sound.js';
 import { PATTERN_LABELS } from '../bingo.js';
 
 const TX_STATUS = {
@@ -69,6 +69,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [nameDraft, setNameDraft] = useState(user?.full_name || '');
   const [phoneDraft, setPhoneDraft] = useState(user?.phone || '');
+  const [soundPack, setSoundPack] = useState(() => getPack());
 
   // wallet appeals: a deposit the admin never approved can be appealed to the
   // SUPER ADMIN
@@ -246,6 +247,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
         {[
           ['wallet', '💰 Wallet'],
           ['profile', '👤 Profile'],
+          ['sound', '🔊 Sound'],
           ['help', '❓ Help & Guide'],
         ].map(([id, label]) => (
           <button
@@ -551,6 +553,33 @@ export default function Settings({ user, settings, config, onChanged, onError, o
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ----------------------------------------------------------- SOUND */}
+      {tab === 'sound' && (
+        <div className="help">
+          <div className="wallet-form-title">🔊 Sound Effects</div>
+          <p className="reg-hint" style={{ marginBottom: 12 }}>
+            Choose a sound pack — each has a unique feel for ball calls, daubs, wins and more.
+          </p>
+          <div className="sound-grid">
+            {PACKS.map((pack) => (
+              <button
+                key={pack.id}
+                className={`sound-pack-btn ${soundPack === pack.id ? 'active' : ''}`}
+                onClick={() => {
+                  playClick();
+                  setPack(pack.id);
+                  setSoundPack(pack.id);
+                }}
+              >
+                <span className="sound-pack-icon">{pack.icon}</span>
+                <span className="sound-pack-label">{pack.label}</span>
+                {soundPack === pack.id && <span className="sound-pack-check">✓</span>}
+              </button>
+            ))}
           </div>
         </div>
       )}

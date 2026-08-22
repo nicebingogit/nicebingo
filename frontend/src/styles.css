@@ -114,13 +114,13 @@ body::before {
 @keyframes glowIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 .brand-royale { font-size: 11px; font-weight: 700; letter-spacing: 4px; color: var(--muted); margin-left: 8px; }
 
-.chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
 .chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
-  padding: 7px 12px; font-size: 13px; color: var(--text); backdrop-filter: blur(8px);
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(19, 26, 58, 0.8); border: 1px solid rgba(120, 132, 255, 0.2); border-radius: 999px;
+  padding: 5px 10px; font-size: 12px; color: var(--text); backdrop-filter: blur(8px);
 }
-.chip-num { font-weight: 800; font-size: 15px; }
+.chip-num { font-weight: 800; font-size: 14px; }
 .chip-room .chip-num { color: var(--blue); }
 .chip-credit .chip-num { color: var(--green); }
 .chip-pool .chip-num { color: var(--gold); }
@@ -203,7 +203,7 @@ body::before {
 .picker-hint { color: var(--muted); font-size: 11px; margin-top: 10px; text-align: center; }
 
 /* ---------------------------------------------------------------- playing */
-.phase-play { display: flex; flex-direction: column; gap: 4px; min-height: 0; flex: 1; }
+.phase-play { display: flex; flex-direction: column; gap: 4px; min-height: 0; flex: 1; max-height: calc(100vh - 80px); overflow: hidden; }
 
 .current-call {
   display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -225,15 +225,15 @@ body::before {
 
 /* vertical cascade: horizontal calling board on TOP, the user's cards at the
    bottom of the screen (matches the requested layout) */
-.game-layout { display: grid; grid-template-columns: 1fr; gap: 4px; align-items: start; min-height: 0; flex: 1; overflow: hidden; }
-.game-board { min-width: 0; }
-.game-left { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-y: auto; flex: 1; min-height: 0; }
+.game-layout { display: flex; flex-direction: column; gap: 4px; align-items: stretch; min-height: 0; flex: 1; overflow: hidden; }
+.game-board { min-width: 0; flex-shrink: 0; }
+.game-left { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-y: auto; flex: 1; min-height: 0; padding-bottom: 4px; }
 
-.my-cards { display: grid; gap: 6px; min-width: 0; max-height: calc(100vh - 420px); overflow-y: auto; padding-bottom: 2px; }
+.my-cards { display: grid; gap: 4px; min-width: 0; flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 2px; }
 .my-cards .bingo-card { box-shadow: none; min-width: 0; }
 /* a single card must stay compact and centered — a full-width card would push
    the BINGO button below the screen edge on phones */
-.my-cards.single { justify-items: center; max-height: none; }
+.my-cards.single { justify-items: center; }
 .my-cards.single .bingo-card { width: 100%; max-width: 340px; }
 .bingo-card {
   position: relative; background: linear-gradient(180deg, #131c42, #0d1230);
@@ -249,19 +249,21 @@ body::before {
 .card-row { display: flex; gap: 3px; }
 .card-cell {
   flex: 1; aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px; font-size: 18px; font-weight: 800; color: var(--text);
   padding: 0; margin: 0; font-family: inherit; line-height: 1; cursor: default;
   appearance: none; -webkit-appearance: none;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.15);
 }
 .bingo-card.small .card-cell { font-size: 15px; border-radius: 8px; min-height: 28px; }
-.card-cell.head { background: rgba(255, 255, 255, 0.03); border: none; font-weight: 900; cursor: default; font-size: 16px; letter-spacing: 1px; }
+.card-cell.head { background: rgba(255, 255, 255, 0.04); border: none; font-weight: 900; cursor: default; font-size: 16px; letter-spacing: 1px; text-shadow: 0 0 10px currentColor; }
 .card-cell.free { background: rgba(255, 213, 79, 0.16); color: var(--gold); border-color: rgba(255, 213, 79, 0.5); box-shadow: inset 0 0 8px rgba(255,213,79,0.1); }
 /* a number the player daubed themselves (manual play) */
 .card-cell.marked {
-  color: #fff; background: rgba(255, 95, 122, 0.30);
-  border-color: rgba(255, 95, 122, 0.75); box-shadow: 0 0 10px rgba(255, 95, 122, 0.35), inset 0 0 6px rgba(255,95,122,0.15);
+  color: #fff; background: rgba(255, 95, 122, 0.35);
+  border-color: rgba(255, 95, 122, 0.8); box-shadow: 0 0 12px rgba(255, 95, 122, 0.4), inset 0 0 8px rgba(255,95,122,0.2);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 .card-cell.daubable { cursor: pointer; }
 .card-cell.daubable:hover { border-color: var(--blue); transform: scale(1.06); }
@@ -304,13 +306,14 @@ body::before {
 /* called numbers: vertical columns with letters on top — TINY balls, no scrolling */
 .board {
   background: linear-gradient(180deg, rgba(19,26,58,0.9), rgba(19,26,58,0.7)); border: 1px solid rgba(120,132,255,0.15); border-radius: 10px;
-  padding: 6px 4px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  padding: 4px 3px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.25);
   display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
 }
 .board-header {
   text-align: center;
-  font-size: 14px; font-weight: 900; letter-spacing: 1px;
-  padding: 2px 0; line-height: 1.4;
+  font-size: 18px; font-weight: 900; letter-spacing: 1.5px;
+  padding: 4px 0; line-height: 1.4;
+  text-transform: uppercase;
 }
 .board-column {
   display: flex; flex-direction: column; gap: 1px;
@@ -320,12 +323,12 @@ body::before {
 }
 .ball {
   display: flex; align-items: center; justify-content: center;
-  border-radius: 4px; background: transparent; border: none;
-  font-size: 12px; color: rgba(255, 255, 255, 0.3); font-weight: 700;
-  padding: 2px 0; line-height: 1.3; min-height: 0;
+  border-radius: 5px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13px; color: rgba(255, 255, 255, 0.45); font-weight: 800;
+  padding: 3px 0; line-height: 1.3; min-height: 0;
 }
-.ball.on { background: rgba(255, 213, 79, 0.18); border: 1px solid rgba(255,213,79,0.5); color: var(--gold); font-weight: 900; font-size: 13px; border-radius: 5px; box-shadow: 0 0 6px rgba(255,213,79,0.2); }
-.ball.last { animation: lastPop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.ball.on { background: rgba(255, 213, 79, 0.22); border: 1.5px solid rgba(255,213,79,0.6); color: var(--gold); font-weight: 900; font-size: 15px; border-radius: 6px; box-shadow: 0 0 10px rgba(255,213,79,0.3), 0 0 20px rgba(255,213,79,0.1); letter-spacing: 0.5px; }
+.ball.last { animation: lastPop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1); background: rgba(255, 213, 79, 0.28); border: 2px solid rgba(255,213,79,0.8); color: #fff; font-size: 16px; box-shadow: 0 0 16px rgba(255,213,79,0.45), 0 0 32px rgba(255,213,79,0.15); }
 @keyframes lastPop { 0% { transform: scale(1.5); } 100% { transform: scale(1); } }
 
 /* ----------------------------------------------------------------- ended */
@@ -557,6 +560,31 @@ body::before {
 .pattern-name { font-size: 12.5px; font-weight: 900; color: var(--gold); margin-bottom: 3px; }
 .pattern-desc { font-size: 11px; color: var(--muted); line-height: 1.45; }
 
+/* Sound pack selector */
+.sound-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sound-pack-btn {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+  border-radius: 12px; cursor: pointer; font-family: inherit;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  color: var(--text); text-align: left; position: relative;
+}
+.sound-pack-btn:hover {
+  border-color: rgba(62, 200, 255, 0.5); background: rgba(62, 200, 255, 0.06);
+  transform: translateY(-1px);
+}
+.sound-pack-btn.active {
+  border-color: var(--gold); background: rgba(255, 213, 79, 0.08);
+  box-shadow: 0 0 12px rgba(255, 213, 79, 0.15);
+}
+.sound-pack-btn:active { transform: scale(0.97); }
+.sound-pack-icon { font-size: 22px; line-height: 1; }
+.sound-pack-label { font-size: 13px; font-weight: 700; flex: 1; }
+.sound-pack-check {
+  color: var(--gold); font-weight: 900; font-size: 14px;
+  animation: pop 0.3s ease both;
+}
+
 /* ------------------------------------------------------- admin users/tx */
 .user-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 46vh; overflow-y: auto; }
 .user-row {
@@ -722,9 +750,9 @@ body::before {
   .card-cell { font-size: 17px; }
   .bingo-card { padding: 12px; border-radius: 14px; }
   .board { padding: 5px 3px; }
-  .board-header { font-size: 13px; }
-  .ball { font-size: 11px; }
-  .ball.on { font-size: 12px; }
+  .board-header { font-size: 15px; }
+  .ball { font-size: 12px; }
+  .ball.on { font-size: 14px; }
 }
 @media (max-width: 420px) {
   .brand-letter { font-size: 25px; }
@@ -732,9 +760,9 @@ body::before {
   .card-grid-picker { gap: 6px; }
   .card-grid-picker { grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); }
   .board-balls { gap: 2px; }
-  .ball { font-size: 10px; }
-  .ball.on { font-size: 11px; }
-  .board-header { font-size: 12px; }
+  .ball { font-size: 11px; }
+  .ball.on { font-size: 13px; }
+  .board-header { font-size: 14px; }
   .card-cell { font-size: 15px; }
   .bingo-card { padding: 8px; }
 }
@@ -943,9 +971,9 @@ body::before {
   .current-call { padding: 2px 6px; }
   .cc-ball { width: 24px; height: 24px; line-height: 24px; font-size: 11px; }
   .board { padding: 3px 2px; }
-  .board-header { font-size: 11px; }
-  .ball { font-size: 10px; }
-  .ball.on { font-size: 11px; }
+  .board-header { font-size: 13px; }
+  .ball { font-size: 11px; }
+  .ball.on { font-size: 13px; }
   .bingo-btn { padding: 8px; font-size: 14px; }
   .my-cards { gap: 3px; }
   .bingo-card.small { padding: 5px; }
@@ -1252,9 +1280,9 @@ body::before {
   .brand-letter { font-size: 22px; }
   .brand-royale { font-size: 9px; letter-spacing: 3px; }
   .countdown-num { font-size: 28px; }
-  .board-header { font-size: 11px; }
-  .ball { font-size: 9px; }
-  .ball.on { font-size: 10px; }
+  .board-header { font-size: 14px; }
+  .ball { font-size: 11px; }
+  .ball.on { font-size: 13px; }
   .board { padding: 3px 2px; }
   .cc-ball { width: 26px; height: 26px; line-height: 26px; font-size: 11px; }
   .bingo-card { padding: 6px; border-radius: 12px; }
@@ -1270,3 +1298,251 @@ body::before {
 .card-grid-picker::-webkit-scrollbar { width: 4px; }
 .card-grid-picker::-webkit-scrollbar-track { background: transparent; }
 .card-grid-picker::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
+
+/* ===================================================== EXTRA ANIMATIONS */
+
+/* Ball called — dramatic entrance with glow */
+.ball.on {
+  animation: ballCalled 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes ballCalled {
+  0% { transform: scale(0.6); opacity: 0.4; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Ball last — golden pulse ring */
+.ball.last {
+  animation: lastPulse 0.5s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes lastPulse {
+  0% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(255, 213, 79, 0.6); }
+  50% { transform: scale(1.1); box-shadow: 0 0 16px 4px rgba(255, 213, 79, 0.3); }
+  100% { transform: scale(1); box-shadow: 0 0 12px rgba(255, 213, 79, 0.4); }
+}
+
+/* Board header letters — color glow */
+.board-header {
+  text-shadow: 0 0 12px currentColor;
+}
+
+/* Card cell marked — satisfying stamp effect */
+.card-cell.marked {
+  animation: stampMark 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes stampMark {
+  0% { transform: scale(1.4); }
+  50% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+/* Bingo button — rainbow gradient when ready */
+.bingo-btn.claimable.ready {
+  background: linear-gradient(135deg, var(--pink), #ff9a3d, var(--gold), var(--green), var(--blue), var(--purple));
+  background-size: 300% 300%;
+  animation: rainbowBtn 2s ease infinite;
+}
+@keyframes rainbowBtn {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Current call — bouncing entrance */
+.cc-ball {
+  animation: ccBallBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes ccBallBounce {
+  0% { transform: scale(0.2) rotate(-30deg); opacity: 0; }
+  50% { transform: scale(1.2) rotate(10deg); }
+  70% { transform: scale(0.95) rotate(-5deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+/* Winner card cells — cascading golden light */
+.winner-cell.hit {
+  animation: hitGlow 1.2s ease-in-out infinite;
+}
+@keyframes hitGlow {
+  0%, 100% { box-shadow: 0 0 6px rgba(255, 213, 79, 0.4); transform: scale(1); }
+  50% { box-shadow: 0 0 20px rgba(255, 213, 79, 0.9), 0 0 40px rgba(255, 213, 79, 0.3); transform: scale(1.05); }
+}
+
+/* Prize amount — dramatic zoom in */
+.prize-amount {
+  animation: prizeZoom 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: 0.2s;
+}
+@keyframes prizeZoom {
+  0% { opacity: 0; transform: scale(0.3) translateY(20px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Winner modal — confetti particles */
+.modal-card.won::before {
+  content: '🎊';
+  position: absolute; top: -20px; left: 10px; font-size: 28px;
+  animation: confettiFloat 2s ease-in-out infinite;
+  pointer-events: none;
+}
+.modal-card.won::after {
+  content: '🎉';
+  position: absolute; top: -20px; right: 10px; font-size: 28px;
+  animation: confettiFloat 2s ease-in-out infinite 0.5s;
+  pointer-events: none;
+}
+@keyframes confettiFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(10deg); }
+}
+
+/* Auto-play button — floating glow */
+.auto-play-btn {
+  animation: autoFloat 3s ease-in-out infinite;
+}
+@keyframes autoFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+/* Hero card — shimmer border */
+.hero-card::before {
+  content: '';
+  position: absolute; inset: -1px;
+  background: linear-gradient(90deg, transparent, rgba(255,213,79,0.3), transparent);
+  border-radius: var(--radius);
+  animation: heroBorder 3s linear infinite;
+  pointer-events: none; z-index: 0;
+}
+@keyframes heroBorder {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Card picker — smooth scroll indicator */
+.card-grid-picker {
+  scrollbar-gutter: stable;
+}
+
+/* Panel glass morphism enhancement */
+.panel {
+  background: linear-gradient(180deg, rgba(19, 26, 58, 0.85), rgba(19, 26, 58, 0.65));
+  border: 1px solid rgba(120, 132, 255, 0.2);
+}
+
+/* Settings tab active — golden underline */
+.settings-tab.active {
+  position: relative;
+}
+.settings-tab.active::after {
+  content: '';
+  position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+  width: 20px; height: 2px; background: var(--gold); border-radius: 99px;
+  box-shadow: 0 0 6px rgba(255, 213, 79, 0.5);
+}
+
+/* Wallet balance — animated count */
+.wallet-balance-num {
+  animation: balanceReveal 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes balanceReveal {
+  0% { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Pick chip removal — shrink out */
+.pick-chip {
+  animation: chipIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Eliminated banner — red glow pulse */
+.eliminated-banner {
+  animation: elimGlow 1.5s ease-in-out infinite, modalIn 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+@keyframes elimGlow {
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 95, 122, 0.15); }
+  50% { box-shadow: 0 0 24px rgba(255, 95, 122, 0.35); }
+}
+
+/* Registration phone row — focus glow */
+.reg-phone-row input:focus {
+  box-shadow: 0 0 12px rgba(255, 213, 79, 0.25);
+}
+
+/* Admin flash — attention pulse */
+.admin-flash {
+  animation: flashPulse 0.5s ease both;
+}
+@keyframes flashPulse {
+  0% { opacity: 0; transform: scale(0.9); }
+  50% { transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Eliminated modal — dramatic shake */
+.modal-card.lost {
+  animation: lostShake 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+@keyframes lostShake {
+  0%, 100% { transform: translateX(0); }
+  10% { transform: translateX(-8px); }
+  20% { transform: translateX(7px); }
+  30% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  50% { transform: translateX(-3px); }
+  60% { transform: translateX(2px); }
+}
+
+/* Card cell free — star rotation */
+.card-cell.free {
+  animation: freeStar 2s ease-in-out infinite;
+}
+@keyframes freeStar {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); box-shadow: inset 0 0 12px rgba(255,213,79,0.2); }
+}
+
+/* Ball column glow when has calls */
+.board.has-calls .ball.on {
+  text-shadow: 0 0 8px rgba(255, 213, 79, 0.5);
+}
+
+/* Smooth scroll for called strip */
+.called-strip-balls {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Called strip — newest ball highlight */
+.called-strip-balls .strip-ball:last-child {
+  animation: stripNew 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes stripNew {
+  0% { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Pick tiles — glow when selected */
+.pick-tile.mine {
+  box-shadow: 0 0 20px rgba(255, 213, 79, 0.35), inset 0 0 8px rgba(255, 213, 79, 0.08);
+}
+
+/* Button hover — scale up */
+.bingo-btn.claimable:hover {
+  transform: scale(1.02);
+  box-shadow: 0 8px 28px rgba(255,95,122,0.45);
+}
+
+/* Brand letters — continuous gentle glow */
+.brand-letter {
+  text-shadow: 0 0 16px currentColor;
+}
+
+/* Winner modal confetti burst */
+.confetti-piece {
+  animation: confettiFall linear infinite;
+}
+@keyframes confettiFall {
+  0% { transform: translateY(-20px) rotate(0deg) scale(1); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg) scale(0.5); opacity: 0.3; }
+}
