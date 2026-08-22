@@ -55,6 +55,7 @@ export default function App() {
   // in the card picker. Each room is its own game.
   const [room, setRoom] = useState(10);
   const prev = useRef({ count: -1, phase: null });
+  const [spectating, setSpectating] = useState(null); // random other player's card
 
   const state = session?.state;
   const myUser = session?.user;
@@ -281,6 +282,27 @@ export default function App() {
       }
     }
   }, [autoPlay, state?.phase, marked, myCards, myUser?.eliminated, state?.winner, room, refresh]);
+
+  // ---- SPECTATOR MODE: fetch a random other player's card when no cards selected ----
+  useEffect(() => {
+    if (state?.phase !== 'playing' || myCards.length > 0) {
+      setSpectating(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchSpectate = async () => {
+      try {
+        const data = await api.spectate(room);
+        if (!cancelled) setSpectating(data);
+      } catch {
+        if (!cancelled) setSpectating(null);
+      }
+    };
+    fetchSpectate();
+    // Re-fetch a new random player's card every 10 seconds
+    const t = setInterval(fetchSpectate, 10000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [state?.phase, myCards.length, room]);
 
   // client-side pattern highlighting runs over the player's OWN daubs and is
   // VISUAL ONLY — the button stays active for every player with cards so the
@@ -541,10 +563,25 @@ export default function App() {
                 <div className="spectator-mode">
                   <div className="spectator-icon">👀</div>
                   <div className="spectator-title">Spectating</div>
-                  <div className="spectator-text">You didn't select any cards this round. Watch the game and try again next round!</div>
-                  <div className="spectator-game">
-                    <CalledBoard called={state.called_numbers} currentCall={state.current_call} />
-                  </div>
+                  <div className="spectator-text">You didn't select any cards this round. Watching another player's game!</div>
+                  {spectating && spectating.numbers ? (
+                    <div className="spectator-game">
+                      <div className="spectator-player-name">Watching: {spectating.player_name}</div>
+                      <BingoCard
+                        card={{ card_id: spectating.card_id, numbers: spectating.numbers, bet_amount: spectating.bet_amount }}
+                        markedSet={state.called_numbers ? new Set(state.called_numbers) : new Set()}
+                        winCells={[]}
+                        size="small"
+                        interactive={false}
+                        spectator={true}
+                        calledNumbers={state.called_numbers || []}
+                      />
+                    </div>
+                  ) : (
+                    <div className="spectator-game">
+                      <div className="spectator-loading">Looking for a player to watch...</div>
+                    </div>
+                  )}
                 </div>
               )}
 

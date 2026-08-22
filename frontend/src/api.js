@@ -66,6 +66,7 @@ export const api = {
   deselectCard: (cardId, room) =>
     request('/api/deselect-card', { method: 'POST', body: { card_id: cardId, room } }),
   quickPlay: (room) => request('/api/quick-play', { method: 'POST', body: { room } }),
+  spectate: (room) => request('/api/spectate', { params: roomParams(room) }),
   claimBingo: (cardId, room) =>
     request('/api/claim-bingo', { method: 'POST', body: { card_id: cardId, room } }),
   leaderboard: () => request('/api/leaderboard'),

@@ -14,10 +14,14 @@ export default function BingoCard({
   size = 'normal',
   interactive = false,
   onToggleCell,
+  spectator = false,
+  calledNumbers = [],
 }) {
   const winSet = new Set(winCells.map(([c, r]) => `${c},${r}`));
   const numbers = card.numbers || {};
   const isWinning = winCells.length > 0;
+  // In spectator mode, auto-mark cells that match called numbers
+  const spectatorSet = spectator ? new Set(calledNumbers) : null;
 
   return (
     <div className={`bingo-card ${size} ${isWinning ? 'winning' : ''}`}>
@@ -36,7 +40,7 @@ export default function BingoCard({
             {LETTERS.map((letter, col) => {
               const value = numbers[letter]?.[row];
               const free = value === 'FREE';
-              const marked = free || markedSet.has(cellKey(letter, value));
+              const marked = free || (spectatorSet ? spectatorSet.has(cellKey(letter, value)) : markedSet.has(cellKey(letter, value)));
               const winning = winSet.has(`${col},${row}`);
               return (
                 <button
@@ -47,7 +51,7 @@ export default function BingoCard({
                   disabled={!interactive || free}
                   title={interactive && !free ? 'Tap to mark / unmark this number' : undefined}
                 >
-                  {free ? '★' : marked ? '✕' : value}
+                  {free ? '★' : marked ? '●' : value}
                 </button>
               );
             })}

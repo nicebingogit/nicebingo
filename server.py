@@ -595,6 +595,33 @@ def api_game_state():
     return jsonify({**_state_payload(user_id, room), "user": _user_payload(user_id, room)})
 
 
+@app.route("/api/spectate")
+def api_spectate():
+    """Return a random other player's card for spectating."""
+    user_id = _user_id_from_request()
+    if user_id is None:
+        return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
+    room = _room_from_request()
+    state = db.get_game_state(room)
+    if state.get("phase") != "playing":
+        return jsonify({"error": "Spectating only available during gameplay"}), 400
+    # Get all selections for this room, excluding the current user
+    all_selections = db.get_all_selections(room)
+    other_selections = [s for s in all_selections if s["user_id"] != user_id]
+    if not other_selections:
+        return jsonify({"error": "No other players to spectate"}), 404
+    import random
+    pick = random.choice(other_selections)
+    card_numbers = db.get_card(pick["card_id"])
+    player = db.get_player(pick["user_id"]) or {}
+    return jsonify({
+        "card_id": pick["card_id"],
+        "numbers": card_numbers,
+        "player_name": player.get("full_name") or player.get("username") or f"Player_{pick['user_id']}",
+        "bet_amount": pick.get("bet_amount", 0),
+    })
+
+
 @app.route("/api/cards")
 def api_cards():
     user_id = _user_id_from_request()
