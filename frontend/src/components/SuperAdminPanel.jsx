@@ -230,7 +230,7 @@ export default function SuperAdminPanel({ onError }) {
               {gamePhase === 'playing' && (
                 <button className="btn btn-ghost user-btn danger" onClick={() => gameControl(api.superAdmin.stopGame, '⏹️ Round stopped.')}>⏹️ Stop</button>
               )}
-              <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.addBots, '🤖 Bots added!')}>🤖 Add Bots</button>
+              <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.addBots, '🤖 Players added!')}>🤖 Add Players</button>
             </div>
             <p className="reg-hint" style={{ marginTop: 8 }}>
               You control every account, every transaction log, wallet appeals,

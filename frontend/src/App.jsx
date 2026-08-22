@@ -399,7 +399,7 @@ export default function App() {
         <SuperAdminPanel onError={showError} />
       )}
 
-      {showSettings && (
+      {showSettings && state.phase !== 'playing' && (
         <Settings
           user={myUser}
           settings={state.settings}
@@ -451,114 +451,126 @@ export default function App() {
               {state.current_call || '–'}
             </div>
             <div className="cc-info">
-              {/* the room is already shown in the header chip — no need to
-                  repeat it here; the saved space goes to bigger cards */}
               <div className="cc-label">LAST NUMBER</div>
               <div className="cc-progress">
                 {state.called_count} / {state.total_numbers} balls
               </div>
             </div>
-          </div>            <div className="game-layout">
-              {/* horizontal calling board on TOP, the user's cards at the bottom */}
+          </div>
+
+          <div className="game-layout">
+            {/* Compact board + optional settings side-by-side on top */}
+            <div className="game-top-row">
               <div className="game-board">
                 <CalledBoard called={state.called_numbers} currentCall={state.current_call} />
               </div>
-              <div className="game-left">
-                {myUser?.eliminated && (
-                  <div className="eliminated-banner">
-                    <div className="eliminated-title">❌ FALSE BINGO!</div>
-                    <p className="muted">
-                      Your card did not have a valid winning pattern. You have
-                      been eliminated from this round and your bet is lost —
-                      no refund. Your cards stay visible below, but you can't
-                      daub or claim again this round. 🍀
-                    </p>
-                  </div>
-                )}
-                {myCards.length > 0 ? (
-                  <>
-                    {/* multi-card: a compact list of called numbers right above
-                        the cards, so the player can daub across ALL cards
-                        without looking up at the big board */}
-                    {!myUser?.eliminated && myCards.length > 1 && state.called_numbers.length > 0 && (
-                      <div className="called-strip">
-                        <span className="called-strip-label">📣 Called</span>
-                        <div className="called-strip-balls">
-                          {state.called_numbers.map((key) => {
-                            const [letter, num] = key.split('-');
-                            const color = BALL_COLORS[letter] || 'var(--gold)';
-                            const allMarked = myCards.every((c) => (marked[c.card_id] || new Set()).has(key));
-                            return (
-                              <button
-                                key={key}
-                                type="button"
-                                className={`strip-ball ${allMarked ? 'daubed' : ''}`}
-                                style={{ '--ball-color': color }}
-                                onClick={() => { haptic('light'); playDaub(); toggleCellAll(key); }}
-                                title="Tap to mark this number on all your cards"
-                              >
-                                {letter}{num}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {/* 3 cards wrap 2+1 (bigger touch targets) — never more
-                        than two cards per row, and everything stays on one
-                        screen (the play column is height-capped) */}
-                    <div
-                      className={`my-cards ${myCards.length === 1 ? 'single' : ''}`}
-                      style={{ gridTemplateColumns: `repeat(${Math.min(myCards.length, 2)}, 1fr)` }}
-                    >
-                      {myWinning.map(({ card, patterns, cells }) => (
-                        <BingoCard
-                          key={card.card_id}
-                          card={card}
-                          markedSet={marked[card.card_id] || new Set()}
-                          winCells={patterns.length ? cells : []}
-                          // compact by default (a full-width single card would
-                          // push the BINGO button below the screen edge); with
-                          // 3 cards they get a touch bigger for readability —
-                          // the layout is height-capped so nothing overflows
-                          size={myCards.length === 3 ? 'triple' : 'small'}
-                          interactive={!myUser?.eliminated}
-                          onToggleCell={(letter, value) => {
-                            haptic('light');
-                            playDaub();
-                            toggleCell(card.card_id, letter, value);
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="no-cards">You're not in this round — wait for the next one!</div>
-                )}
-
-                {!myUser?.eliminated && myCards.length === 1 && (
-                  <div className="daub-hint">
-                    Tap marked numbers on your card · Press BINGO to claim
-                  </div>
-                )}
-
-                {!myUser?.eliminated && (
-                  <button
-                    className={`btn bingo-btn ${claimable ? 'claimable' : ''} ${claimable && hasLocalPattern ? 'ready' : ''}`}
-                    onClick={claim}
-                    disabled={!claimable}
-                    title="Tap the called numbers on your card, then press when you believe you have a winning pattern — the server verifies it!"
-                  >
-                    {claimable && hasLocalPattern ? '🔔 BINGO! Press now!' : claimable ? '🔔 BINGO' : '🔕 BINGO'}
-                  </button>
-                )}
-                {hasLocalPattern && !myUser?.eliminated && (
-                  <div className="claim-hint">
-                    {PATTERN_LABELS[myWinning.find((w) => w.patterns.length > 0).patterns[0]]} complete — press BINGO!
-                  </div>
-                )}
-              </div>
+              {showSettings && myUser?.is_admin && (
+                <div className="game-settings-side">
+                  <Settings
+                    user={myUser}
+                    settings={state.settings}
+                    config={cfg}
+                    onChanged={handleChanged}
+                    onError={showError}
+                    onClose={() => setShowSettings(false)}
+                  />
+                </div>
+              )}
             </div>
+
+            <div className="game-left">
+              {myUser?.eliminated && (
+                <div className="eliminated-banner">
+                  <div className="eliminated-title">❌ FALSE BINGO!</div>
+                  <p className="muted">
+                    Your card did not have a valid winning pattern. You have
+                    been eliminated from this round and your bet is lost —
+                    no refund. Your cards stay visible below, but you can't
+                    daub or claim again this round. 🍀
+                  </p>
+                </div>
+              )}
+              {myCards.length > 0 ? (
+                <>
+                  {!myUser?.eliminated && myCards.length > 1 && state.called_numbers.length > 0 && (
+                    <div className="called-strip">
+                      <span className="called-strip-label">📣 Called</span>
+                      <div className="called-strip-balls">
+                        {state.called_numbers.map((key) => {
+                          const [letter, num] = key.split('-');
+                          const color = BALL_COLORS[letter] || 'var(--gold)';
+                          const allMarked = myCards.every((c) => (marked[c.card_id] || new Set()).has(key));
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              className={`strip-ball ${allMarked ? 'daubed' : ''}`}
+                              style={{ '--ball-color': color }}
+                              onClick={() => { haptic('light'); playDaub(); toggleCellAll(key); }}
+                              title="Tap to mark this number on all your cards"
+                            >
+                              {letter}{num}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div
+                    className={`my-cards ${myCards.length === 1 ? 'single' : ''} card-count-${myCards.length}`}
+                    style={{ gridTemplateColumns: myCards.length === 3 ? '1fr' : `repeat(${Math.min(myCards.length, 2)}, 1fr)` }}
+                  >
+                    {myWinning.map(({ card, patterns, cells }) => (
+                      <BingoCard
+                        key={card.card_id}
+                        card={card}
+                        markedSet={marked[card.card_id] || new Set()}
+                        winCells={patterns.length ? cells : []}
+                        size={myCards.length === 3 ? 'triple' : 'small'}
+                        interactive={!myUser?.eliminated}
+                        onToggleCell={(letter, value) => {
+                          haptic('light');
+                          playDaub();
+                          toggleCell(card.card_id, letter, value);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="spectator-mode">
+                  <div className="spectator-icon">👀</div>
+                  <div className="spectator-title">Spectating</div>
+                  <div className="spectator-text">You didn't select any cards this round. Watch the game and try again next round!</div>
+                  <div className="spectator-game">
+                    <CalledBoard called={state.called_numbers} currentCall={state.current_call} />
+                  </div>
+                </div>
+              )}
+
+              {!myUser?.eliminated && myCards.length === 1 && (
+                <div className="daub-hint">
+                  Tap marked numbers on your card · Press BINGO to claim
+                </div>
+              )}
+
+              {!myUser?.eliminated && myCards.length > 0 && (
+                <button
+                  className={`btn bingo-btn ${claimable ? 'claimable' : ''} ${claimable && hasLocalPattern ? 'ready' : ''}`}
+                  onClick={claim}
+                  disabled={!claimable}
+                  title="Tap the called numbers on your card, then press when you believe you have a winning pattern — the server verifies it!"
+                >
+                  {claimable && hasLocalPattern ? '🔔 BINGO! Press now!' : claimable ? '🔔 BINGO' : '🔕 BINGO'}
+                </button>
+              )}
+              {hasLocalPattern && !myUser?.eliminated && (
+                <div className="claim-hint">
+                  {PATTERN_LABELS[myWinning.find((w) => w.patterns.length > 0).patterns[0]]} complete — press BINGO!
+                </div>
+              )}
+            </div>
+          </div>
         </section>
       )}
 

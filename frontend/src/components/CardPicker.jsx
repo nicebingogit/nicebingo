@@ -5,7 +5,6 @@ import { playClick } from '../sound.js';
 export default function CardPicker({ selections, maxCards, room, credit, onChanged, onError }) {
   const [cards, setCards] = useState(null);
   const [busy, setBusy] = useState(null);
-  const [quickBusy, setQuickBusy] = useState(false);
 
   useEffect(() => {
     setCards(null);
@@ -37,33 +36,14 @@ export default function CardPicker({ selections, maxCards, room, credit, onChang
     }
   };
 
-  const quickPlay = async () => {
-    playClick();
-    setQuickBusy(true);
-    try {
-      await api.quickPlay(room);
-      await onChanged();
-    } catch (e) {
-      onError?.(e.message);
-    } finally {
-      setQuickBusy(false);
-    }
-  };
-
   if (!cards) return <div className="panel loading">Loading cards…</div>;
-
-  const takenCount = cards.filter((c) => c.taken && !c.taken_by_me).length;
-  const freeCount = cards.filter((c) => !c.taken).length;
 
   return (
     <div className="panel card-picker-panel">
       <div className="picker-bar">
         <div className="picker-title">
-          <span className="muted">{selections.length}/{maxCards} selected · {freeCount} free · {takenCount} taken</span>
+          <span className="muted">Select up to {maxCards} cards</span>
         </div>
-        <button className="btn btn-ghost" onClick={quickPlay} disabled={quickBusy || full}>
-          {quickBusy ? '…' : '⚡ Quick Pick'}
-        </button>
       </div>
 
       {selections.length > 0 && (
