@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { playClick } from '../sound.js';
 
-export default function CardPicker({ selections, maxCards, rooms, room, onRoomChange, credit, onChanged, onError }) {
+export default function CardPicker({ selections, maxCards, room, credit, onChanged, onError }) {
   const [cards, setCards] = useState(null);
   const [busy, setBusy] = useState(null);
   const [quickBusy, setQuickBusy] = useState(false);
@@ -52,31 +52,17 @@ export default function CardPicker({ selections, maxCards, rooms, room, onRoomCh
 
   if (!cards) return <div className="panel loading">Loading cards…</div>;
 
+  const takenCount = cards.filter((c) => c.taken && !c.taken_by_me).length;
+  const freeCount = cards.filter((c) => !c.taken).length;
+
   return (
-    <div className="panel">
+    <div className="panel card-picker-panel">
       <div className="picker-bar">
         <div className="picker-title">
-          🃏 Pick your cards <span className="muted">({selections.length}/{maxCards})</span>
+          <span className="muted">{selections.length}/{maxCards} selected · {freeCount} free · {takenCount} taken</span>
         </div>
-        {/* the bet amount is gone — each room has a FIXED bet per card; the
-            listbox picks which room (30 / 50 / 100) you play in */}
-        <label className="bet-box">
-          <span className="muted">Room</span>
-          <select
-            className="room-select"
-            value={room}
-            onChange={(e) => onRoomChange?.(Number(e.target.value))}
-            title="Choose your room — the bet per card is fixed per room"
-          >
-            {rooms.map((r) => (
-              <option key={r} value={r}>
-                Room by {r} · {r} ETB/card
-              </option>
-            ))}
-          </select>
-        </label>
         <button className="btn btn-ghost" onClick={quickPlay} disabled={quickBusy || full}>
-          {quickBusy ? '…' : '⚡ Quick Play'}
+          {quickBusy ? '…' : '⚡ Quick Pick'}
         </button>
       </div>
 
@@ -84,7 +70,7 @@ export default function CardPicker({ selections, maxCards, rooms, room, onRoomCh
         <div className="my-picks">
           {selections.map((s) => (
             <button key={s.card_id} className="pick-chip" onClick={() => toggle({ id: s.card_id })}>
-              {s.card_id} · {s.bet_amount} ETB <span className="pick-x">✕</span>
+              {s.card_id} <span className="pick-x">✕</span>
             </button>
           ))}
         </div>
@@ -114,7 +100,6 @@ export default function CardPicker({ selections, maxCards, rooms, room, onRoomCh
           );
         })}
       </div>
-
     </div>
   );
 }

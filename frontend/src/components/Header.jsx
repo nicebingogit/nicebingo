@@ -2,7 +2,7 @@ import { PACKS, getPack } from '../sound.js';
 
 const BRAND = { B: '#ff5f7a', I: '#4be3a0', N: '#ffd54f', G: '#3ec8ff', O: '#d95cff' };
 
-export default function Header({ credit, pool, room, isAdmin, isSuperAdmin, showAdmin, showSuper, onToggleAdmin, onToggleSuper, onToggleSettings, connected }) {
+export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmin, isSuperAdmin, showAdmin, showSuper, onToggleAdmin, onToggleSuper, onToggleSettings, connected }) {
   const packIdx = PACKS.findIndex((p) => p.id === getPack());
   const currentPack = PACKS[packIdx] || PACKS[0];
 
@@ -18,8 +18,16 @@ export default function Header({ credit, pool, room, isAdmin, isSuperAdmin, show
       <div className="chips">
         <div className="chip chip-room" title="Your room — each room has its own fixed bet">
           <span className="chip-icon">🚪</span>
-          <span className="chip-num">{room}</span>
-          <span className="chip-label">ETB</span>
+          <select
+            className="header-room-select"
+            value={room}
+            onChange={(e) => onRoomChange?.(Number(e.target.value))}
+            title="Choose your room"
+          >
+            {(rooms || []).map((r) => (
+              <option key={r} value={r}>Room {r}</option>
+            ))}
+          </select>
         </div>
         <div className="chip chip-credit" title="Your balance">
           <span className="chip-icon">💰</span>

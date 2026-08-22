@@ -368,6 +368,8 @@ export default function App() {
         // the win pool stays hidden until the round actually starts
         pool={state.phase === 'preparation' ? null : (state.win_pool ?? 0)}
         room={room}
+        rooms={cfg.rooms || [10, 20, 30]}
+        onRoomChange={changeRoom}
         isAdmin={myUser?.is_admin}
         isSuperAdmin={myUser?.is_super_admin}
         showAdmin={showAdmin}
@@ -416,7 +418,7 @@ export default function App() {
                 <div className="hero-title">Next round · Preparation</div>
                 {/* the winning amount stays hidden until the round starts */}
                 <div className="hero-sub">
-                  {state.real_players} players · {state.bots_players || 0} bots · {state.cards_in_play} cards
+                  {state.real_players + (state.bots_players || 0)} players · {state.cards_in_play} cards
                 </div>
               </div>
               <div className="countdown">
@@ -434,9 +436,7 @@ export default function App() {
           <CardPicker
             selections={myCards}
             maxCards={cfg.max_cards || 3}
-            rooms={cfg.rooms || [10, 20, 30]}
             room={room}
-            onRoomChange={changeRoom}
             credit={myUser?.credit ?? 0}
             onChanged={handleChanged}
             onError={showError}

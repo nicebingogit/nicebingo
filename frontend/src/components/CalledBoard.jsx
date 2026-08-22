@@ -10,7 +10,7 @@ export default function CalledBoard({ called, currentCall }) {
   return (
     <div className="board">
       {LETTERS.map((letter) => (
-        <div key={letter}>
+        <div key={letter} className="board-col">
           <div
             className="board-header"
             style={{ color: COLORS[letter], textShadow: `0 0 8px ${COLORS[letter]}44` }}
