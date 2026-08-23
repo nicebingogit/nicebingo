@@ -1457,6 +1457,14 @@ def api_superadmin_activity_log():
     return jsonify({"activities": db.get_activity_log(200)})
 
 
+@app.route("/api/superadmin/house-profit")
+def api_superadmin_house_profit():
+    """House profit summary for the super admin."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    return jsonify(db.house_profit_summary())
+
+
 @app.route("/api/superadmin/appeals/resolve", methods=["POST"])
 def api_superadmin_appeal_resolve():
     """Resolve an appeal:

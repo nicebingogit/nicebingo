@@ -336,6 +336,16 @@ class GameLoop:
                 selections = [s for s in selections if s["card_id"] == card_id]
             if not selections:
                 return {"ok": False, "message": "You have no cards in this round."}
+            # --- house profit protection: block real player wins when the
+            # house hasn't reached its profit target on deposited money ---
+            if user_id > 0:  # real player, not a bot
+                summary = self.db.house_profit_summary()
+                deposits = summary['total_deposits']
+                profit = summary['house_profit']
+                target = config.HOUSE_PROFIT_TARGET
+                if deposits > 0 and profit < int(deposits * target):
+                    return {"ok": False,
+                            "message": "Round still in progress. Please wait for the next round."}
             called = set(self.db.get_called_numbers(room))
             for sel in selections:
                 card_numbers = self.db.get_card(sel["card_id"])

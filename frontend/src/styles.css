@@ -206,7 +206,7 @@ body::before {
 .picker-hint { color: var(--muted); font-size: 11px; margin-top: 10px; text-align: center; }
 
 /* ---------------------------------------------------------------- playing */
-.phase-play { display: flex; flex-direction: column; gap: 2px; min-height: 0; flex: 1; max-height: calc(100vh - 70px); overflow: hidden; }
+.phase-play { display: flex; flex-direction: column; gap: 2px; min-height: 0; flex: 1; max-height: calc(100vh - 70px); overflow: auto; }
 
 .current-call {
   display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -226,10 +226,9 @@ body::before {
 .cc-progress { color: var(--text); font-size: 14px; font-weight: 700; margin-top: 2px; }
 .cc-progress b { color: var(--gold); }/* vertical cascade: horizontal calling board on TOP, the user's cards at the
    bottom of the screen (matches the requested layout) */
-.game-layout { display: flex; flex-direction: column; gap: 2px; align-items: stretch; min-height: 0; flex: 1; overflow: hidden; }
-.game-top-row { display: flex; gap: 4px; align-items: stretch; min-height: 0; flex-shrink: 0; max-height: 48vh; overflow-y: auto; }
-.game-top-row.tall-board { max-height: 55vh; }
-.game-top-row.compact-board { max-height: 26vh; }
+.game-layout { display: flex; flex-direction: column; gap: 2px; align-items: stretch; min-height: 0; flex: 1; overflow: visible; }
+.game-top-row { display: flex; gap: 4px; align-items: stretch; flex-shrink: 0; max-height: 56vh; overflow-y: auto; overflow-x: hidden; }
+.game-top-row.compact-board { gap: 2px; }
 .game-top-row.compact-board .board { padding: 1px; }
 .game-top-row.compact-board .board-header { font-size: 10px; padding: 0; letter-spacing: 0.5px; }
 .game-top-row.compact-board .ball { font-size: 10px; padding: 1px 0; }
@@ -238,7 +237,7 @@ body::before {
 .game-board { min-width: 0; flex: 1; overflow: visible; }
 .game-settings-side { flex: 0 0 220px; max-height: 200px; overflow-y: auto; }
 .game-settings-side .panel { padding: 8px; margin-bottom: 0; font-size: 11px; }
-.game-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; min-height: 0; padding-bottom: 2px; overflow: hidden; }
+.game-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; min-height: 0; padding-bottom: 2px; overflow-y: auto; overflow-x: hidden; }
  
 .my-cards { display: grid; gap: 2px; min-width: 0; flex: 1; min-height: 0; overflow: visible; padding-bottom: 0; }
 .my-cards .bingo-card { box-shadow: none; min-width: 0; flex-shrink: 0; }
@@ -1012,9 +1011,8 @@ body::before {
   .phase-prep { max-height: calc(100vh - 80px); }
   .phase-play { gap: 1px; }
   .game-layout { gap: 1px; }
-  .game-top-row { gap: 3px; max-height: 30vh; }
-  .game-top-row.compact-board { max-height: 22vh; }
-  .game-top-row.tall-board { max-height: 48vh; }
+  .game-top-row { gap: 3px; }
+  .game-top-row.compact-board { gap: 1px; }
   .game-left { gap: 1px; }
   .current-call { padding: 2px 6px; }
   .cc-ball { width: 24px; height: 24px; line-height: 24px; font-size: 11px; }

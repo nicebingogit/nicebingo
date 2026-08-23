@@ -190,12 +190,26 @@ class GameLogic:
                 bot_bets += sel["bet_amount"]
         # bot bets are doubled: each bot bet adds double to the pool
         total_bets = real_bets + (bot_bets * 2)
-        prize_pool = int(total_bets * config.PRIZE_PERCENT)
+        base_prize = int(total_bets * config.PRIZE_PERCENT)
+        # --- house profit protection ---
+        summary = self.db.house_profit_summary()
+        total_deposits = summary['total_deposits']
+        current_profit = summary['house_profit']
+        target_pct = config.HOUSE_PROFIT_TARGET  # e.g. 0.20
+        if total_deposits > 0:
+            target_profit = int(total_deposits * target_pct)
+            shortfall = max(0, target_profit - current_profit)
+            # Reduce prize by the shortfall (can't go below 0 prize)
+            prize_pool = max(0, base_prize - shortfall)
+        else:
+            prize_pool = base_prize
         return {
             "total_bets": total_bets,
             "prize_pool": prize_pool,
             "house_fee": total_bets - prize_pool,
             "real_players": len(real_ids),
+            "house_profit": current_profit,
+            "house_profit_target": target_pct,
         }
 
     # -------------------------------------------------------------------- bots

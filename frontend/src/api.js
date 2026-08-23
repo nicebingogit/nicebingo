@@ -126,6 +126,7 @@ export const api = {
     updateAccount: (account) => superAdminRequest('/api/superadmin/accounts/update', { body: account }),
     deleteAccount: (id) => superAdminRequest('/api/superadmin/accounts/delete', { body: { id } }),
     activityLog: () => superAdminRequest('/api/superadmin/activity-log', { method: 'GET' }),
+    houseProfit: () => superAdminRequest('/api/superadmin/house-profit', { method: 'GET' }),
     appeals: () => superAdminRequest('/api/superadmin/appeals', { method: 'GET' }),
     resolveAppeal: (id, action, resolution) =>
       superAdminRequest('/api/superadmin/appeals/resolve', { body: { id, action, resolution } }),

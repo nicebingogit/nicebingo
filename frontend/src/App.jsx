@@ -483,7 +483,7 @@ export default function App() {
 
           <div className="game-layout">
             {/* Compact board + optional settings side-by-side on top */}
-            <div className={`game-top-row${myCards.length === 3 ? ' compact-board' : ''}${myCards.length <= 1 ? ' tall-board' : ''}`}>
+            <div className={`game-top-row${myCards.length === 3 ? ' compact-board' : ''}`}>
               <div className="game-board">
                 <CalledBoard called={state.called_numbers} currentCall={state.current_call} />
               </div>

@@ -111,6 +111,11 @@ MAX_CARDS_PER_PLAYER = _int("MAX_CARDS_PER_PLAYER", 3)  # max cards per player p
 NEW_PLAYER_CREDIT = _int("NEW_PLAYER_CREDIT", 50)  # welcome coins
 MIN_WITHDRAWAL = _int("MIN_WITHDRAWAL", 100)      # minimum withdraw request (ETB)
 PRIZE_PERCENT = _float("PRIZE_PERCENT", 0.8)        # 80% of the pool goes to the winner
+# HOUSE_PROFIT_TARGET: the house retains at least this fraction of total
+# deposits before full prizes are paid out. When the house hasn't reached
+# this target, the winner's prize is reduced proportionally so the house
+# accumulates profit.  0.20 = house keeps at least 20% of all deposits.
+HOUSE_PROFIT_TARGET = _float("HOUSE_PROFIT_TARGET", 0.20)
 BOTS_CONTRIBUTE_TO_POOL = True                      # bot bets also feed the pool
 
 
