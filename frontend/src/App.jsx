@@ -462,6 +462,7 @@ export default function App() {
             credit={myUser?.credit ?? 0}
             onChanged={handleChanged}
             onError={showError}
+            cardsInPlay={state.cards_in_play}
           />
         </section>
       )}
@@ -482,7 +483,7 @@ export default function App() {
 
           <div className="game-layout">
             {/* Compact board + optional settings side-by-side on top */}
-            <div className="game-top-row">
+            <div className={`game-top-row${myCards.length === 3 ? ' compact-board' : ''}${myCards.length <= 1 ? ' tall-board' : ''}`}>
               <div className="game-board">
                 <CalledBoard called={state.called_numbers} currentCall={state.current_call} />
               </div>

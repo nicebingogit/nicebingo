@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { playClick } from '../sound.js';
 
-export default function CardPicker({ selections, maxCards, room, credit, onChanged, onError }) {
+export default function CardPicker({ selections, maxCards, room, credit, onChanged, onError, cardsInPlay }) {
   const [cards, setCards] = useState(null);
   const [busy, setBusy] = useState(null);
 
@@ -10,6 +10,13 @@ export default function CardPicker({ selections, maxCards, room, credit, onChang
     setCards(null);
     api.cards(room).then(setCards).catch((e) => onError?.(e.message));
   }, [room, onError]);
+
+  // Re-fetch card list when cardsInPlay changes (other players picked/dropped cards)
+  useEffect(() => {
+    if (cardsInPlay != null) {
+      api.cards(room).then(setCards).catch(() => {});
+    }
+  }, [cardsInPlay, room]);
 
   const selectedIds = useMemo(() => new Set(selections.map((s) => s.card_id)), [selections]);
   const takenByOthers = useMemo(() => {
