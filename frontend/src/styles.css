@@ -1487,7 +1487,7 @@ body::before {
 .panel {
   background: linear-gradient(180deg, rgba(19, 26, 58, 0.85), rgba(19, 26, 58, 0.65));
   border: 1px solid rgba(120, 132, 255, 0.2);
-}
+} 
 
 /* Settings tab active — golden underline */
 .settings-tab.active {
