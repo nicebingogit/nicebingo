@@ -97,6 +97,7 @@ export default function WinnerModal({ winner, myId, onClose }) {
               <span className="prize-amount">+{winner.prize}</span>
               <span className="prize-currency">ETB</span>
             </div>
+            {winner.card_id && <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>🃏 Winning Card: <b>#{winner.card_id}</b></p>}
             <p className="muted">Paid instantly to your balance 🎉</p>
           </>
         ) : (
@@ -110,6 +111,7 @@ export default function WinnerModal({ winner, myId, onClose }) {
               <span className="prize-amount">{winner?.prize ?? 0}</span>
               <span className="prize-currency">ETB</span>
             </div>
+            {winner?.card_id && <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>🃏 Winning Card: <b>#{winner.card_id}</b></p>}
           </>
         )}
 

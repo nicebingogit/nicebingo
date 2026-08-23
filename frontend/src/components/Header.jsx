@@ -1,18 +1,25 @@
 import { PACKS, getPack } from '../sound.js';
 
-const BRAND = { B: '#ff5f7a', I: '#4be3a0', N: '#ffd54f', G: '#3ec8ff', O: '#d95cff' };
-
-export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmin, isSuperAdmin, showAdmin, showSuper, onToggleAdmin, onToggleSuper, onToggleSettings, connected }) {
+export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmin, isSuperAdmin, showAdmin, showSuper, onToggleAdmin, onToggleSuper, onToggleSettings, connected, phase, realPlayers, cardsInPlay }) {
   const packIdx = PACKS.findIndex((p) => p.id === getPack());
   const currentPack = PACKS[packIdx] || PACKS[0];
+  const isPlaying = phase === 'playing' || phase === 'ended';
 
   return (
     <header className="header">
       <div className="brand">
-        {Object.entries(BRAND).map(([letter, color]) => (
-          <span key={letter} className="brand-letter" style={{ color }}>{letter}</span>
-        ))}
-        <span className="brand-royale">NICE BINGO</span>
+        {isPlaying ? (
+          <div className="brand-game-info">
+            <span className="brand-game-label">Nice BINGO</span>
+            <span className="brand-game-stats">
+              👥 {realPlayers} player{realPlayers !== 1 ? 's' : ''} · 🃏 {cardsInPlay} card{cardsInPlay !== 1 ? 's' : ''}
+            </span>
+          </div>
+        ) : (
+          <>
+            <span className="brand-royale">Nice BINGO</span>
+          </>
+        )}
       </div>
 
       <div className="chips">

@@ -694,9 +694,11 @@ class PremiumBingoBot:
                         name = (winner or {}).get("full_name") or (winner or {}).get("username") or (
                             bot_name(state["winner_user_id"])
                             if state["winner_user_id"] < 0 else "Player")
+                        card_id = info.get('card_id', '?')
                         await self.broadcast(
                             players,
                             f"🎉 **BINGO!** 🎉 ({label})\n\n🏆 Winner: **{_md(name)}**\n"
+                            f"🃏 Winning Card: **#{card_id}**\n"
                             f"🎯 Pattern: **{info.get('pattern')}**\n"
                             f"💰 Prize: **{info.get('prize', 0)} {config.APP_CURRENCY}**")
                     else:

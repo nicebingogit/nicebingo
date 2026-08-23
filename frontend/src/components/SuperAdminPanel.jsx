@@ -15,7 +15,6 @@ export default function SuperAdminPanel({ onError }) {
   const [accounts, setAccounts] = useState([]);
   const [appeals, setAppeals] = useState([]);
   const [activities, setActivities] = useState([]);
-  const [houseProfit, setHouseProfit] = useState(null);
   const [flash, setFlash] = useState('');
 
   // user detail modal (click a row) — credit editing
@@ -60,14 +59,9 @@ export default function SuperAdminPanel({ onError }) {
     catch (e) { onError?.(e.message); }
   }, [onError]);
 
-  const loadHouseProfit = useCallback(async () => {
-    try { setHouseProfit(await api.superAdmin.houseProfit()); }
-    catch (e) { onError?.(e.message); }
-  }, [onError]);
-
   const loadAll = useCallback(async () => {
-    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities(), loadHouseProfit()]);
-  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities, loadHouseProfit]);
+    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities()]);
+  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities]);
 
   // game state for controls
   const [gamePhase, setGamePhase] = useState('preparation');
@@ -85,7 +79,6 @@ export default function SuperAdminPanel({ onError }) {
   useEffect(() => { loadGameState(); const i = setInterval(loadGameState, 3000); return () => clearInterval(i); }, [loadGameState]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
-  useEffect(() => { const i = setInterval(loadHouseProfit, 15000); return () => clearInterval(i); }, [loadHouseProfit]);
   useEffect(() => { const i = setInterval(loadAppeals, 10000); return () => clearInterval(i); }, [loadAppeals]);
   useEffect(() => { const i = setInterval(loadActivities, 15000); return () => clearInterval(i); }, [loadActivities]);
 
@@ -240,23 +233,6 @@ export default function SuperAdminPanel({ onError }) {
           <div>Pending wallet requests: <b>{pendingTxs}</b></div>
           <div>Pending appeals: <b>{pendingAppeals}</b></div>
           <div>Payment accounts: <b>{accounts.length}</b></div>
-
-          {/* ---- HOUSE PROFIT ---- */}
-          {houseProfit && (
-            <div style={{ marginTop: 12, padding: '10px 12px', background: 'rgba(255,213,79,0.08)', borderRadius: 10, border: '1px solid rgba(255,213,79,0.2)' }}>
-              <div style={{ fontWeight: 900, fontSize: 13, color: 'var(--gold)', marginBottom: 6 }}>💰 House Profit</div>
-              <div style={{ fontSize: 12, lineHeight: 1.8 }}>
-                <div>Total Deposits: <b>{houseProfit.total_deposits} ETB</b></div>
-                <div>Total Prizes Paid: <b>{houseProfit.total_prizes_paid} ETB</b></div>
-                <div>House Profit: <b style={{ color: houseProfit.house_profit_pct >= 20 ? 'var(--green)' : 'var(--pink)' }}>
-                  {houseProfit.house_profit} ETB ({houseProfit.house_profit_pct}%)
-                </b></div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                  Target: 20% of deposits • {houseProfit.house_profit_pct >= 20 ? '✅ Target reached' : '⏳ Building profit...'}
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* ---- GAME CONTROLS ---- */}
           <div style={{ marginTop: 16 }}>

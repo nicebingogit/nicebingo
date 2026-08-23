@@ -113,6 +113,9 @@ body::before {
 .brand-letter:nth-child(5) { animation-delay: 0.24s; }
 @keyframes glowIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 .brand-royale { font-size: 11px; font-weight: 700; letter-spacing: 4px; color: var(--muted); margin-left: 8px; }
+.brand-game-info { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.brand-game-label { font-size: 14px; font-weight: 900; letter-spacing: 2px; color: var(--gold); text-shadow: 0 0 12px rgba(255, 213, 79, 0.4); }
+.brand-game-stats { font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.8); letter-spacing: 1px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
 .chip {

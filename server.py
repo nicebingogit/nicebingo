@@ -268,7 +268,9 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
             "user_id": state["winner_user_id"],
             "name": loop._name_of(state["winner_user_id"]),
             "pattern": info.get("pattern"),
+            "patterns": info.get("patterns", []),
             "prize": info.get("prize", 0),
+            "card_id": info.get("card_id"),
             "winning_cells": info.get("winning_cells", []),
         }
         # the winning card uses the same {numbers: {...}} shape as the user's
@@ -1524,14 +1526,6 @@ def api_superadmin_activity_log():
     if _require_super_admin() is None:
         return jsonify({"error": "Unauthorized"}), 403
     return jsonify({"activities": db.get_activity_log(200)})
-
-
-@app.route("/api/superadmin/house-profit")
-def api_superadmin_house_profit():
-    """House profit summary for the super admin."""
-    if _require_super_admin() is None:
-        return jsonify({"error": "Unauthorized"}), 403
-    return jsonify(db.house_profit_summary())
 
 
 @app.route("/api/superadmin/appeals/resolve", methods=["POST"])

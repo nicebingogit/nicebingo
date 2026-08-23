@@ -358,7 +358,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="splash">
-        <div className="splash-brand">NICE BINGO</div>
+        <div className="splash-brand">Nice BINGO</div>
         <div className="splash-sub">Connecting to the arena…</div>
         <div className="spinner" />
       </div>
@@ -394,7 +394,6 @@ export default function App() {
     <div className="app">
       <Header
         credit={myUser?.credit ?? 0}
-        // the win pool stays hidden until the round actually starts
         pool={state.phase === 'preparation' ? null : (state.win_pool ?? 0)}
         room={room}
         rooms={cfg.rooms || [10, 20, 30]}
@@ -407,6 +406,9 @@ export default function App() {
         onToggleSuper={() => { playClick(); setShowSuper((s) => !s); setShowAdmin(false); }}
         onToggleSettings={() => setShowSettings((s) => !s)}
         connected={!error}
+        phase={state?.phase}
+        realPlayers={state?.real_players ?? 0}
+        cardsInPlay={state?.cards_in_play ?? 0}
       />
 
       {/* AUTO-PLAY: floating button — always visible during preparation and play */}
