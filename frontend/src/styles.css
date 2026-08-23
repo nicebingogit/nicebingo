@@ -1485,6 +1485,7 @@ body::before {
   box-shadow: 0 0 6px rgba(255, 213, 79, 0.5);
 }
 
+
 /* Wallet balance — animated count */
 .wallet-balance-num {
   animation: balanceReveal 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
