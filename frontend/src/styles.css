@@ -1489,6 +1489,7 @@ body::before {
   border: 1px solid rgba(120, 132, 255, 0.2);
 } 
 
+
 /* Settings tab active — golden underline */
 .settings-tab.active {
   position: relative;
