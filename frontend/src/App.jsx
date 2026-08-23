@@ -540,7 +540,7 @@ export default function App() {
                   )}
                   <div
                     className={`my-cards ${myCards.length === 1 ? 'single' : ''} card-count-${myCards.length}`}
-                    style={{ gridTemplateColumns: myCards.length === 3 ? '1fr' : `repeat(${Math.min(myCards.length, 2)}, 1fr)` }}
+
                   >
                     {myWinning.map(({ card, patterns, cells }) => (
                       <BingoCard

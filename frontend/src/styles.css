@@ -242,7 +242,7 @@ body::before {
 .my-cards.card-count-2 { grid-template-columns: 1fr 1fr; gap: 3px; }
 .my-cards.card-count-2 .bingo-card { width: 100%; }
 .my-cards.card-count-3 { grid-template-columns: 1fr 1fr; gap: 2px; }
-.my-cards.card-count-3 .bingo-card:last-child { grid-column: 1 / -1; }
+.my-cards.card-count-3 .bingo-card:last-child { grid-column: 1 / -1; justify-self: center; width: 50%; }
 
 /* Spectator mode — shown when player has no cards */
 .spectator-mode { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px; }
