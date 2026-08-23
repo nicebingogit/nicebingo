@@ -549,7 +549,7 @@ export default function App() {
                         card={card}
                         markedSet={marked[card.card_id] || new Set()}
                         winCells={patterns.length ? cells : []}
-                        size={myCards.length === 3 ? 'triple' : 'small'}
+                        size={myCards.length === 3 ? 'triple' : myCards.length === 2 ? 'medium' : 'small'}
                         interactive={!myUser?.eliminated}
                         onToggleCell={(letter, value) => {
                           haptic('light');
@@ -562,9 +562,13 @@ export default function App() {
                 </>
               ) : (
                 <div className="spectator-mode">
-                  <div className="spectator-icon">👀</div>
-                  <div className="spectator-title">Spectating</div>
-                  <div className="spectator-text">You didn't select any cards this round. Watching another player's game!</div>
+                  <div className="spectator-banner">
+                    <div className="spectator-icon">👀</div>
+                    <div className="spectator-info">
+                      <div className="spectator-title">Spectating</div>
+                      <div className="spectator-text">No cards this round — watching the game</div>
+                    </div>
+                  </div>
                   {spectating && spectating.numbers ? (
                     <div className="spectator-game">
                       <div className="spectator-player-name">Watching: {spectating.player_name}</div>

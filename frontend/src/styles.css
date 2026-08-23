@@ -228,13 +228,13 @@ body::before {
    bottom of the screen (matches the requested layout) */
 .game-layout { display: flex; flex-direction: column; gap: 2px; align-items: stretch; min-height: 0; flex: 1; overflow: hidden; }
 .game-top-row { display: flex; gap: 4px; align-items: stretch; min-height: 0; flex-shrink: 0; max-height: 48vh; overflow-y: auto; }
-.game-top-row.tall-board { max-height: 60vh; }
-.game-top-row.compact-board { max-height: 32vh; }
+.game-top-row.tall-board { max-height: 55vh; }
+.game-top-row.compact-board { max-height: 26vh; }
 .game-top-row.compact-board .board { padding: 1px; }
-.game-top-row.compact-board .board-header { font-size: 11px; }
-.game-top-row.compact-board .ball { font-size: 11px; padding: 2px 0; }
-.game-top-row.compact-board .ball.on { font-size: 12px; }
-.game-top-row.compact-board .ball.last { font-size: 13px; }
+.game-top-row.compact-board .board-header { font-size: 10px; padding: 0; letter-spacing: 0.5px; }
+.game-top-row.compact-board .ball { font-size: 10px; padding: 1px 0; }
+.game-top-row.compact-board .ball.on { font-size: 11px; }
+.game-top-row.compact-board .ball.last { font-size: 12px; }
 .game-board { min-width: 0; flex: 1; overflow: visible; }
 .game-settings-side { flex: 0 0 220px; max-height: 200px; overflow-y: auto; }
 .game-settings-side .panel { padding: 8px; margin-bottom: 0; font-size: 11px; }
@@ -246,18 +246,22 @@ body::before {
    the BINGO button below the screen edge on phones */
 .my-cards.single { justify-items: center; }
 .my-cards.single .bingo-card { width: 100%; max-width: 280px; }
-.my-cards.card-count-2 { grid-template-columns: 1fr 1fr; gap: 3px; }
-.my-cards.card-count-2 .bingo-card { width: 100%; }
-.my-cards.card-count-3 { grid-template-columns: 1fr 1fr; gap: 2px; }
-.my-cards.card-count-3 .bingo-card:last-child { grid-column: 1 / -1; justify-self: center; max-width: 65%; }
+.my-cards.card-count-2 { grid-template-columns: 1fr 1fr; gap: 4px; align-content: center; }
+.my-cards.card-count-2 .bingo-card { width: 100%; padding: 5px; }
+.my-cards.card-count-2 .bingo-card .card-cell { font-size: 15px; padding: 3px 0; }
+.my-cards.card-count-3 { grid-template-columns: 1fr 1fr; gap: 2px; align-content: start; }
+.my-cards.card-count-3 .bingo-card { width: 100%; }
+.my-cards.card-count-3 .bingo-card:last-child { grid-column: 1 / -1; justify-self: center; max-width: calc(50% - 1px); }
 
-/* Spectator mode — shown when player has no cards */
-.spectator-mode { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px; }
-.spectator-icon { font-size: 36px; animation: bounce 1.4s ease infinite; }
-.spectator-title { font-size: 18px; font-weight: 900; color: var(--gold); }
-.spectator-text { color: var(--muted); font-size: 13px; text-align: center; line-height: 1.4; }
-.spectator-game { width: 100%; max-width: 320px; margin-top: 6px; }
-.spectator-player-name { text-align: center; font-size: 13px; font-weight: 800; color: var(--blue); margin-bottom: 6px; letter-spacing: 0.5px; }
+/* Spectator mode — watermark overlay so card and board stay visible */
+.spectator-mode { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 8px; }
+.spectator-banner { display: flex; align-items: center; gap: 8px; background: rgba(255, 213, 79, 0.1); border: 1px dashed rgba(255, 213, 79, 0.35); border-radius: 10px; padding: 6px 14px; width: 100%; }
+.spectator-icon { font-size: 18px; animation: bounce 1.4s ease infinite; flex-shrink: 0; }
+.spectator-info { flex: 1; min-width: 0; }
+.spectator-title { font-size: 13px; font-weight: 900; color: var(--gold); }
+.spectator-text { color: var(--muted); font-size: 11px; line-height: 1.3; }
+.spectator-game { width: 100%; max-width: 320px; }
+.spectator-player-name { text-align: center; font-size: 11px; font-weight: 800; color: var(--blue); margin-bottom: 4px; letter-spacing: 0.5px; opacity: 0.7; }
 .spectator-loading { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; animation: pulse 1.5s ease infinite; }
 @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 .bingo-card {
@@ -307,6 +311,13 @@ body::before {
 .bingo-card.small .card-grid { gap: 2px; }
 .bingo-card.small .card-row { gap: 2px; }
 .bingo-card.small .card-cell { font-size: 14px; border-radius: 5px; padding: 2px 0; min-height: 0; }
+/* medium: for 2-card play — bigger cells than small, easy to read and tap */
+.bingo-card.medium { padding: 5px; }
+.bingo-card.medium .card-head { font-size: 9px; margin-bottom: 2px; }
+.bingo-card.medium .card-grid { gap: 3px; }
+.bingo-card.medium .card-row { gap: 3px; }
+.bingo-card.medium .card-cell { font-size: 16px; border-radius: 5px; padding: 4px 0; min-height: 0; font-weight: 800; }
+.bingo-card.medium .card-cell.head { font-size: 11px; }
 /* 2-3 cards: ultra-compact but still readable and touchable */
 .bingo-card.triple { padding: 3px; border-radius: 7px; }
 .bingo-card.triple .card-head { font-size: 8px; margin-bottom: 1px; }
@@ -1001,8 +1012,9 @@ body::before {
   .phase-prep { max-height: calc(100vh - 80px); }
   .phase-play { gap: 1px; }
   .game-layout { gap: 1px; }
-  .game-top-row { gap: 3px; max-height: 35vh; }
-  .game-top-row.compact-board { max-height: 25vh; }
+  .game-top-row { gap: 3px; max-height: 30vh; }
+  .game-top-row.compact-board { max-height: 22vh; }
+  .game-top-row.tall-board { max-height: 48vh; }
   .game-left { gap: 1px; }
   .current-call { padding: 2px 6px; }
   .cc-ball { width: 24px; height: 24px; line-height: 24px; font-size: 11px; }
@@ -1016,12 +1028,15 @@ body::before {
   .bingo-card.small .card-cell { font-size: 13px; border-radius: 4px; min-height: 0; }
   .bingo-card.small .card-head { margin-bottom: 1px; font-size: 8px; }
   .bingo-card.small .card-grid, .bingo-card.small .card-row { gap: 1px; }
+  .bingo-card.medium { padding: 3px; }
+  .bingo-card.medium .card-cell { font-size: 14px; padding: 2px 0; }
+  .bingo-card.medium .card-grid, .bingo-card.medium .card-row { gap: 2px; }
   .bingo-card.triple { padding: 2px; }
   .bingo-card.triple .card-cell { font-size: 11px; border-radius: 3px; min-height: 0; }
   .bingo-card.triple .card-head { margin-bottom: 0; font-size: 7px; }
   .bingo-card.triple .card-grid, .bingo-card.triple .card-row { gap: 1px; }
   .my-cards.card-count-3 { gap: 2px; }
-  .my-cards.card-count-3 .bingo-card:last-child { max-width: 60%; }
+  .my-cards.card-count-3 .bingo-card:last-child { max-width: calc(50% - 1px); }
   .called-strip { padding: 1px 3px; }
   .strip-ball { min-width: 28px; padding: 3px 5px; font-size: 10px; }
   .daub-hint { font-size: 9px; }
