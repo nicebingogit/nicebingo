@@ -56,6 +56,8 @@ export default function App() {
   const [room, setRoom] = useState(10);
   const prev = useRef({ count: -1, phase: null });
   const [spectating, setSpectating] = useState(null); // random other player's card
+  const spectateUserIdRef = useRef(null); // pin to the same player across refreshes
+  const spectateUserId = spectating?.spectate_user_id || spectateUserIdRef.current;
 
   const state = session?.state;
   const myUser = session?.user;
@@ -283,23 +285,28 @@ export default function App() {
     }
   }, [autoPlay, state?.phase, marked, myCards, myUser?.eliminated, state?.winner, room, refresh]);
 
-  // ---- SPECTATOR MODE: fetch a random other player's card when no cards selected ----
+  // ---- SPECTATOR MODE: fetch another player's card when no cards selected ----
   useEffect(() => {
     if (state?.phase !== 'playing' || myCards.length > 0) {
       setSpectating(null);
+      spectateUserIdRef.current = null; // reset pinned player when entering own game
       return;
     }
     let cancelled = false;
     const fetchSpectate = async () => {
       try {
-        const data = await api.spectate(room);
-        if (!cancelled) setSpectating(data);
+        // Pass the pinned user_id if we already picked one — stay on the same player
+        const data = await api.spectate(room, spectateUserIdRef.current);
+        if (!cancelled) {
+          setSpectating(data);
+          spectateUserIdRef.current = data.spectate_user_id || spectateUserIdRef.current;
+        }
       } catch {
         if (!cancelled) setSpectating(null);
       }
     };
     fetchSpectate();
-    // Re-fetch a new random player's card every 10 seconds
+    // Re-fetch the SAME player's card every 10 seconds
     const t = setInterval(fetchSpectate, 10000);
     return () => { cancelled = true; clearInterval(t); };
   }, [state?.phase, myCards.length, room]);
@@ -421,7 +428,7 @@ export default function App() {
         <SuperAdminPanel onError={showError} />
       )}
 
-      {showSettings && state.phase !== 'playing' && (
+      {showSettings && (
         <Settings
           user={myUser}
           settings={state.settings}
@@ -489,14 +496,9 @@ export default function App() {
               </div>
               {showSettings && myUser?.is_admin && (
                 <div className="game-settings-side">
-                  <Settings
-                    user={myUser}
-                    settings={state.settings}
-                    config={cfg}
-                    onChanged={handleChanged}
-                    onError={showError}
-                    onClose={() => setShowSettings(false)}
-                  />
+                  <div className="wallet-form-title" style={{ fontSize: 11, padding: '6px 8px', textAlign: 'center', color: 'var(--muted)' }}>
+                    ⚙️ Settings (overlay)
+                  </div>
                 </div>
               )}
             </div>

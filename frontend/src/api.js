@@ -66,7 +66,7 @@ export const api = {
   deselectCard: (cardId, room) =>
     request('/api/deselect-card', { method: 'POST', body: { card_id: cardId, room } }),
   quickPlay: (room) => request('/api/quick-play', { method: 'POST', body: { room } }),
-  spectate: (room) => request('/api/spectate', { params: roomParams(room) }),
+  spectate: (room, spectateUserId) => request('/api/spectate', { params: { ...roomParams(room), ...(spectateUserId ? { spectate_user_id: spectateUserId } : {}) } }),
   claimBingo: (cardId, room) =>
     request('/api/claim-bingo', { method: 'POST', body: { card_id: cardId, room } }),
   leaderboard: () => request('/api/leaderboard'),
@@ -119,6 +119,8 @@ export const api = {
       superAdminRequest('/api/superadmin/credit', { body: { user_id: target, amount, target: kind } }),
     setAdmin: (target, isAdmin) =>
       superAdminRequest('/api/superadmin/admin', { body: { user_id: target, is_admin: isAdmin } }),
+    editUser: (userId, fields) =>
+      superAdminRequest('/api/superadmin/edit-user', { body: { user_id: userId, ...fields } }),
     transactions: () => superAdminRequest('/api/superadmin/transactions', { method: 'GET' }),
     reviewTransaction: (id, action) =>
       superAdminRequest('/api/superadmin/transactions/review', { body: { id, action } }),

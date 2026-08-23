@@ -620,7 +620,12 @@ def api_game_state():
 
 @app.route("/api/spectate")
 def api_spectate():
-    """Return a random other player's card for spectating."""
+    """Return a random other player's card for spectating.
+
+    If spectate_user_id is provided, re-fetch that same player's card
+    (so the spectator stays on the same player across refreshes).
+    Otherwise, pick a new random player.
+    """
     user_id = _user_id_from_request()
     if user_id is None:
         return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
@@ -633,8 +638,19 @@ def api_spectate():
     other_selections = [s for s in all_selections if s["user_id"] != user_id]
     if not other_selections:
         return jsonify({"error": "No other players to spectate"}), 404
-    import random
-    pick = random.choice(other_selections)
+    # If a specific player was requested, stick with them
+    spectate_id = request.args.get('spectate_user_id', type=int)
+    if spectate_id:
+        pinned = [s for s in other_selections if s["user_id"] == spectate_id]
+        if pinned:
+            pick = pinned[0]
+        else:
+            # Target player left or has no cards — pick random
+            import random
+            pick = random.choice(other_selections)
+    else:
+        import random
+        pick = random.choice(other_selections)
     card_numbers = db.get_card(pick["card_id"])
     player = db.get_player(pick["user_id"]) or {}
     return jsonify({
@@ -642,6 +658,7 @@ def api_spectate():
         "numbers": card_numbers,
         "player_name": player.get("full_name") or player.get("username") or f"Player_{pick['user_id']}",
         "bet_amount": pick.get("bet_amount", 0),
+        "spectate_user_id": pick["user_id"],
     })
 
 
@@ -1143,18 +1160,20 @@ def api_file_appeal():
     if existing:
         return jsonify({"error": "You already have a pending appeal for this deposit."}), 400
     appeal_id = db.add_appeal(user_id, tx_id, reason)
-    # log the activity + alert the SUPER ADMIN
+    # log the activity + alert EVERY super admin
     try:
         who = str(tx.get("user_name") or user_id)
         db.log_activity('appeal_filed', user_id,
                        f'Appeal for {tx["amount"]} {config.APP_CURRENCY} deposit by {who}: {reason}')
         from bot import notify_user
-        notify_user(config.SUPER_ADMIN_ID, [
+        appeal_lines = [
             "🚨 NEW WALLET APPEAL",
             "User: " + who,
             "Deposit: " + str(tx["amount"]) + " " + config.APP_CURRENCY,
             "Reason: " + reason,
-        ])
+        ]
+        for sa_id in config.SUPER_ADMIN_IDS:
+            notify_user(sa_id, appeal_lines)
     except Exception:
         pass
     return jsonify({"ok": True, "appeal": db.get_appeal(appeal_id)})
@@ -1247,6 +1266,56 @@ def api_superadmin_credit():
         pass
     return jsonify({
         "ok": True, "user_id": target, "target": target_kind,
+        "credit": db.get_credit(target),
+    })
+
+
+@app.route("/api/superadmin/edit-user", methods=["POST"])
+def api_superadmin_edit_user():
+    """Super admin can edit ANY user's profile details (name, phone).
+
+    Works for both regular players and admins — full control.
+    """
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        target = int(data.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "user_id is required"}), 400
+    full_name = data.get("full_name")
+    phone = data.get("phone")
+    credit = data.get("credit")
+    if full_name is not None:
+        full_name = str(full_name).strip()[:60] or None
+    if phone is not None:
+        phone = str(phone).strip()[:20] or None
+    if credit is not None:
+        try:
+            credit = int(credit)
+        except (TypeError, ValueError):
+            return jsonify({"error": "credit must be a number"}), 400
+        db.update_credit(target, credit - db.get_credit(target))
+    db.create_player(target, f"Player_{target}", credit=0)  # ensure row exists
+    db.update_profile(target, full_name=full_name, phone=phone)
+    player = db.get_player(target)
+    try:
+        target_name = (player or {}).get('full_name') or (player or {}).get('username') or str(target)
+        details = []
+        if full_name:
+            details.append(f'name={full_name}')
+        if phone:
+            details.append(f'phone={phone}')
+        if credit is not None:
+            details.append(f'credit={credit}')
+        db.log_activity('superadmin_edited_user', target,
+                       f'Edited {target_name} ({target}): {"; ".join(details)}')
+    except Exception:
+        pass
+    return jsonify({
+        "ok": True, "user_id": target,
+        "full_name": (player or {}).get('full_name'),
+        "phone": (player or {}).get('phone'),
         "credit": db.get_credit(target),
     })
 

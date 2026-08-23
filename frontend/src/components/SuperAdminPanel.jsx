@@ -22,6 +22,8 @@ export default function SuperAdminPanel({ onError }) {
   const [selected, setSelected] = useState(null);
   const [editAmt, setEditAmt] = useState('');
   const [detailMsg, setDetailMsg] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
 
   // account management
   const [confirmDelAcc, setConfirmDelAcc] = useState(null);
@@ -84,6 +86,8 @@ export default function SuperAdminPanel({ onError }) {
 
   useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { const i = setInterval(loadHouseProfit, 15000); return () => clearInterval(i); }, [loadHouseProfit]);
+  useEffect(() => { const i = setInterval(loadAppeals, 10000); return () => clearInterval(i); }, [loadAppeals]);
+  useEffect(() => { const i = setInterval(loadActivities, 15000); return () => clearInterval(i); }, [loadActivities]);
 
   const gameControl = async (fn, okMsg) => {
     playClick();
@@ -118,6 +122,27 @@ export default function SuperAdminPanel({ onError }) {
       setDetailMsg(makeAdmin
         ? `✅ ${u.full_name || u.username || u.user_id} is now an admin.`
         : `✅ ${u.full_name || u.username || u.user_id} is no longer an admin.`);
+      setTimeout(() => setDetailMsg(''), 3000);
+    } catch (err) {
+      setDetailMsg(`❌ ${err.message}`);
+    }
+  };
+
+  const saveUserEdit = async () => {
+    if (!selected) return;
+    playClick();
+    try {
+      const fields = {};
+      if (editName.trim()) fields.full_name = editName.trim();
+      if (editPhone.trim()) fields.phone = editPhone.trim();
+      if (Object.keys(fields).length === 0) {
+        setDetailMsg('Nothing to save.');
+        return;
+      }
+      const r = await api.superAdmin.editUser(selected.user_id, fields);
+      await loadUsers();
+      setSelected((s) => s ? { ...s, full_name: r.full_name, phone: r.phone } : s);
+      setDetailMsg('✅ Account details updated.');
       setTimeout(() => setDetailMsg(''), 3000);
     } catch (err) {
       setDetailMsg(`❌ ${err.message}`);
@@ -282,7 +307,7 @@ export default function SuperAdminPanel({ onError }) {
               <button
                 key={u.user_id}
                 className={`user-row clickable ${u.is_registered ? '' : 'unreg'}`}
-                onClick={() => { playClick(); setSelected(u); setEditAmt(''); setDetailMsg(''); }}
+                onClick={() => { playClick(); setSelected(u); setEditAmt(''); setEditName(''); setEditPhone(''); setDetailMsg(''); }}
               >
                 <div className="user-info">
                   <div className="user-name">
@@ -551,6 +576,46 @@ export default function SuperAdminPanel({ onError }) {
               <p className="reg-hint">
                 Admins get the 🛠 Admin panel, can post their own payment
                 accounts and approve wallet requests.
+              </p>
+            </div>
+
+            {/* ---- EDIT ACCOUNT DETAILS (super admin only) ---- */}
+            <div className="credit-edit">
+              <div className="wallet-form-title">
+                ✏️ Edit Account Details
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="muted" style={{ minWidth: 80, fontSize: 12 }}>Full name</span>
+                  <input
+                    type="text"
+                    placeholder={selected.full_name || 'No name'}
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    style={{ flex: 1, padding: '6px 10px', borderRadius: 8, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', fontSize: 13 }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="muted" style={{ minWidth: 80, fontSize: 12 }}>Phone</span>
+                  <input
+                    type="text"
+                    placeholder={selected.phone || 'No phone'}
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    style={{ flex: 1, padding: '6px 10px', borderRadius: 8, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', fontSize: 13 }}
+                  />
+                </div>
+                <button
+                  className="btn btn-ghost user-btn"
+                  onClick={saveUserEdit}
+                  disabled={!editName.trim() && !editPhone.trim()}
+                  style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                >
+                  💾 Save Changes
+                </button>
+              </div>
+              <p className="reg-hint">
+                Edit any user's name and phone number.
               </p>
             </div>
           </div>
