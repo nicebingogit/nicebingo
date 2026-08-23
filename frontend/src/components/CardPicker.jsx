@@ -16,15 +16,37 @@ export default function CardPicker({ selections, maxCards, room, credit, onChang
     const m = new Map((cards || []).map((c) => [c.id, c.taken_by_me ? 'mine' : c.taken ? 'taken' : 'free']));
     return m;
   }, [cards]);
-  const full = selections.length >= maxCards;
+  // Optimistic local selection for instant UI feedback
+  const [optimistic, setOptimistic] = useState(new Set());
+  const isMine = (id) => selectedIds.has(id) || optimistic.has(id);
+  const effectiveCount = useMemo(() => {
+    let count = selections.length;
+    optimistic.forEach((id) => { if (!selectedIds.has(id)) count++; });
+    return count;
+  }, [selections, selectedIds, optimistic]);
+  const full = effectiveCount >= maxCards;
 
   const toggle = async (card) => {
     playClick();
+    const isCurrentlyMine = selectedIds.has(card.id) || optimistic.has(card.id);
+    const isTaken = takenByOthers.get(card.id) === 'taken';
+
+    // Instant optimistic update
+    if (!isCurrentlyMine && !isTaken && !full) {
+      setOptimistic((prev) => new Set([...prev, card.id]));
+    } else if (isCurrentlyMine) {
+      setOptimistic((prev) => {
+        const next = new Set(prev);
+        next.delete(card.id);
+        return next;
+      });
+    }
+
     setBusy(card.id);
     try {
       if (selectedIds.has(card.id)) {
         await api.deselectCard(card.id, room);
-      } else if (takenByOthers.get(card.id) !== 'taken') {
+      } else if (!isTaken) {
         await api.selectCard(card.id, room);
       }
       await onChanged();
@@ -59,13 +81,13 @@ export default function CardPicker({ selections, maxCards, room, credit, onChang
       <div className="card-grid-picker">
         {cards.map((card) => {
           const status = takenByOthers.get(card.id);
-          const mine = status === 'mine';
+          const mine = isMine(card.id);
           const taken = status === 'taken';
           const disabled = taken || (full && !mine);
           return (
             <button
               key={card.id}
-              className={`pick-tile ${mine ? 'mine' : ''} ${taken ? 'taken' : ''}`}
+              className={`pick-tile${mine ? ' mine' : ''}${taken ? ' taken' : ''}`}
               disabled={disabled || busy === card.id}
               onClick={() => toggle(card)}
               title={taken ? 'Taken' : mine ? 'Your card' : `Card ${card.id}`}
