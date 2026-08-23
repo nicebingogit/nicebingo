@@ -952,3 +952,5 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 `frontend/src/api.js`, `frontend/src/styles.css`, `technical_documentation.md`
 
 **Database:** untouched — production `bingo_bot.db` preserved.
+
+
