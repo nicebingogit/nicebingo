@@ -230,6 +230,15 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     sent_at    TIMESTAMP
                 );
+                -- activity log: every critical action for the super admin
+                -- console. Records who did what, when, and key details.
+                CREATE TABLE IF NOT EXISTS activity_log (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER,
+                    action     TEXT NOT NULL,
+                    details    TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
             # ----------------------------------------------------------
@@ -1185,3 +1194,27 @@ class Database:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    # ------------------------------------------------------------ activity log
+    def log_activity(self, action: str, user_id: Optional[int] = None,
+                     details: Optional[str] = None) -> None:
+        """Record a critical activity for the super admin activity log."""
+        with self._session() as conn:
+            conn.execute(
+                "INSERT INTO activity_log (user_id, action, details) VALUES (?, ?, ?)",
+                (user_id, action, details),
+            )
+
+    def get_activity_log(self, limit: int = 100) -> List[Dict]:
+        """Recent activity log entries for the super admin console."""
+        with self._session() as conn:
+            rows = conn.execute(
+                """
+                SELECT a.*, p.full_name AS user_name, p.username
+                FROM activity_log a
+                LEFT JOIN players p ON p.user_id = a.user_id
+                ORDER BY a.id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]

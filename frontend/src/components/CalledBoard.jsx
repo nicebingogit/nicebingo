@@ -29,8 +29,7 @@ export default function CalledBoard({ called, currentCall }) {
                     on
                       ? {
                           borderColor: COLORS[letter],
-                          color: COLORS[letter],
-                          boxShadow: `0 0 4px ${COLORS[letter]}33`,
+                          textShadow: `0 0 6px ${COLORS[letter]}88`,
                         }
                       : {}
                   }

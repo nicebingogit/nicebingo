@@ -153,8 +153,8 @@ class PremiumBingoBot:
         return InlineKeyboardMarkup([
             [InlineKeyboardButton("▶️ Force Start", callback_data="admin_start"),
              InlineKeyboardButton("🎯 Force Call", callback_data="admin_call")],
-            [InlineKeyboardButton("🤖 Add Bots", callback_data="admin_bots"),
-             InlineKeyboardButton("🔀 Toggle Bots", callback_data="admin_bots_toggle")],
+            [InlineKeyboardButton("🤖 Add Players", callback_data="admin_bots"),
+             InlineKeyboardButton("🔀 Toggle Players", callback_data="admin_bots_toggle")],
             [InlineKeyboardButton("🔄 Reset Round", callback_data="admin_reset"),
              InlineKeyboardButton("📊 Admin Stats", callback_data="admin_status")],
             [InlineKeyboardButton("🏠 Main Menu", callback_data="menu")],

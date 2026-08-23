@@ -14,6 +14,7 @@ export default function SuperAdminPanel({ onError }) {
   const [txs, setTxs] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [appeals, setAppeals] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [flash, setFlash] = useState('');
 
   // user detail modal (click a row) — credit editing
@@ -51,9 +52,14 @@ export default function SuperAdminPanel({ onError }) {
     catch (e) { onError?.(e.message); }
   }, [onError]);
 
+  const loadActivities = useCallback(async () => {
+    try { setActivities((await api.superAdmin.activityLog()).activities || []); }
+    catch (e) { onError?.(e.message); }
+  }, [onError]);
+
   const loadAll = useCallback(async () => {
-    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals()]);
-  }, [loadUsers, loadTxs, loadAccounts, loadAppeals]);
+    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities()]);
+  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities]);
 
   // game state for controls
   const [gamePhase, setGamePhase] = useState('preparation');
@@ -180,6 +186,7 @@ export default function SuperAdminPanel({ onError }) {
           ['transactions', '🧾 All logs'],
           ['accounts', '💳 Accounts'],
           ['appeals', `⚖️ Appeals${pendingAppeals ? ` (${pendingAppeals})` : ''}`],
+          ['activity', '📋 Activity Log'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -417,6 +424,31 @@ export default function SuperAdminPanel({ onError }) {
                     <button className="btn btn-ghost user-btn danger" onClick={() => resolveAppeal(a, 'reject')}>✕ Reject</button>
                   </>
                 )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* -------------------------------------------------- ACTIVITY LOG */}
+      {tab === 'activity' && (
+        <div className="tx-admin">
+          <p className="reg-hint">All critical activities are logged here — new players, deposits, withdrawals, credit adjustments, appeals, and game controls.</p>
+          <div style={{ marginTop: 8 }}>
+            <button className="btn btn-ghost user-btn" onClick={() => { playClick(); loadActivities(); }}>
+              🔄 Refresh
+            </button>
+          </div>
+          {activities.length === 0 && <div className="muted" style={{ marginTop: 12 }}>No activities logged yet.</div>}
+          {activities.map((a) => (
+            <div key={a.id} className="tx-row" style={{ fontSize: 11 }}>
+              <div className="tx-main" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                <span style={{ fontWeight: 800, color: 'var(--gold)' }}>{a.action.replace(/_/g, ' ').toUpperCase()}</span>
+                <span className="tx-meta">
+                  {a.user_name ? <b>{a.user_name}</b> : a.user_id ? `User #${a.user_id}` : 'System'}
+                  {a.details ? ` · ${a.details}` : ''}
+                  {a.created_at ? ` · ${a.created_at.slice(0, 16)}` : ''}
+                </span>
               </div>
             </div>
           ))}

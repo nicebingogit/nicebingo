@@ -338,6 +338,14 @@ def api_init():
         # any gameplay. The welcome bonus is granted on successful registration.
         db.create_player(user_id, username, credit=0)
         db.update_profile(user_id, registered=False)
+        try:
+            db.log_activity('new_player_joined', user_id,
+                           f'Username: {username}')
+            from bot import notify_admins
+            notify_admins(['🆕 NEW PLAYER JOINED',
+                          f'User: {username} (ID: {user_id})'])
+        except Exception:
+            pass
     else:
         db.update_username(user_id, username)
     return jsonify({**_user_payload(user_id, room), "state": _state_payload(user_id, room)})
@@ -394,6 +402,13 @@ def api_register():
         db.set_credit(user_id, config.NEW_PLAYER_CREDIT)
     else:
         db.update_profile(user_id, phone=phone, registered=True)
+    # log the activity
+    try:
+        reg_name = (existing.get('full_name') or player.get('full_name') or '') or f'User_{user_id}'
+        db.log_activity('player_registered', user_id,
+                       f'{reg_name} registered with phone {phone}')
+    except Exception:
+        pass
     return jsonify({"ok": True, "user": _user_payload(user_id, room)})
 
 
@@ -542,6 +557,14 @@ def api_create_transaction():
         account_number=(account or {}).get("account_number") if type_ == "deposit" else wd_account_number,
         account_holder=(account or {}).get("account_name") if type_ == "deposit" else wd_account_holder,
     )
+    # log the activity
+    try:
+        who = player.get("full_name") or player.get("username") or str(user_id)
+        label = 'Deposit' if type_ == 'deposit' else 'Withdrawal'
+        db.log_activity(f'{type_}_request', user_id,
+                       f'{label}: {amount} {config.APP_CURRENCY} by {who}')
+    except Exception:
+        pass
     # alert the right admin(s) in Telegram — high priority, so nothing sits
     # unreviewed: a DEPOSIT goes to the admin who owns the paid-in account
     # (only they can approve it and it consumes THEIR credit); a WITHDRAW goes
@@ -790,6 +813,14 @@ def api_admin_credit():
     # the target's credit changes — the admin's own balance is never touched
     db.create_player(target, f"Player_{target}", credit=0)
     db.update_credit(target, amount)
+    # log the activity
+    try:
+        target_player = db.get_player(target) or {}
+        target_name = target_player.get('full_name') or target_player.get('username') or str(target)
+        db.log_activity('admin_credit_adjustment', admin_id,
+                       f'{amount:+d} {config.APP_CURRENCY} to {target_name} (ID: {target})')
+    except Exception:
+        pass
     return jsonify({"ok": True, "user_id": target, "credit": db.get_credit(target)})
 
 
@@ -881,6 +912,10 @@ def api_admin_user_delete():
     if target <= 0:
         return jsonify({"error": "Invalid user id"}), 400
     db.delete_player(target)
+    try:
+        db.log_activity('user_deleted', admin_id, f'Deleted user {target}')
+    except Exception:
+        pass
     return jsonify({"ok": True, "user_id": target})
 
 
@@ -981,6 +1016,14 @@ def api_admin_transaction_review():
             return jsonify({"error": err}), 400
     db.review_transaction(tx_id, "approved" if action == "approve" else "rejected",
                           reviewed_by=admin_id)
+    # log the activity
+    try:
+        tx = db.get_transaction(tx_id)
+        tx_user = (tx or {}).get('user_name', str((tx or {}).get('user_id', '?')))
+        db.log_activity(f'transaction_{action}ed', admin_id,
+                       f'{action.title()} {tx.get("type","?")} {tx.get("amount","?")} {config.APP_CURRENCY} by {tx_user}')
+    except Exception:
+        pass
     updated = db.get_transaction(tx_id)
     updated["credit"] = db.get_credit(tx["user_id"])
     return jsonify({"ok": True, "transaction": updated})
@@ -1100,10 +1143,12 @@ def api_file_appeal():
     if existing:
         return jsonify({"error": "You already have a pending appeal for this deposit."}), 400
     appeal_id = db.add_appeal(user_id, tx_id, reason)
-    # alert the SUPER ADMIN — only they can resolve appeals
+    # log the activity + alert the SUPER ADMIN
     try:
-        from bot import notify_user
         who = str(tx.get("user_name") or user_id)
+        db.log_activity('appeal_filed', user_id,
+                       f'Appeal for {tx["amount"]} {config.APP_CURRENCY} deposit by {who}: {reason}')
+        from bot import notify_user
         notify_user(config.SUPER_ADMIN_ID, [
             "🚨 NEW WALLET APPEAL",
             "User: " + who,
@@ -1153,6 +1198,15 @@ def api_superadmin_set_admin():
         }), 400
     db.create_player(target, f"Player_{target}", credit=0)
     db.set_admin(target, is_admin)
+    # log the activity
+    try:
+        target_player = db.get_player(target) or {}
+        target_name = target_player.get('full_name') or target_player.get('username') or str(target)
+        verb = 'promoted' if is_admin else 'demoted'
+        db.log_activity('admin_role_change', target,
+                       f'{target_name} (ID: {target}) {verb} to admin')
+    except Exception:
+        pass
     # when promoting, touch the user so they appear online immediately
     if is_admin:
         db.touch_admin(target)
@@ -1179,6 +1233,18 @@ def api_superadmin_credit():
     db.create_player(target, f"Player_{target}", credit=0)
     # all credit is unified — admin and user credit are the same field
     db.update_credit(target, amount)
+    # log the activity
+    try:
+        target_player = db.get_player(target) or {}
+        target_name = target_player.get('full_name') or target_player.get('username') or str(target)
+        db.log_activity('manual_credit_adjustment', target,
+                       f'{amount:+d} {config.APP_CURRENCY} (target: {target_name})')
+        from bot import notify_admins
+        notify_admins(['💰 CREDIT ADJUSTMENT',
+                      f'Target: {target_name} (ID: {target})',
+                      f'Amount: {amount:+d} {config.APP_CURRENCY}'])
+    except Exception:
+        pass
     return jsonify({
         "ok": True, "user_id": target, "target": target_kind,
         "credit": db.get_credit(target),
@@ -1233,6 +1299,14 @@ def api_superadmin_transaction_review():
             return jsonify({"error": err}), 400
     db.review_transaction(tx_id, "approved" if action == "approve" else "rejected",
                           reviewed_by=config.SUPER_ADMIN_ID)
+    # log the activity
+    try:
+        tx_info = db.get_transaction(tx_id)
+        tx_user = (tx_info or {}).get('user_name', str((tx_info or {}).get('user_id', '?')))
+        db.log_activity(f'superadmin_{action}_transaction', config.SUPER_ADMIN_ID,
+                       f'{action.title()} {tx_info.get("type","?")} {tx_info.get("amount","?")} {config.APP_CURRENCY} by {tx_user}')
+    except Exception:
+        pass
     updated = db.get_transaction(tx_id)
     updated["credit"] = db.get_credit(tx["user_id"])
     return jsonify({"ok": True, "transaction": updated})
@@ -1249,6 +1323,10 @@ def api_superadmin_game_pause():
     if state.get("phase") != "playing":
         return jsonify({"error": "Can only pause during playing phase."}), 400
     db.update_game_state(room, paused=1)
+    try:
+        db.log_activity('game_paused', config.SUPER_ADMIN_ID, f'Paused game in room {room}')
+    except Exception:
+        pass
     return jsonify({"ok": True, "paused": True})
 
 
@@ -1259,6 +1337,10 @@ def api_superadmin_game_resume():
         return jsonify({"error": "Unauthorized"}), 403
     room = _room_from_request()
     db.update_game_state(room, paused=0)
+    try:
+        db.log_activity('game_resumed', config.SUPER_ADMIN_ID, f'Resumed game in room {room}')
+    except Exception:
+        pass
     return jsonify({"ok": True, "paused": False})
 
 
@@ -1269,6 +1351,11 @@ def api_superadmin_game_stop():
         return jsonify({"error": "Unauthorized"}), 403
     room = _room_from_request()
     loop.end_round_no_winner(room)
+    try:
+        db.log_activity('game_stopped', config.SUPER_ADMIN_ID,
+                       f'Stopped round in room {room}')
+    except Exception:
+        pass
     return jsonify({"ok": True})
 
 
@@ -1279,6 +1366,11 @@ def api_superadmin_game_start():
         return jsonify({"error": "Unauthorized"}), 403
     room = _room_from_request()
     result = loop.force_start(room)
+    try:
+        db.log_activity('game_started', config.SUPER_ADMIN_ID,
+                       f'Started round in room {room}')
+    except Exception:
+        pass
     return jsonify(result)
 
 
@@ -1357,6 +1449,14 @@ def api_superadmin_appeals():
     return jsonify({"appeals": db.get_all_appeals()})
 
 
+@app.route("/api/superadmin/activity-log")
+def api_superadmin_activity_log():
+    """Every critical activity for the super admin activity log."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    return jsonify({"activities": db.get_activity_log(200)})
+
+
 @app.route("/api/superadmin/appeals/resolve", methods=["POST"])
 def api_superadmin_appeal_resolve():
     """Resolve an appeal:
@@ -1418,6 +1518,14 @@ def api_superadmin_appeal_resolve():
                 ])
             except Exception:
                 pass
+    # log the activity
+    try:
+        appeal_info = db.get_appeal(appeal_id)
+        who = (appeal_info or {}).get('user_name', str((appeal_info or {}).get('user_id', '?')))
+        db.log_activity(f'appeal_{action}ed', config.SUPER_ADMIN_ID,
+                       f'{action.title()} appeal by {who}: {resolution or "no note"}')
+    except Exception:
+        pass
     return jsonify({"ok": True, "appeal": db.get_appeal(appeal_id)})
 
 
