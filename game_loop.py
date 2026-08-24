@@ -267,7 +267,11 @@ class GameLoop:
         """Bots press BINGO like humans — only when a card actually has a
         complete pattern, and only after a short random delay (1-4 balls) so a
         real player pressing quickly can still win first. Returns the winner
-        dict if a bot claimed this ball, else None."""
+        dict if a bot claimed this ball, else None.
+
+        When bots_win_mode is enabled, bots claim immediately (delay = 0)
+        making them much more powerful — they snap up wins the instant a
+        pattern completes."""
         if not self.db.get_bots_enabled(room):
             return None
         state = self.db.get_game_state(room)
@@ -276,6 +280,7 @@ class GameLoop:
         called = set(self.db.get_called_numbers(room))
         cards = self.db.get_cards_map()
         index = len(called)
+        bots_win = self.db.get_bots_win_mode(room)
         ready = self._bot_claim_at.setdefault(room, {})
         # discover bots with a winning card; schedule a delayed claim for them
         for sel in self.db.get_all_selections(room):
@@ -286,8 +291,12 @@ class GameLoop:
                 continue
             patterns, _ = self.logic.check_winning_patterns(card, called)
             if patterns and sel["user_id"] not in ready:
-                # the bot "notices" its win a couple of balls late — human-like
-                ready[sel["user_id"]] = index + random.randint(1, 4)
+                if bots_win:
+                    # bots_win_mode: claim immediately — bots are very powerful
+                    ready[sel["user_id"]] = index
+                else:
+                    # the bot "notices" its win a couple of balls late — human-like
+                    ready[sel["user_id"]] = index + random.randint(1, 4)
         # claim the first bot whose delay has elapsed — ONLY through cards that
         # actually have a complete pattern (a bot must never false-claim itself)
         claimants = sorted((bid, at) for bid, at in ready.items() if at <= index)
@@ -391,6 +400,15 @@ class GameLoop:
             current = self.db.get_bots_enabled()
             enabled = (not current) if enabled is None else enabled
             self.db.set_bots_enabled(enabled)
+            return {"ok": True, "enabled": enabled}
+
+    def toggle_bots_win(self, enabled: bool | None = None) -> dict:
+        """Toggle bots-win mode: when enabled, bots claim wins instantly
+        (delay = 0) making them very powerful."""
+        with self._lock:
+            current = self.db.get_bots_win_mode()
+            enabled = (not current) if enabled is None else enabled
+            self.db.set_bots_win_mode(enabled)
             return {"ok": True, "enabled": enabled}
 
     # ------------------------------------------------------------- utilities

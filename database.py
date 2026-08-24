@@ -287,6 +287,7 @@ class Database:
             self._ensure_column(conn, "game_state", "next_call_time", "TEXT")
             self._ensure_column(conn, "game_state", "reset_time", "TEXT")
             self._ensure_column(conn, "game_state", "paused", "INTEGER DEFAULT 0")
+            self._ensure_column(conn, "game_state", "bots_win_mode", "INTEGER DEFAULT 0")
             # rooms: existing rows join the default room (30) until a player
             # picks a room from the listbox
             self._ensure_column(conn, "card_selections", "room", "INTEGER NOT NULL DEFAULT 30")
@@ -705,6 +706,18 @@ class Database:
             for room in config.ROOM_BETS:
                 conn.execute(
                     "UPDATE game_state SET bots_enabled = ? WHERE room = ?",
+                    (1 if enabled else 0, room),
+                )
+
+    def get_bots_win_mode(self, room: int = 30) -> bool:
+        return bool(self.get_game_state(room).get("bots_win_mode", 0))
+
+    def set_bots_win_mode(self, enabled: bool) -> None:
+        """Toggle bots-win mode for EVERY room."""
+        with self._session() as conn:
+            for room in config.ROOM_BETS:
+                conn.execute(
+                    "UPDATE game_state SET bots_win_mode = ? WHERE room = ?",
                     (1 if enabled else 0, room),
                 )
 

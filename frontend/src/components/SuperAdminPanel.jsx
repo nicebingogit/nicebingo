@@ -67,12 +67,16 @@ export default function SuperAdminPanel({ onError }) {
   const [gamePhase, setGamePhase] = useState('preparation');
   const [gamePaused, setGamePaused] = useState(false);
   const [room, setRoom] = useState(10);
+  const [botsEnabled, setBotsEnabled] = useState(true);
+  const [botsWinMode, setBotsWinMode] = useState(false);
 
   const loadGameState = useCallback(async () => {
     try {
       const d = await api.gameState(room);
       setGamePhase(d.phase || 'preparation');
       setGamePaused(!!d.paused);
+      setBotsEnabled(!!d.bots_enabled);
+      setBotsWinMode(!!d.bots_win_mode);
     } catch (e) { /* silent */ }
   }, [room]);
 
@@ -263,6 +267,36 @@ export default function SuperAdminPanel({ onError }) {
                 <button className="btn btn-ghost user-btn danger" onClick={() => gameControl(api.superAdmin.stopGame, '⏹️ Round stopped.')}>⏹️ Stop</button>
               )}
               <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.addBots, '🤖 Players added!')}>🤖 Add Players</button>
+              <button
+                className="btn btn-ghost user-btn"
+                style={botsEnabled ? { opacity: 1, color: 'var(--gold)' } : { opacity: 0.5 }}
+                onClick={async () => {
+                  playClick();
+                  const newEnabled = !botsEnabled;
+                  try {
+                    await api.superAdmin.toggleBots(newEnabled);
+                    setBotsEnabled(newEnabled);
+                    flashMsg(newEnabled ? '🤖 Bots enabled.' : '🤖 Bots disabled.');
+                  } catch (e) { flashMsg(`❌ ${e.message}`); }
+                }}
+              >
+                {botsEnabled ? '🟢 Disable Bots' : '🔴 Enable Bots'}
+              </button>
+              <button
+                className="btn btn-ghost user-btn"
+                style={botsWinMode ? { opacity: 1, color: '#ff4444', fontWeight: 800 } : { opacity: 0.6 }}
+                onClick={async () => {
+                  playClick();
+                  const newMode = !botsWinMode;
+                  try {
+                    await api.superAdmin.botsWin(newMode);
+                    setBotsWinMode(newMode);
+                    flashMsg(newMode ? '🏆 Bots Win mode ON — bots claim instantly!' : 'Bots Win mode OFF — normal delays restored.');
+                  } catch (e) { flashMsg(`❌ ${e.message}`); }
+                }}
+              >
+                {botsWinMode ? '🏆 Bots Win ON' : '🏆 Bots Win'}
+              </button>
             </div>
             <p className="reg-hint" style={{ marginTop: 8 }}>
               You control every account, every transaction log, wallet appeals,

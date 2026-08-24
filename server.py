@@ -299,6 +299,7 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
         "bots_players": logic.player_breakdown(room)["bots"],
         "cards_in_play": len(db.get_all_selections(room)),
         "bots_enabled": bool(state.get("bots_enabled", 1)),
+        "bots_win_mode": bool(state.get("bots_win_mode", 0)),
         "paused": bool(state.get("paused", 0)),
         "winner": winner,
         "settings": _settings_payload(),
@@ -1452,6 +1453,38 @@ def api_superadmin_game_add_bots():
         return jsonify({"error": "Unauthorized"}), 403
     room = _room_from_request()
     return jsonify(loop.add_bots(room))
+
+
+@app.route("/api/superadmin/game/bots-win", methods=["POST"])
+def api_superadmin_game_bots_win():
+    """Toggle bots-win mode: when enabled, bots claim wins instantly."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    result = loop.toggle_bots_win(data.get("enabled"))
+    try:
+        mode = 'ON' if result.get('enabled') else 'OFF'
+        db.log_activity('bots_win_mode_changed', config.SUPER_ADMIN_ID,
+                       f'Bots win mode set to {mode}')
+    except Exception:
+        pass
+    return jsonify(result)
+
+
+@app.route("/api/superadmin/game/bots-toggle", methods=["POST"])
+def api_superadmin_game_bots_toggle():
+    """Toggle bots on/off from the super admin panel."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    result = loop.toggle_bots(data.get("enabled"))
+    try:
+        mode = 'enabled' if result.get('enabled') else 'disabled'
+        db.log_activity('bots_toggled', config.SUPER_ADMIN_ID,
+                       f'Bots {mode} by super admin')
+    except Exception:
+        pass
+    return jsonify(result)
 
 
 @app.route("/api/superadmin/accounts")
