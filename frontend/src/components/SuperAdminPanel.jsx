@@ -75,7 +75,7 @@ export default function SuperAdminPanel({ onError }) {
 
   const loadGameState = useCallback(async () => {
     try {
-      const d = await api.gameState(room);
+      const { state: d } = await api.gameState(room);
       setGamePhase(d.phase || 'preparation');
       setGamePaused(!!d.paused);
       setBotsEnabled(!!d.bots_enabled);
