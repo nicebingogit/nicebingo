@@ -1135,6 +1135,79 @@ class Database:
             rows = conn.execute(sql, args).fetchall()
             return [dict(r) for r in rows]
 
+    def get_payment_accounts_by_admin(self, admin_id: int,
+                                       active_only: bool = False) -> List[Dict]:
+        """Only payment accounts owned by this specific admin."""
+        sql = "SELECT * FROM payment_accounts WHERE admin_id = ?"
+        args: list = [admin_id]
+        if active_only:
+            sql += " AND is_active = 1"
+        sql += " ORDER BY is_active DESC, id"
+        with self._session() as conn:
+            rows = conn.execute(sql, args).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_distinct_providers(self) -> List[str]:
+        """All distinct provider (bank) names from active payment accounts.
+        Used to populate the bank name dropdown dynamically — only banks
+        that have at least one active admin account appear as options."""
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT provider FROM payment_accounts "
+                "WHERE is_active = 1 AND provider IS NOT NULL "
+                "ORDER BY provider"
+            ).fetchall()
+            return [r[0] for r in rows]
+
+    def get_best_account_for_provider(self, provider: str) -> Optional[Dict]:
+        """For a given bank/provider, find the best admin account to handle
+        a transaction. Priority:
+          1. Online admins with the HIGHEST credit who have this provider.
+          2. Super admin's account (any status) as fallback.
+          3. None if nobody has this provider.
+
+        Returns the account row joined with the owner's info."""
+        cutoff = (datetime.now() -
+                  timedelta(minutes=config.ADMIN_ONLINE_MINUTES)).isoformat()
+        min_credit = min(config.ROOM_BETS) if config.ROOM_BETS else 10
+        with self._session() as conn:
+            # 1. Online admin with most credit
+            row = conn.execute(
+                """
+                SELECT pa.*, p.full_name AS admin_name, p.credit AS admin_credit,
+                       p.last_seen, p.last_seen >= ? AS admin_online
+                FROM payment_accounts pa
+                JOIN players p ON p.user_id = pa.admin_id
+                WHERE pa.is_active = 1 AND pa.admin_id IS NOT NULL
+                  AND LOWER(pa.provider) = LOWER(?)
+                  AND p.credit >= ?
+                ORDER BY p.credit DESC, pa.id
+                LIMIT 1
+                """,
+                (cutoff, provider, min_credit),
+            ).fetchone()
+            if row:
+                return dict(row)
+            # 2. Super admin fallback (any super admin account for this provider)
+            for sa_id in config.SUPER_ADMIN_IDS:
+                row = conn.execute(
+                    """
+                    SELECT pa.*, p.full_name AS admin_name, p.credit AS admin_credit,
+                            p.last_seen
+                     FROM payment_accounts pa
+                     LEFT JOIN players p ON p.user_id = pa.admin_id
+                     WHERE pa.is_active = 1 AND pa.admin_id = ?
+                       AND LOWER(pa.provider) = LOWER(?)
+                     LIMIT 1
+                    """,
+                    (sa_id, provider),
+                ).fetchone()
+                if row:
+                    result = dict(row)
+                    result['admin_online'] = False  # super admin fallback
+                    return result
+            return None
+
     def update_payment_account(self, account_id: int, provider: Optional[str] = None,
                                account_name: Optional[str] = None,
                                account_number: Optional[str] = None,

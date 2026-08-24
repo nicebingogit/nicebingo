@@ -229,6 +229,8 @@ def _settings_payload() -> dict:
     * `deposit_accounts` — ONE account per bank/provider: always the ONLINE
       admin with the MOST credit. If NO admin is online for a provider, the
       SUPER ADMIN's account is used as fallback so users can always pay.
+    * `providers` — distinct bank names from active accounts. Only banks
+      that have at least one admin account appear as options to the user.
     """
     # get_deposit_accounts() is ordered by owner credit DESC, so the
     # first row per provider IS the selected account
@@ -244,6 +246,9 @@ def _settings_payload() -> dict:
     for provider, acc in super_accounts.items():
         if provider not in best:
             best[provider] = acc
+    # Only include banks that have at least one active account — banks
+    # with zero accounts are hidden from the user's bank list.
+    active_providers = db.get_distinct_providers()
     return {
         "currency": config.APP_CURRENCY,
         "payment_accounts": [_account_payload(a)
@@ -252,6 +257,7 @@ def _settings_payload() -> dict:
             {"provider": p, "account": _account_payload(a)}
             for p, a in best.items()
         ],
+        "providers": active_providers,
     }
 
 
@@ -1051,10 +1057,40 @@ def api_admin_transaction_review():
 # ------------------------------------------------- payment accounts (admin)
 @app.route("/api/admin/accounts")
 def api_admin_accounts():
-    """All payment accounts (active + inactive) for the admin panel."""
-    if _require_admin() is None:
+    """Payment accounts owned by THIS admin only.
+
+    Each admin can only see and manage their own accounts. Super admins
+    see all accounts via /api/superadmin/accounts.
+    """
+    admin_id = _require_admin()
+    if admin_id is None:
         return jsonify({"error": "Unauthorized"}), 403
-    return jsonify({"accounts": [_account_payload(a) for a in db.get_payment_accounts()]})
+    # Super admins see everything; regular admins see only their own
+    if admin_id in config.SUPER_ADMIN_IDS:
+        accounts = db.get_payment_accounts()
+    else:
+        accounts = db.get_payment_accounts_by_admin(admin_id)
+    return jsonify({"accounts": [_account_payload(a) for a in accounts]})
+
+
+@app.route("/api/admin/providers")
+def api_admin_providers():
+    """Distinct bank/provider names from active payment accounts.
+
+    Used by the admin panel to populate the provider dropdown dynamically
+    instead of a hardcoded list — only banks that already have accounts
+    appear as options.
+    """
+    admin_id = _require_admin()
+    if admin_id is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    # Also include unique providers from the admin's own accounts for
+    # convenience when adding a new account for the same bank
+    providers = set(db.get_distinct_providers())
+    for acc in db.get_payment_accounts_by_admin(admin_id):
+        if acc.get("provider"):
+            providers.add(acc["provider"])
+    return jsonify({"providers": sorted(providers)})
 
 
 @app.route("/api/admin/accounts", methods=["POST"])
@@ -1084,16 +1120,24 @@ def api_admin_account_add():
 
 @app.route("/api/admin/accounts/update", methods=["POST"])
 def api_admin_account_update():
-    """Edit a payment account and/or toggle its active status."""
-    if _require_admin() is None:
+    """Edit a payment account and/or toggle its active status.
+
+    An admin can only edit their OWN accounts. Super admins can edit any.
+    """
+    admin_id = _require_admin()
+    if admin_id is None:
         return jsonify({"error": "Unauthorized"}), 403
     data = request.get_json(silent=True) or {}
     try:
         account_id = int(data.get("id"))
     except (TypeError, ValueError):
         return jsonify({"error": "id required"}), 400
-    if not db.get_payment_account(account_id):
+    account = db.get_payment_account(account_id)
+    if not account:
         return jsonify({"error": "Account not found"}), 404
+    # Regular admins can only update their OWN accounts
+    if admin_id not in config.SUPER_ADMIN_IDS and account.get("admin_id") != admin_id:
+        return jsonify({"error": "You can only edit your own accounts."}), 403
     fields = {}
     if data.get("provider") is not None:
         fields["provider"] = (data.get("provider") or "").strip()
@@ -1111,14 +1155,24 @@ def api_admin_account_update():
 
 @app.route("/api/admin/accounts/delete", methods=["POST"])
 def api_admin_account_delete():
-    """Delete a payment account. Historical transactions keep their snapshot."""
-    if _require_admin() is None:
+    """Delete a payment account. Historical transactions keep their snapshot.
+
+    An admin can only delete their OWN accounts. Super admins can delete any.
+    """
+    admin_id = _require_admin()
+    if admin_id is None:
         return jsonify({"error": "Unauthorized"}), 403
     data = request.get_json(silent=True) or {}
     try:
         account_id = int(data.get("id"))
     except (TypeError, ValueError):
         return jsonify({"error": "id required"}), 400
+    account = db.get_payment_account(account_id)
+    if not account:
+        return jsonify({"error": "Account not found"}), 404
+    # Regular admins can only delete their OWN accounts
+    if admin_id not in config.SUPER_ADMIN_IDS and account.get("admin_id") != admin_id:
+        return jsonify({"error": "You can only delete your own accounts."}), 403
     db.delete_payment_account(account_id)
     return jsonify({"ok": True})
 

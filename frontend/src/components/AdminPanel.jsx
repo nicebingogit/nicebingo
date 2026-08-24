@@ -8,7 +8,7 @@ const TX_STATUS = {
   rejected: { label: '❌ Rejected', cls: 'rejected' },
 };
 
-const PROVIDER_SUGGESTIONS = ['TeleBirr', 'CBE', 'CBB', 'Bank', 'Other'];
+const PROVIDER_SUGGESTIONS_DEFAULT = ['TeleBirr', 'CBE', 'CBB', 'Bank', 'Other'];
 
 export default function AdminPanel({ room, onError, onChanged }) {
   const [tab, setTab] = useState('users');
@@ -17,6 +17,7 @@ export default function AdminPanel({ room, onError, onChanged }) {
   const [users, setUsers] = useState([]);
   const [txs, setTxs] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [providers, setProviders] = useState([]);
   const [flash, setFlash] = useState('');
 
   // user detail modal (click a row to open it)
@@ -69,10 +70,19 @@ export default function AdminPanel({ room, onError, onChanged }) {
     }
   }, [onError]);
 
+  const loadProviders = useCallback(async () => {
+    try {
+      const d = await api.admin.providers();
+      setProviders(d.providers || []);
+    } catch (e) {
+      // silently fall back to default suggestions
+    }
+  }, []);
+
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => { if (tab === 'users') loadUsers(); }, [tab, loadUsers]);
   useEffect(() => { if (tab === 'transactions') loadTxs(); }, [tab, loadTxs]);
-  useEffect(() => { if (tab === 'accounts') loadAccounts(); }, [tab, loadAccounts]);
+  useEffect(() => { if (tab === 'accounts') { loadAccounts(); loadProviders(); } }, [tab, loadAccounts, loadProviders]);
 
   const act = async (fn, okMsg) => {
     playClick();
@@ -351,7 +361,9 @@ export default function AdminPanel({ room, onError, onChanged }) {
               required
             />
             <datalist id="provider-list">
-              {PROVIDER_SUGGESTIONS.map((p) => <option key={p} value={p} />)}
+              {[...new Set([...providers, ...PROVIDER_SUGGESTIONS_DEFAULT])].map((p) => (
+                <option key={p} value={p} />
+              ))}
             </datalist>
             <input
               type="text"

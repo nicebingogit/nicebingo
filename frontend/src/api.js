@@ -107,6 +107,7 @@ export const api = {
     reviewTransaction: (id, action) =>
       adminRequest('/api/admin/transactions/review', { body: { id, action } }),
     accounts: () => adminRequest('/api/admin/accounts', { method: 'GET' }),
+    providers: () => adminRequest('/api/admin/providers', { method: 'GET' }),
     addAccount: (account) => adminRequest('/api/admin/accounts', { body: account }),
     updateAccount: (account) => adminRequest('/api/admin/accounts/update', { body: account }),
     deleteAccount: (id) => adminRequest('/api/admin/accounts/delete', { body: { id } }),

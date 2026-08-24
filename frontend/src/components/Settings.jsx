@@ -9,36 +9,23 @@ const TX_STATUS = {
   rejected: { label: '❌ Rejected', cls: 'rejected' },
 };
 
-// All banks and mobile wallets available in Ethiopia
-const ETHIOPIAN_BANKS = [
-  { name: 'TeleBirr', icon: '📱' },
-  { name: 'CBE Birr', icon: '🏦' },
-  { name: 'CBE', icon: '🏦' },
-  { name: 'CBB', icon: '🏦' },
-  { name: 'Awash Bank', icon: '🏦' },
-  { name: 'Dashen Bank', icon: '🏦' },
-  { name: 'Wegagen Bank', icon: '🏦' },
-  { name: 'United Bank', icon: '🏦' },
-  { name: 'Abyssinia Bank', icon: '🏦' },
-  { name: 'Nib International Bank', icon: '🏦' },
-  { name: 'Berhan Bank', icon: '🏦' },
-  { name: 'Bunna Bank', icon: '🏦' },
-  { name: 'Abay Bank', icon: '🏦' },
-  { name: 'Cooperative Bank', icon: '🏦' },
-  { name: 'Hijra Bank', icon: '🏦' },
-  { name: 'Zemen Bank', icon: '🏦' },
-  { name: 'Lion International Bank', icon: '🏦' },
-  { name: 'Oromia International Bank', icon: '🏦' },
-  { name: 'Global Bank', icon: '🏦' },
-  { name: 'Enat Bank', icon: '🏦' },
-  { name: 'Ahadu Bank', icon: '🏦' },
-  { name: 'Gadahad Bank', icon: '🏦' },
-  { name: 'Meb bank', icon: '🏦' },
-  { name: 'Samuel Bank', icon: '🏦' },
-  { name: 'Tsedey Bank', icon: '🏦' },
-  { name: 'Amhara Bank', icon: '🏦' },
-  { name: 'ZamZam Bank', icon: '🏦' },
-];
+// Icon lookup for known providers (used for display only)
+const PROVIDER_ICONS = {
+  'telebirr': '📱',
+  'cbe birr': '🏦', 'cbe': '🏦', 'cbb': '🏦',
+  'awash bank': '🏦', 'dashen bank': '🏦', 'wegagen bank': '🏦',
+  'united bank': '🏦', 'abyssinia bank': '🏦', 'nib international bank': '🏦',
+  'berhan bank': '🏦', 'bunna bank': '🏦', 'abay bank': '🏦',
+  'cooperative bank': '🏦', 'hijra bank': '🏦', 'zemen bank': '🏦',
+  'lion international bank': '🏦', 'oromia international bank': '🏦',
+  'global bank': '🏦', 'enat bank': '🏦', 'ahadu bank': '🏦',
+  'gadahad bank': '🏦', 'meb bank': '🏦', 'samuel bank': '🏦',
+  'tsedey bank': '🏦', 'amhara bank': '🏦', 'zamzam bank': '🏦',
+};
+
+function getProviderIcon(name) {
+  return PROVIDER_ICONS[(name || '').toLowerCase()] || '🏦';
+}
 
 const WINNING_PATTERNS = [
   { key: 'Row', desc: 'All 5 numbers in any horizontal row.' },
@@ -79,21 +66,34 @@ export default function Settings({ user, settings, config, onChanged, onError, o
 
   // deposit_accounts = ONE account per bank/provider — always the account of
   // the ONLINE admin with the most credit; offline admins' accounts are never
-  // listed. We merge with the full bank list so users see ALL Ethiopian banks.
+  // listed. The system picks the richest ONLINE admin per bank.
   const depositAccounts = settings?.deposit_accounts || [];
   // Build a lookup of online admin accounts by provider name (case-insensitive)
   const onlineAccountsMap = {};
   depositAccounts.forEach((d) => {
     onlineAccountsMap[d.provider.toLowerCase()] = d;
   });
-  // All banks that have an account available (online admin OR super admin fallback)
-  const availableBanks = ETHIOPIAN_BANKS.filter((b) => onlineAccountsMap[b.name.toLowerCase()]);
-  // Banks with no account at all
-  const unavailableBanks = ETHIOPIAN_BANKS.filter((b) => !onlineAccountsMap[b.name.toLowerCase()]);
+  // Available banks: only those that have at least one active admin account
+  // (either an online admin or super admin fallback). The providers list comes
+  // from the server — only banks with accounts are included.
+  const availableProviders = settings?.providers || [];
+  const availableBanks = availableProviders.map((name) => ({
+    name,
+    icon: getProviderIcon(name),
+    hasOnline: !!onlineAccountsMap[name.toLowerCase()],
+  }));
+  const banksWithOnlineAdmin = availableBanks.filter((b) => b.hasOnline);
+  const banksWithoutOnlineAdmin = availableBanks.filter((b) => !b.hasOnline);
   // Selected bank's online admin account
-  const selectedBank = ETHIOPIAN_BANKS.find((b) => b.name === depProvider);
-  const selectedDep = selectedBank ? (onlineAccountsMap[selectedBank.name.toLowerCase()] || null) : null;
+  const selectedBankInfo = availableBanks.find((b) => b.name === depProvider);
+  const selectedDep = selectedBankInfo ? (onlineAccountsMap[depProvider.toLowerCase()] || null) : null;
   const accId = selectedDep ? selectedDep.account.id : null;
+
+  // Withdraw bank selection: show the same banks so the user can pick which
+  // bank they want their withdrawal sent through, and display the admin
+  // account info for that bank.
+  const selectedWdBank = availableBanks.find((b) => b.name === wdAccount);
+  const selectedWdDep = selectedWdBank ? (onlineAccountsMap[wdAccount.toLowerCase()] || null) : null;
 
   const loadTxs = useCallback(async () => {
     try {
@@ -121,6 +121,13 @@ export default function Settings({ user, settings, config, onChanged, onError, o
       setDepProvider(availableBanks[0].name);
     }
   }, [availableBanks.length, depProvider]);
+
+  // default the withdraw bank picker to the first available bank
+  useEffect(() => {
+    if (!wdAccount && availableBanks.length) {
+      setWdAccount(availableBanks[0].name);
+    }
+  }, [availableBanks.length, wdAccount]);
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
 
@@ -286,27 +293,27 @@ export default function Settings({ user, settings, config, onChanged, onError, o
               onChange={(e) => { playClick(); setDepProvider(e.target.value); }}
             >
               <option value="">— Pick a bank —</option>
-              {availableBanks.length > 0 && (
+              {banksWithOnlineAdmin.length > 0 && (
                 <optgroup label="✅ Available now">
-                  {availableBanks.map((b) => (
+                  {banksWithOnlineAdmin.map((b) => (
                     <option key={b.name} value={b.name}>{b.icon} {b.name}</option>
                   ))}
                 </optgroup>
               )}
-              {unavailableBanks.length > 0 && (
+              {banksWithoutOnlineAdmin.length > 0 && (
                 <optgroup label="⏳ Unavailable (no admin online)">
-                  {unavailableBanks.map((b) => (
+                  {banksWithoutOnlineAdmin.map((b) => (
                     <option key={b.name} value={b.name} disabled>{b.icon} {b.name}</option>
                   ))}
                 </optgroup>
               )}
             </select>
 
-            {availableBanks.length === 0 && (
-              <div className="reg-hint" style={{ color: 'var(--gold)', marginTop: 8 }}>
-                ⏳ No admin is online right now. Super admin's account will be shown below if available.
-              </div>
-            )}
+          {availableBanks.length === 0 && (
+            <div className="reg-hint" style={{ color: 'var(--gold)', marginTop: 8 }}>
+              ⏳ No bank accounts are available right now. No admin has added a payment account yet.
+            </div>
+          )}
           </div>
 
           {/* Show selected bank's admin account as a beautiful inline card */}
@@ -317,7 +324,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
               animation: 'modalIn 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) both'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 24 }}>{selectedBank?.icon}</span>
+                <span style={{ fontSize: 24 }}>{selectedBankInfo?.icon}</span>
                 <div>
                   <div style={{ fontWeight: 900, fontSize: 15, color: 'var(--text)' }}>{selectedDep.provider}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>Payment Account</div>
@@ -416,31 +423,77 @@ export default function Settings({ user, settings, config, onChanged, onError, o
                 value={wdAmount} onChange={(e) => setWdAmount(e.target.value)} required
               />
             </div>
+
+            {/* Bank selection for withdraw — same dropdown as deposit */}
+            <div style={{ marginTop: 8 }}>
+              <div className="wallet-form-title" style={{ fontSize: 13, marginBottom: 6 }}>🏦 Select bank for withdrawal</div>
+              <select
+                className="room-select"
+                style={{ width: '100%', maxWidth: '100%', padding: '10px 12px', fontSize: 14 }}
+                value={wdAccount}
+                onChange={(e) => { playClick(); setWdAccount(e.target.value); }}
+              >
+                <option value="">— Pick a bank —</option>
+                {banksWithOnlineAdmin.length > 0 && (
+                  <optgroup label="✅ Available now">
+                    {banksWithOnlineAdmin.map((b) => (
+                      <option key={b.name} value={b.name}>{b.icon} {b.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {banksWithoutOnlineAdmin.length > 0 && (
+                  <optgroup label="⏳ Unavailable (no admin online)">
+                    {banksWithoutOnlineAdmin.map((b) => (
+                      <option key={b.name} value={b.name} disabled>{b.icon} {b.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+
+            {/* Show the selected bank's admin info for withdraw context */}
+            {selectedWdDep && (
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(75,227,160,0.06), rgba(255,213,79,0.04))',
+                border: '1px solid rgba(75,227,160,0.25)', borderRadius: 12, padding: 10, marginTop: 8,
+                fontSize: 12
+              }}>
+                <div style={{ fontWeight: 800, color: 'var(--text)', marginBottom: 4 }}>
+                  {getProviderIcon(selectedWdDep.provider)} {selectedWdDep.provider} — Admin Account
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ color: 'var(--muted)' }}>Holder: <b style={{ color: 'var(--text)' }}>{selectedWdDep.account.account_name}</b></span>
+                  <span style={{ color: 'var(--muted)' }}>Number: <b style={{ color: 'var(--blue)' }}>{selectedWdDep.account.account_number}</b></span>
+                  {selectedWdDep.account.admin_name && (
+                    <span style={{ color: 'var(--muted)' }}>Admin: <b style={{ color: 'var(--text)' }}>{selectedWdDep.account.admin_name}</b></span>
+                  )}
+                </div>
+                <p className="reg-hint" style={{ marginTop: 4, marginBottom: 0, fontSize: 11 }}>
+                  This is the admin who will process your withdrawal.
+                </p>
+              </div>
+            )}
+
             <div className="wallet-form-row" style={{ marginTop: 8 }}>
               <input
                 type="text" maxLength={60}
-                placeholder="Account name (TeleBirr, CBE, CBB…)"
-                value={wdAccount} onChange={(e) => setWdAccount(e.target.value)} required
-              />
-              <input
-                type="text" maxLength={60}
-                placeholder="Account holder's name"
+                placeholder="Your account holder's name"
                 value={wdHolder} onChange={(e) => setWdHolder(e.target.value)} required
               />
             </div>
             <div className="wallet-form-row" style={{ marginTop: 8 }}>
               <input
                 type="text" maxLength={60} inputMode="text"
-                placeholder="Account number"
+                placeholder="Your account number (where to receive money)"
                 value={wdNumber} onChange={(e) => setWdNumber(e.target.value)} required
               />
-              <button className="btn btn-ghost" type="submit" disabled={busy === 'wd'}>
+              <button className="btn btn-ghost" type="submit" disabled={busy === 'wd' || !wdAccount}>
                 {busy === 'wd' ? '…' : 'Request withdraw'}
               </button>
             </div>
             <p className="reg-hint">
-              Enter the account your winnings should be sent to — the admin
-              pays these exact details once your request is approved.
+              Select the bank, then enter YOUR account details where you want the
+              money sent. The admin will send it once your request is approved.
             </p>
           </form>
 
