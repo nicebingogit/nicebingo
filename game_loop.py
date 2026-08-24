@@ -105,9 +105,6 @@ class GameLoop:
                     if end and now >= end:
                         self.start_round(room)
                 elif phase == "playing":
-                    # skip calling when paused by the super admin
-                    if state.get("paused"):
-                        continue
                     nxt = _parse(state.get("next_call_time"))
                     if nxt and now >= nxt:
                         self.call_step(room)
@@ -126,7 +123,7 @@ class GameLoop:
 
             bots_enabled = self.db.get_bots_enabled(room)
             if bots_enabled:
-                self.logic.ensure_minimum_players(room, config.MAX_TOTAL_PLAYERS)
+                self.logic.ensure_minimum_players(room)
                 # persist bot accounts (negative ids) for the /api/admin/bots view
                 for sel in self.db.get_all_selections(room):
                     if sel["user_id"] < 0:
@@ -398,7 +395,7 @@ class GameLoop:
 
     def add_bots(self, room: int = 30) -> dict:
         with self._lock:
-            added = self.logic.ensure_minimum_players(room, config.MAX_TOTAL_PLAYERS)
+            added = self.logic.ensure_minimum_players(room)
             for sel in self.db.get_all_selections(room):
                 if sel["user_id"] < 0:
                     name = bot_name(sel["user_id"])

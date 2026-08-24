@@ -65,7 +65,6 @@ export default function SuperAdminPanel({ onError }) {
 
   // game state for controls
   const [gamePhase, setGamePhase] = useState('preparation');
-  const [gamePaused, setGamePaused] = useState(false);
   const [room, setRoom] = useState(10);
   const [botsEnabled, setBotsEnabled] = useState(true);
   const [botsDifficulty, setBotsDifficulty] = useState(2);
@@ -77,7 +76,6 @@ export default function SuperAdminPanel({ onError }) {
     try {
       const { state: d } = await api.gameState(room);
       setGamePhase(d.phase || 'preparation');
-      setGamePaused(!!d.paused);
       setBotsEnabled(!!d.bots_enabled);
       setBotsDifficulty(d.bots_difficulty ?? 2);
     } catch (e) { /* silent */ }
@@ -253,19 +251,14 @@ export default function SuperAdminPanel({ onError }) {
                 {[10, 20, 30].map((r) => <option key={r} value={r}>Room {r}</option>)}
               </select>
               <span className="user-badge" style={{ alignSelf: 'center' }}>
-                {gamePhase} {gamePaused ? '⏸ paused' : ''}
+                {gamePhase}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
               {gamePhase === 'preparation' && (
                 <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.startGame, '▶️ Round started!')}>▶️ Start</button>
               )}
-              {gamePhase === 'playing' && !gamePaused && (
-                <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.pauseGame, '⏸️ Game paused.')}>⏸️ Pause</button>
-              )}
-              {gamePhase === 'playing' && gamePaused && (
-                <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.resumeGame, '▶️ Game resumed.')}>▶️ Resume</button>
-              )}
+
               {gamePhase === 'playing' && (
                 <button className="btn btn-ghost user-btn danger" onClick={() => gameControl(api.superAdmin.stopGame, '⏹️ Round stopped.')}>⏹️ Stop</button>
               )}

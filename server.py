@@ -300,7 +300,6 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
         "cards_in_play": len(db.get_all_selections(room)),
         "bots_enabled": bool(state.get("bots_enabled", 1)),
         "bots_difficulty": int(state.get("bots_difficulty", 2)),
-        "paused": bool(state.get("paused", 0)),
         "winner": winner,
         "settings": _settings_payload(),
         "config": {
@@ -1385,37 +1384,6 @@ def api_superadmin_transaction_review():
 
 
 # ------------------------------------------------ super admin game controls
-@app.route("/api/superadmin/game/pause", methods=["POST"])
-def api_superadmin_game_pause():
-    """Pause the game — ball calling stops but the round stays active."""
-    if _require_super_admin() is None:
-        return jsonify({"error": "Unauthorized"}), 403
-    room = _room_from_request()
-    state = db.get_game_state(room)
-    if state.get("phase") != "playing":
-        return jsonify({"error": "Can only pause during playing phase."}), 400
-    db.update_game_state(room, paused=1)
-    try:
-        db.log_activity('game_paused', config.SUPER_ADMIN_ID, f'Paused game in room {room}')
-    except Exception:
-        pass
-    return jsonify({"ok": True, "paused": True})
-
-
-@app.route("/api/superadmin/game/resume", methods=["POST"])
-def api_superadmin_game_resume():
-    """Resume a paused game."""
-    if _require_super_admin() is None:
-        return jsonify({"error": "Unauthorized"}), 403
-    room = _room_from_request()
-    db.update_game_state(room, paused=0)
-    try:
-        db.log_activity('game_resumed', config.SUPER_ADMIN_ID, f'Resumed game in room {room}')
-    except Exception:
-        pass
-    return jsonify({"ok": True, "paused": False})
-
-
 @app.route("/api/superadmin/game/stop", methods=["POST"])
 def api_superadmin_game_stop():
     """Force stop the current round (no winner). Resets to preparation."""

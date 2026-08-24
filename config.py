@@ -135,7 +135,8 @@ TOTAL_NUMBERS = 75                                          # a bingo set
 # ---------------------------------------------------------------------------
 # Players / bots
 # ---------------------------------------------------------------------------
-MAX_TOTAL_PLAYERS = _int("MAX_TOTAL_PLAYERS", 18)   # real players + bots (per room)
+MIN_TOTAL_PLAYERS = _int("MIN_TOTAL_PLAYERS", 15)   # minimum total players (real + bots) per room
+MAX_TOTAL_PLAYERS = _int("MAX_TOTAL_PLAYERS", 30)   # maximum total players (real + bots) per room
 NUM_CARDS = _int("NUM_CARDS", 400)                  # pre-generated card pool
 
 # ---------------------------------------------------------------------------

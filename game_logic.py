@@ -199,24 +199,14 @@ class GameLogic:
         }
 
     # -------------------------------------------------------------------- bots
-    # Difficulty levels control how many cards each bot gets:
-    #   0 (Easy)      = 1 card   (powerless)
-    #   1 (Normal)    = 1 card
-    #   2 (Medium)    = 1-2 cards (default)
-    #   3 (Hard)      = 2-3 cards
-    #   4 (Very Hard) = 3 cards   (max)
-    #   5 (Impossible)= 3 cards   (max)
-    _DIFFICULTY_CARDS = {
-        0: (1, 1),
-        1: (1, 1),
-        2: (1, 2),
-        3: (2, 3),
-        4: (3, 3),
-        5: (3, 3),
-    }
 
     def add_bot_player(self, room: int = 30) -> Optional[Dict]:
-        """Create one bot player. Card count is based on bots_difficulty."""
+        """Create one bot player with 1 card.
+
+        Difficulty only controls how FAST bots claim (see game_loop._bot_claim_pass),
+        not how many cards they get. Every bot gets exactly 1 card so the prize
+        pool scales naturally with the number of players.
+        """
         all_cards = self.db.get_all_cards()
         taken = {s["card_id"] for s in self.db.get_all_selections(room)}
         available = [c for c in all_cards if c["id"] not in taken]
@@ -233,20 +223,28 @@ class GameLogic:
             return None
 
         self.db.create_player(bot_id, bot_name(bot_id), credit=0)
-        difficulty = self.db.get_bots_difficulty(room)
-        lo, hi = self._DIFFICULTY_CARDS.get(difficulty, (1, 2))
-        num_cards = random.randint(lo, min(hi, len(available)))
-        chosen = random.sample(available, num_cards)
-        for card in chosen:
-            # the bet is FIXED per room — bots wager the room's amount
-            self.db.select_card(bot_id, card["id"], room, room)
-        return {"bot_id": bot_id, "cards": num_cards}
+        card = random.choice(available)
+        self.db.select_card(bot_id, card["id"], room, room)
+        return {"bot_id": bot_id, "cards": 1}
 
-    def ensure_minimum_players(self, room: int = 30, max_total: int = 15) -> int:
-        """Add bots until `max_total` players have cards. Returns how many bots were added."""
+    def ensure_minimum_players(self, room: int = 30,
+                                   min_total: int | None = None,
+                                   max_total: int | None = None) -> int:
+        """Add bots until a random target between min_total and max_total is
+        reached. Returns how many bots were added.
+
+        The target is randomized each round so the room feels dynamic —
+        sometimes packed, sometimes smaller. Bots always get 1 card each
+        so the prize pool scales naturally with the player count.
+        """
+        if min_total is None:
+            min_total = config.MIN_TOTAL_PLAYERS
+        if max_total is None:
+            max_total = config.MAX_TOTAL_PLAYERS
+        target = random.randint(min_total, max_total)
         player_ids = {s["user_id"] for s in self.db.get_all_selections(room)}
         added = 0
-        while len(player_ids) < max_total:
+        while len(player_ids) < target:
             bot = self.add_bot_player(room)
             if not bot:
                 break
