@@ -137,7 +137,7 @@ export const api = {
     stopGame: (room) => superAdminRequest('/api/superadmin/game/stop', { body: roomParams(room) }),
     startGame: (room) => superAdminRequest('/api/superadmin/game/start', { body: roomParams(room) }),
     addBots: (room) => superAdminRequest('/api/superadmin/game/add-bots', { body: roomParams(room) }),
-    botsWin: (enabled) => superAdminRequest('/api/superadmin/game/bots-win', { body: { enabled } }),
+    setBotsDifficulty: (difficulty) => superAdminRequest('/api/superadmin/game/bots-difficulty', { body: { difficulty } }),
     toggleBots: (enabled) => superAdminRequest('/api/superadmin/game/bots-toggle', { body: { enabled } }),
   },
 };

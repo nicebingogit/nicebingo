@@ -299,7 +299,7 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
         "bots_players": logic.player_breakdown(room)["bots"],
         "cards_in_play": len(db.get_all_selections(room)),
         "bots_enabled": bool(state.get("bots_enabled", 1)),
-        "bots_win_mode": bool(state.get("bots_win_mode", 0)),
+        "bots_difficulty": int(state.get("bots_difficulty", 2)),
         "paused": bool(state.get("paused", 0)),
         "winner": winner,
         "settings": _settings_payload(),
@@ -1455,17 +1455,17 @@ def api_superadmin_game_add_bots():
     return jsonify(loop.add_bots(room))
 
 
-@app.route("/api/superadmin/game/bots-win", methods=["POST"])
-def api_superadmin_game_bots_win():
-    """Toggle bots-win mode: when enabled, bots claim wins instantly."""
+@app.route("/api/superadmin/game/bots-difficulty", methods=["POST"])
+def api_superadmin_game_bots_difficulty():
+    """Set bot difficulty (0-5): 0=Easy (powerless), 5=Impossible."""
     if _require_super_admin() is None:
         return jsonify({"error": "Unauthorized"}), 403
     data = request.get_json(silent=True) or {}
-    result = loop.toggle_bots_win(data.get("enabled"))
+    level = data.get("difficulty")
+    result = loop.set_bots_difficulty(level)
     try:
-        mode = 'ON' if result.get('enabled') else 'OFF'
-        db.log_activity('bots_win_mode_changed', config.SUPER_ADMIN_ID,
-                       f'Bots win mode set to {mode}')
+        db.log_activity('bots_difficulty_changed', config.SUPER_ADMIN_ID,
+                       f'Bots difficulty set to {result.get("difficulty", 2)}')
     except Exception:
         pass
     return jsonify(result)

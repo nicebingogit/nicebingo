@@ -199,8 +199,24 @@ class GameLogic:
         }
 
     # -------------------------------------------------------------------- bots
+    # Difficulty levels control how many cards each bot gets:
+    #   0 (Easy)      = 1 card   (powerless)
+    #   1 (Normal)    = 1 card
+    #   2 (Medium)    = 1-2 cards (default)
+    #   3 (Hard)      = 2-3 cards
+    #   4 (Very Hard) = 3 cards   (max)
+    #   5 (Impossible)= 3 cards   (max)
+    _DIFFICULTY_CARDS = {
+        0: (1, 1),
+        1: (1, 1),
+        2: (1, 2),
+        3: (2, 3),
+        4: (3, 3),
+        5: (3, 3),
+    }
+
     def add_bot_player(self, room: int = 30) -> Optional[Dict]:
-        """Create one bot player holding 1-3 random cards. Returns info or None."""
+        """Create one bot player. Card count is based on bots_difficulty."""
         all_cards = self.db.get_all_cards()
         taken = {s["card_id"] for s in self.db.get_all_selections(room)}
         available = [c for c in all_cards if c["id"] not in taken]
@@ -217,7 +233,9 @@ class GameLogic:
             return None
 
         self.db.create_player(bot_id, bot_name(bot_id), credit=0)
-        num_cards = random.randint(1, min(config.MAX_CARDS_PER_PLAYER, len(available)))
+        difficulty = self.db.get_bots_difficulty(room)
+        lo, hi = self._DIFFICULTY_CARDS.get(difficulty, (1, 2))
+        num_cards = random.randint(lo, min(hi, len(available)))
         chosen = random.sample(available, num_cards)
         for card in chosen:
             # the bet is FIXED per room — bots wager the room's amount

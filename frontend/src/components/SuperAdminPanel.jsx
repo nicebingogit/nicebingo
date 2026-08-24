@@ -68,7 +68,10 @@ export default function SuperAdminPanel({ onError }) {
   const [gamePaused, setGamePaused] = useState(false);
   const [room, setRoom] = useState(10);
   const [botsEnabled, setBotsEnabled] = useState(true);
-  const [botsWinMode, setBotsWinMode] = useState(false);
+  const [botsDifficulty, setBotsDifficulty] = useState(2);
+
+  const DIFFICULTY_LABELS = ['Easy', 'Normal', 'Medium', 'Hard', 'Very Hard', 'Impossible'];
+  const DIFFICULTY_COLORS = ['#4caf50', '#8bc34a', '#ff9800', '#ff5722', '#e91e63', '#d50000'];
 
   const loadGameState = useCallback(async () => {
     try {
@@ -76,7 +79,7 @@ export default function SuperAdminPanel({ onError }) {
       setGamePhase(d.phase || 'preparation');
       setGamePaused(!!d.paused);
       setBotsEnabled(!!d.bots_enabled);
-      setBotsWinMode(!!d.bots_win_mode);
+      setBotsDifficulty(d.bots_difficulty ?? 2);
     } catch (e) { /* silent */ }
   }, [room]);
 
@@ -282,21 +285,50 @@ export default function SuperAdminPanel({ onError }) {
               >
                 {botsEnabled ? '🟢 Disable Bots' : '🔴 Enable Bots'}
               </button>
-              <button
-                className="btn btn-ghost user-btn"
-                style={botsWinMode ? { opacity: 1, color: '#ff4444', fontWeight: 800 } : { opacity: 0.6 }}
-                onClick={async () => {
-                  playClick();
-                  const newMode = !botsWinMode;
-                  try {
-                    await api.superAdmin.botsWin(newMode);
-                    setBotsWinMode(newMode);
-                    flashMsg(newMode ? '🏆 Bots Win mode ON — bots claim instantly!' : 'Bots Win mode OFF — normal delays restored.');
-                  } catch (e) { flashMsg(`❌ ${e.message}`); }
-                }}
-              >
-                {botsWinMode ? '🏆 Bots Win ON' : '🏆 Bots Win'}
-              </button>
+            </div>
+
+            {/* ---- BOT DIFFICULTY SLIDER ---- */}
+            <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>🤖 Bot Difficulty</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: DIFFICULTY_COLORS[botsDifficulty] }}>
+                  {DIFFICULTY_LABELS[botsDifficulty]}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {DIFFICULTY_LABELS.map((label, i) => (
+                  <button
+                    key={i}
+                    onClick={async () => {
+                      playClick();
+                      try {
+                        await api.superAdmin.setBotsDifficulty(i);
+                        setBotsDifficulty(i);
+                        flashMsg(`🤖 Bot difficulty: ${label}`);
+                      } catch (e) { flashMsg(`❌ ${e.message}`); }
+                    }}
+                    style={{
+                      flex: 1, padding: '6px 2px', borderRadius: 6, border: 'none',
+                      fontSize: 10, fontWeight: botsDifficulty === i ? 800 : 600,
+                      cursor: 'pointer', transition: 'all 0.2s',
+                      background: botsDifficulty === i ? DIFFICULTY_COLORS[i] : 'var(--surface)',
+                      color: botsDifficulty === i ? '#fff' : 'var(--muted)',
+                      boxShadow: botsDifficulty === i ? `0 2px 8px ${DIFFICULTY_COLORS[i]}44` : 'none',
+                    }}
+                    title={label}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="reg-hint" style={{ marginTop: 4, marginBottom: 0 }}>
+                {botsDifficulty === 0 && '🟢 Powerless — bots almost never win'}
+                {botsDifficulty === 1 && '🟢 Slow claim — bots rarely beat humans'}
+                {botsDifficulty === 2 && '🟡 Default — balanced difficulty'}
+                {botsDifficulty === 3 && '🟠 Fast claim — bots often win'}
+                {botsDifficulty === 4 && '🔴 Near-instant — very powerful bots'}
+                {botsDifficulty === 5 && '🔴 Instant claim — impossible to beat!'}
+              </p>
             </div>
             <p className="reg-hint" style={{ marginTop: 8 }}>
               You control every account, every transaction log, wallet appeals,

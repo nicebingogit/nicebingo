@@ -263,15 +263,27 @@ class GameLoop:
                         config.room_label(room), config.PREPARATION_SECONDS)
 
     # ------------------------------------------------------------- bot claims
+    # Difficulty levels: how many balls a bot waits before claiming.
+    # 0=Easy (never claim), 1=Normal(5-8), 2=Medium(3-5),
+    # 3=Hard(1-2), 4=VeryHard(0-1), 5=Impossible(0)
+    _DIFFICULTY_DELAY = {
+        0: None,         # never claim — bots are powerless
+        1: (5, 8),       # very slow, humans always win
+        2: (3, 5),       # default human-like delay
+        3: (1, 2),       # fast, often beats humans
+        4: (0, 1),       # near-instant
+        5: (0, 0),       # instant — impossible to beat
+    }
+
     def _bot_claim_pass(self, room: int = 30) -> dict | None:
         """Bots press BINGO like humans — only when a card actually has a
-        complete pattern, and only after a short random delay (1-4 balls) so a
-        real player pressing quickly can still win first. Returns the winner
-        dict if a bot claimed this ball, else None.
-
-        When bots_win_mode is enabled, bots claim immediately (delay = 0)
-        making them much more powerful — they snap up wins the instant a
-        pattern completes."""
+        complete pattern. The claim delay is controlled by bots_difficulty:
+          0 (Easy)      — never claim, bots are powerless
+          1 (Normal)    — 5-8 ball delay, rarely win
+          2 (Medium)    — 3-5 ball delay, default
+          3 (Hard)      — 1-2 ball delay, often win
+          4 (Very Hard) — 0-1 ball delay, very powerful
+          5 (Impossible)— instant claim, impossible to beat"""
         if not self.db.get_bots_enabled(room):
             return None
         state = self.db.get_game_state(room)
@@ -280,7 +292,11 @@ class GameLoop:
         called = set(self.db.get_called_numbers(room))
         cards = self.db.get_cards_map()
         index = len(called)
-        bots_win = self.db.get_bots_win_mode(room)
+        difficulty = self.db.get_bots_difficulty(room)
+        delay_range = self._DIFFICULTY_DELAY.get(difficulty, (3, 5))
+        # difficulty 0 = bots never claim
+        if delay_range is None:
+            return None
         ready = self._bot_claim_at.setdefault(room, {})
         # discover bots with a winning card; schedule a delayed claim for them
         for sel in self.db.get_all_selections(room):
@@ -291,12 +307,8 @@ class GameLoop:
                 continue
             patterns, _ = self.logic.check_winning_patterns(card, called)
             if patterns and sel["user_id"] not in ready:
-                if bots_win:
-                    # bots_win_mode: claim immediately — bots are very powerful
-                    ready[sel["user_id"]] = index
-                else:
-                    # the bot "notices" its win a couple of balls late — human-like
-                    ready[sel["user_id"]] = index + random.randint(1, 4)
+                lo, hi = delay_range
+                ready[sel["user_id"]] = index + random.randint(lo, hi)
         # claim the first bot whose delay has elapsed — ONLY through cards that
         # actually have a complete pattern (a bot must never false-claim itself)
         claimants = sorted((bid, at) for bid, at in ready.items() if at <= index)
@@ -402,14 +414,14 @@ class GameLoop:
             self.db.set_bots_enabled(enabled)
             return {"ok": True, "enabled": enabled}
 
-    def toggle_bots_win(self, enabled: bool | None = None) -> dict:
-        """Toggle bots-win mode: when enabled, bots claim wins instantly
-        (delay = 0) making them very powerful."""
+    def set_bots_difficulty(self, level: int | None = None) -> dict:
+        """Set bot difficulty (0-5). 0=Easy (powerless), 5=Impossible."""
         with self._lock:
-            current = self.db.get_bots_win_mode()
-            enabled = (not current) if enabled is None else enabled
-            self.db.set_bots_win_mode(enabled)
-            return {"ok": True, "enabled": enabled}
+            if level is None:
+                level = self.db.get_bots_difficulty()
+            level = max(0, min(5, int(level)))
+            self.db.set_bots_difficulty(level)
+            return {"ok": True, "difficulty": level}
 
     # ------------------------------------------------------------- utilities
     def _name_of(self, user_id: int) -> str:
