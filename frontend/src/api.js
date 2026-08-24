@@ -91,6 +91,13 @@ export const api = {
   appeals: () => request('/api/appeals'),
   fileAppeal: (transactionId, reason) =>
     request('/api/appeals', { method: 'POST', body: { transaction_id: transactionId, reason } }),
+  // referral system
+  referralLink: () => request('/api/referral/link'),
+  referralCommissions: () => request('/api/referral/commissions'),
+  referralLeaderboard: () => request('/api/referral/leaderboard'),
+  referralRegister: (referrerId) =>
+    request('/api/referral/register', { method: 'POST', body: { referrer_id: referrerId } }),
+  userReferral: () => request('/api/user/referral'),
   admin: {
     stats: () => adminRequest('/api/admin/stats', { method: 'GET' }),
     bots: () => adminRequest('/api/admin/bots', { method: 'GET' }),

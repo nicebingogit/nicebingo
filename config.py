@@ -79,6 +79,9 @@ ADMIN_APPROVAL_RATE = _float("ADMIN_APPROVAL_RATE", 0.9)
 # deposits, and the system picks the online admin with the MOST admin credit
 # per bank/provider.
 ADMIN_ONLINE_MINUTES = _int("ADMIN_ONLINE_MINUTES", 5)
+# REFERRAL_COMMISSION_RATE: share of a referred player's total bet that
+# the referring admin earns as commission each round (0.05 = 5%).
+REFERRAL_COMMISSION_RATE = _float("REFERRAL_COMMISSION_RATE", 0.05)
 
 # ---------------------------------------------------------------------------
 # Local web server (Flask) that hosts the Mini App + API

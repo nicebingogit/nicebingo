@@ -1608,3 +1608,115 @@ body::before {
   0% { transform: translateY(-20px) rotate(0deg) scale(1); opacity: 1; }
   100% { transform: translateY(100vh) rotate(720deg) scale(0.5); opacity: 0.3; }
 }
+
+/* ==================================================== Transparent marked numbers */
+/* When a number is daubed, show the actual number translucently
+   so the user can see what the covered number is. */
+.marked-num {
+  display: inline-block;
+  font-size: inherit;
+  font-weight: inherit;
+  font-family: inherit;
+  color: rgba(255, 255, 255, 0.35);
+  text-shadow: 0 0 8px rgba(255, 82, 96, 0.4);
+  position: relative;
+}
+.card-cell.marked {
+  background: radial-gradient(circle at center, rgba(255, 82, 96, 0.35) 0%, rgba(56, 28, 40, 0.9) 100%);
+  border-color: rgba(255, 82, 96, 0.6);
+}
+.card-cell.marked .marked-num {
+  color: rgba(255, 213, 79, 0.45);
+  text-shadow: 0 0 6px rgba(255, 213, 79, 0.25);
+}
+.card-cell.marked.winning .marked-num {
+  color: rgba(255, 215, 96, 0.65);
+  text-shadow: 0 0 10px rgba(255, 215, 96, 0.5);
+}
+
+/* ==================================================== Referral Panel Styles */
+.referral-panel { display: flex; flex-direction: column; gap: 12px; }
+.referral-hero {
+  background: linear-gradient(135deg, rgba(255, 213, 79, 0.12), rgba(217, 92, 255, 0.08));
+  border: 1px solid rgba(255, 213, 79, 0.3); border-radius: 16px;
+  padding: 20px; text-align: center;
+}
+.referral-hero-icon { font-size: 48px; margin-bottom: 8px; }
+.referral-hero-title {
+  font-size: 20px; font-weight: 900; color: var(--gold);
+  margin-bottom: 4px;
+}
+.referral-hero-sub { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+.referral-stats-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.referral-stat-card {
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 10px; text-align: center;
+}
+.referral-stat-card.gold {
+  background: linear-gradient(135deg, rgba(255, 213, 79, 0.1), rgba(255, 213, 79, 0.04));
+  border-color: rgba(255, 213, 79, 0.3);
+}
+.referral-stat-card.accent {
+  background: linear-gradient(135deg, rgba(75, 227, 160, 0.1), rgba(75, 227, 160, 0.04));
+  border-color: rgba(75, 227, 160, 0.3);
+}
+.referral-stat-card.purple {
+  background: linear-gradient(135deg, rgba(217, 92, 255, 0.1), rgba(217, 92, 255, 0.04));
+  border-color: rgba(217, 92, 255, 0.3);
+}
+.referral-stat-icon { font-size: 24px; margin-bottom: 4px; }
+.referral-stat-value { font-size: 22px; font-weight: 900; color: var(--text); }
+.referral-stat-card.gold .referral-stat-value { color: var(--gold); }
+.referral-stat-card.accent .referral-stat-value { color: var(--green); }
+.referral-stat-card.purple .referral-stat-value { color: var(--purple); }
+.referral-stat-label { font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 2px; }
+
+.referral-actions {
+  display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+}
+
+.referral-howto {
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px;
+}
+.referral-steps { display: flex; flex-direction: column; gap: 10px; }
+.referral-step { display: flex; gap: 12px; align-items: flex-start; }
+.referral-step-num {
+  min-width: 28px; height: 28px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold), #ffa726);
+  color: #000; font-weight: 900; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.referral-step-text { font-size: 13px; color: var(--text); line-height: 1.5; }
+.referral-example {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+
+.referral-link-card {
+  background: linear-gradient(135deg, rgba(62, 200, 255, 0.08), rgba(255, 213, 79, 0.06));
+  border: 1px solid rgba(62, 200, 255, 0.3); border-radius: 14px;
+  padding: 16px; text-align: center;
+}
+.referral-link-label {
+  font-size: 12px; font-weight: 800; color: var(--muted); margin-bottom: 8px;
+}
+.referral-link-url {
+  background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px; font-size: 13px;
+  color: var(--blue); word-break: break-all; cursor: pointer;
+  transition: border-color 0.2s;
+}
+.referral-link-url:hover { border-color: var(--blue); }
+.referral-link-copy-hint {
+  display: block; margin-top: 6px; font-size: 11px;
+  color: var(--muted); font-weight: 700;
+}
+
+/* User row highlight for leaderboard */
+.user-row.highlight {
+  background: rgba(255, 213, 79, 0.08);
+}

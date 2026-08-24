@@ -214,6 +214,7 @@ class GameLoop:
             self.db.finish_game(game_id, winner["user_id"], winner_name,
                                 payload["pattern"], pool["total_bets"], prize,
                                 pool["total_bets"] - prize, "finished")
+            self._distribute_referral_commissions(room, state)
             logger.info("%s winner: %s (%s) won %s",
                         config.room_label(room), winner_name, payload["pattern"], prize)
 
@@ -234,8 +235,51 @@ class GameLoop:
             pool = self.logic.calculate_prize_pool(room)
             self.db.finish_game(game_id, None, None, "none", pool["total_bets"], 0,
                                 pool["total_bets"], "finished")
+            self._distribute_referral_commissions(room, state)
             logger.info("%s round %s ended without a winner (75 balls)",
                         config.room_label(room), state.get("round_number"))
+
+    def _distribute_referral_commissions(self, room: int, state: dict) -> None:
+        """After a round ends, pay 5%% commission to the referring admin
+        for every REAL player they referred. Commission is calculated from
+        that player's total bet amount across all their cards in the round.
+
+        Bots (negative user ids) never generate commissions.
+        """
+        rate = config.REFERRAL_COMMISSION_RATE
+        if rate <= 0:
+            return
+        game_id = state.get("current_game_id")
+        selections = self.db.get_all_selections(room)
+        # group bets by user
+        bets_by_user: dict[int, int] = {}
+        for sel in selections:
+            uid = sel["user_id"]
+            if uid > 0:  # real players only
+                bets_by_user.setdefault(uid, 0)
+                bets_by_user[uid] += sel["bet_amount"]
+        for uid, total_bet in bets_by_user.items():
+            referrer_id = self.db.get_referred_by(uid)
+            if referrer_id is None:
+                continue
+            commission = int(total_bet * rate)
+            if commission <= 0:
+                continue
+            self.db.record_referral_commission(
+                referrer_id, uid, game_id, room, total_bet, commission)
+            self.db.apply_referral_commission(referrer_id, commission)
+            try:
+                from bot import notify_user
+                referrer_name = self._name_of(referrer_id)
+                referred_name = self._name_of(uid)
+                notify_user(referrer_id, [
+                    '💰 REFERRAL COMMISSION',
+                    f'+{commission} {config.APP_CURRENCY} from {referred_name}\'s round',
+                    f'Bet: {total_bet} ETB · Rate: {int(rate * 100)}%',
+                    f'Your new balance: {self.db.get_credit(referrer_id)} ETB',
+                ])
+            except Exception:
+                pass
 
     def reset_round(self, room: int = 30) -> None:
         """ended -> fresh preparation phase."""

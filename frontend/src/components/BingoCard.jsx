@@ -51,7 +51,7 @@ export default function BingoCard({
                   disabled={!interactive || free}
                   title={interactive && !free ? 'Tap to mark / unmark this number' : undefined}
                 >
-                  {free ? '★' : marked ? '●' : value}
+                  {free ? '★' : marked ? <span className="marked-num">{value}</span> : value}
                 </button>
               );
             })}

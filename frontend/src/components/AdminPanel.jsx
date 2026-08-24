@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { playClick } from '../sound.js';
+import ReferralPanel from './ReferralPanel.jsx';
 
 const TX_STATUS = {
   pending: { label: '⏳ Pending', cls: 'pending' },
@@ -215,6 +216,7 @@ export default function AdminPanel({ room, onError, onChanged }) {
           ['users', '👥 Users'],
           ['transactions', '🧾 Wallet'],
           ['accounts', '💳 Accounts'],
+          ['referral', '🔗 Referral'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -401,6 +403,11 @@ export default function AdminPanel({ room, onError, onChanged }) {
             )}
           </form>
         </div>
+      )}
+
+      {/* -------------------------------------------------------- REFERRAL */}
+      {tab === 'referral' && (
+        <ReferralPanel onError={onError} onClose={() => setTab('users')} />
       )}
 
       {/* ------------------------------------------------ USER DETAIL MODAL */}

@@ -122,7 +122,7 @@ class PremiumBingoBot:
         """Telegram only accepts https:// addresses on Web App buttons."""
         return _fresh_app_url().lower().startswith("https")
 
-    def get_main_menu(self):
+    def get_main_menu(self, user_id: int = 0):
         rows = []
         if self._webapp_ok():
             rows.append([InlineKeyboardButton("🎮 OPEN BINGO ARENA",
@@ -135,8 +135,11 @@ class PremiumBingoBot:
              InlineKeyboardButton("💰 Balance", callback_data="balance")],
             [InlineKeyboardButton("🎲 My Cards", callback_data="my_cards"),
              InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
-            [InlineKeyboardButton("❓ Help", callback_data="help")],
         ]
+        # admins get a referral link button
+        if user_id and db.is_admin(user_id):
+            rows.append([InlineKeyboardButton("🔗 My Referral Link", callback_data="referral")])
+        rows.append([InlineKeyboardButton("❓ Help", callback_data="help")])
         return InlineKeyboardMarkup(rows)
 
     def get_game_menu(self):
@@ -157,6 +160,7 @@ class PremiumBingoBot:
              InlineKeyboardButton("🔀 Toggle Players", callback_data="admin_bots_toggle")],
             [InlineKeyboardButton("🔄 Reset Round", callback_data="admin_reset"),
              InlineKeyboardButton("📊 Admin Stats", callback_data="admin_status")],
+            [InlineKeyboardButton("🔗 Referral Stats", callback_data="referral")],
             [InlineKeyboardButton("🏠 Main Menu", callback_data="menu")],
         ])
 
@@ -164,15 +168,47 @@ class PremiumBingoBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/start — asks a NEW user for their full name (first-time onboarding).
 
+        Handles referral deep-links: /start REF_<referrer_id>
         The name is collected ONCE here in the chat. Existing users who already
         have a stored full name go straight to the normal welcome — they are
         never asked again (and /start alone never grants the welcome bonus).
         """
         user = update.effective_user
+        # --- referral deep-link: /start REF_<referrer_id> ---
+        referrer_id = None
+        if context.args:
+            raw = context.args[0].strip()
+            if raw.startswith("REF_"):
+                try:
+                    referrer_id = int(raw[4:])
+                except ValueError:
+                    referrer_id = None
         if db.get_player(user.id) is None:
             # placeholder account — identity registration happens below
             db.create_player(user.id, user.username or user.first_name, credit=0)
             db.update_profile(user.id, registered=False)
+        # process referral if valid
+        if referrer_id and referrer_id != user.id:
+            existing_ref = db.get_referred_by(user.id)
+            if existing_ref is None and db.is_admin(referrer_id):
+                db.create_referral(referrer_id, user.id)
+                try:
+                    db.log_activity('referral_signup', user.id,
+                                   f'Referred by admin {referrer_id}')
+                except Exception:
+                    pass
+                # notify the referring admin
+                referrer_name = db.get_player(referrer_id)
+                ref_name = (referrer_name or {}).get('full_name') or 'Admin'
+                try:
+                    from bot import notify_user
+                    notify_user(referrer_id, [
+                        '🎉 NEW REFERRAL!',
+                        f'User: {user.first_name} (ID: {user.id})',
+                        'You will earn 5% commission on every round they play!',
+                    ])
+                except Exception:
+                    pass
         player = db.get_player(user.id)
         if not (player.get("full_name") or "").strip():
             # first-time onboarding: collect the full name in the chat
@@ -200,7 +236,7 @@ class PremiumBingoBot:
             f"👇 Tap **🎮 OPEN BINGO ARENA** to play — pick your room (fixed "
             f"bet 30 / 50 / 100 ETB per card). Your wallet is your phone number "
             f"— deposit and withdraw from **Settings** inside the arena.{hint}",
-            reply_markup=self.get_main_menu(),
+            reply_markup=self.get_main_menu(user.id),
             parse_mode="Markdown",
         )
         
@@ -337,7 +373,7 @@ class PremiumBingoBot:
         await msg.reply_text(
             f"💰 **Balance**\n\nCurrent: **{credit} ETB**\n"
             f"🃏 Cards: {cards_line}",
-            reply_markup=self.get_main_menu(),
+            reply_markup=self.get_main_menu(user_id),
             parse_mode="Markdown",
         )
 
@@ -414,7 +450,7 @@ class PremiumBingoBot:
             name = p.get("full_name") or p.get("username") or "Anonymous"
             text += f"{medal} {_md(name)}: " \
                     f"**{p['credit']} {config.APP_CURRENCY}**\n"
-        await update.message.reply_text(text, reply_markup=self.get_main_menu(), parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=self.get_main_menu(update.effective_user.id), parse_mode="Markdown")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -425,6 +461,7 @@ class PremiumBingoBot:
             msg = update.message
         room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
         room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
+        uid = update.effective_user.id
         await msg.reply_text(
             "🎲 **Nice Bingo**\n\n"
             f"1. Tap **Play Mini App** → full-screen arena opens in Telegram\n"
@@ -437,7 +474,7 @@ class PremiumBingoBot:
             f"5. Complete a row, column, diagonal or four corners and press **BINGO!**\n"
             f"6. Winner takes **80%** of the room's prize pool — paid instantly\n\n"
             "Commands: /start, /play, /status, /balance, /cards, /history, /top, /help",
-            reply_markup=self.get_main_menu(),
+            reply_markup=self.get_main_menu(uid),
             parse_mode="Markdown",
         )
 
@@ -472,7 +509,7 @@ class PremiumBingoBot:
         user_id = update.effective_user.id
         selections = db.get_user_selections(user_id, config.ROOM_DEFAULT)
         if not selections:
-            await query.edit_message_text("No cards selected.", reply_markup=self.get_main_menu())
+            await query.edit_message_text("No cards selected.", reply_markup=self.get_main_menu(user_id))
             return
         keyboard = [[InlineKeyboardButton(f"❌ Card #{s['card_id']}",
                                           callback_data=f"deselect_{s['card_id']}")]
@@ -489,7 +526,7 @@ class PremiumBingoBot:
         data = query.data
 
         if data == "menu":
-            await query.edit_message_text("🎲 **Main Menu**", reply_markup=self.get_main_menu(),
+            await query.edit_message_text("🎲 **Main Menu**", reply_markup=self.get_main_menu(user_id),
                                           parse_mode="Markdown")
         elif data == "play":
             await self.play_command(update, context)
@@ -508,14 +545,14 @@ class PremiumBingoBot:
                 await query.edit_message_text(
                     f"✅ Auto-selected {len(result['chosen'])} card(s)! "
                     f"Balance: {result['user']['credit']} ETB",
-                    reply_markup=self.get_main_menu())
+                    reply_markup=self.get_main_menu(user_id))
             else:
                 await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
-                                              reply_markup=self.get_main_menu())
+                                              reply_markup=self.get_main_menu(user_id))
         elif data == "help":
             await self.help_command(update, context)
         elif data == "tunnel_help":
-            await query.edit_message_text(HTTPS_HINT, reply_markup=self.get_main_menu(),
+            await query.edit_message_text(HTTPS_HINT, reply_markup=self.get_main_menu(user_id),
                                           parse_mode="Markdown")
         elif data == "select":
             await self.select_command(update, context)
@@ -532,7 +569,7 @@ class PremiumBingoBot:
                     reply_markup=self.get_game_menu())
             else:
                 await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
-                                              reply_markup=self.get_main_menu())
+                                              reply_markup=self.get_main_menu(user_id))
         elif data.startswith("deselect_"):
             card_id = data.split("_", 1)[1]
             result = await self._post("/api/deselect-card",
@@ -540,14 +577,71 @@ class PremiumBingoBot:
             if result.get("ok"):
                 await query.edit_message_text(
                     f"✅ Card #{card_id} removed — {result['user']['credit']} ETB refunded",
-                    reply_markup=self.get_main_menu())
+                    reply_markup=self.get_main_menu(user_id))
             else:
                 await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
-                                              reply_markup=self.get_main_menu())
+                                              reply_markup=self.get_main_menu(user_id))
+        elif data == "referral":
+            await self._show_referral(update, context, user_id)
         elif data.startswith("admin_"):
             await self.admin_callback_handler(update, context)
         else:
             await query.edit_message_text("Unknown action.")
+
+    # ---------------------------------------------------------------- referral
+    async def _show_referral(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                             user_id: int):
+        """Show the admin's referral link and stats."""
+        query = update.callback_query
+        if query:
+            await query.answer()
+        # build the referral link using the bot's username
+        try:
+            bot_username = (await context.bot.get_me()).username
+        except Exception:
+            bot_username = "YourBingoBot"
+        ref_link = f"https://t.me/{bot_username}?start=REF_{user_id}"
+        # fetch stats from DB
+        stats = db.get_referral_stats(user_id)
+        total_refs = stats["total_referrals"]
+        total_comm = stats["total_commission"]
+        active_refs = stats["active_referrals"]
+        users = stats["referred_users"]
+        text = (
+            f"🔗 **Your Referral Program**\n\n"
+            f"💰 Earn **5%% commission** on every round your referrals play!\n\n"
+            f"📨 **Share this link:**\n"
+            f"`{ref_link}`\n\n"
+            f"📊 **Stats:**\n"
+            f"👥 Total referrals: **{total_refs}**\n"
+            f"🎮 Active players: **{active_refs}**\n"
+            f"💰 Total earned: **{total_comm} {config.APP_CURRENCY}**"
+        )
+        if users:
+            text += "\n\n👥 **Your Referrals:**\n"
+            for u in users[:10]:
+                name = u.get("full_name") or u.get("username") or f"#{u['referred_id']}"
+                credit = u.get("credit", 0)
+                text += f"  • {_md(name)} — {credit} {config.APP_CURRENCY}\n"
+        # recent commissions
+        commissions = db.get_referral_commissions(user_id, limit=5)
+        if commissions:
+            text += "\n\n💎 **Recent Commissions:**\n"
+            for c in commissions:
+                cname = c.get("referred_name") or c.get("referred_username") or f"#{c['referred_id']}"
+                text += f"  • +{c['commission']} {config.APP_CURRENCY} from {_md(cname)} (bet {c['total_bet']} ETB)\n"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Copy Link", callback_data="referral_copy")],
+            [InlineKeyboardButton("📊 Full Stats", callback_data="referral_stats")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu")],
+        ])
+        if query:
+            try:
+                await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            except Exception:
+                await query.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
     # ------------------------------------------------------------------ admin
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

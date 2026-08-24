@@ -188,6 +188,9 @@ def _user_payload(user_id: int, room: int = 30) -> dict:
         # false-BINGO elimination for the CURRENT round only
         "eliminated": eliminated,
         "selections": selections,
+        # referral info: for admins, show referral link and stats
+        "referral_count": db.get_referral_count(user_id) if db.is_admin(user_id) else 0,
+        "referral_commission": db.get_referral_stats(user_id)['total_commission'] if db.is_admin(user_id) else 0,
     }
 
 
@@ -1722,6 +1725,97 @@ def telegram_webhook(secret: str):
     except Exception:
         state = "unknown"
     return ("webhook dispatch failed (" + state + ")", 500)
+
+
+# ------------------------------------------------------- referral system
+@app.route("/api/referral/link")
+def api_referral_link():
+    """Return the admin's referral link and stats."""
+    user_id = _user_id_from_request()
+    if user_id is None:
+        return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
+    if not db.is_admin(user_id):
+        return jsonify({"error": "Only admins have referral links."}), 403
+    stats = db.get_referral_stats(user_id)
+    return jsonify({
+        "referrer_id": user_id,
+        "total_referrals": stats["total_referrals"],
+        "total_commission": stats["total_commission"],
+        "active_referrals": stats["active_referrals"],
+        "referred_users": stats["referred_users"],
+    })
+
+
+@app.route("/api/referral/commissions")
+def api_referral_commissions():
+    """Recent commission entries for the admin."""
+    user_id = _user_id_from_request()
+    if user_id is None:
+        return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
+    if not db.is_admin(user_id):
+        return jsonify({"error": "Unauthorized"}), 403
+    return jsonify({"commissions": db.get_referral_commissions(user_id)})
+
+
+@app.route("/api/referral/leaderboard")
+def api_referral_leaderboard():
+    """Top referrers by commission earned."""
+    return jsonify({"leaders": db.get_referral_top_earners(20)})
+
+
+@app.route("/api/referral/register", methods=["POST"])
+def api_referral_register():
+    """Register a referral relationship (used by the Mini App after login)."""
+    data = request.get_json(silent=True) or {}
+    user_id = _user_id_from_request()
+    if user_id is None:
+        return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
+    referrer_id = data.get("referrer_id")
+    if referrer_id is None:
+        return jsonify({"error": "referrer_id required"}), 400
+    try:
+        referrer_id = int(referrer_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid referrer_id"}), 400
+    if referrer_id == user_id:
+        return jsonify({"error": "You cannot refer yourself."}), 400
+    if not db.is_admin(referrer_id):
+        return jsonify({"error": "Referrer is not an admin."}), 400
+    existing = db.get_referred_by(user_id)
+    if existing is not None:
+        return jsonify({"ok": True, "message": "Already referred."})
+    ref_id = db.create_referral(referrer_id, user_id)
+    if ref_id is None:
+        return jsonify({"error": "Could not create referral."}), 400
+    try:
+        db.log_activity('referral_signup', user_id,
+                        f'Referred by admin {referrer_id}')
+        from bot import notify_user
+        referrer_name = db.get_player(referrer_id)
+        ref_name = (referrer_name or {}).get('full_name') or 'Admin'
+        referred_name = db.get_player(user_id)
+        rr_name = (referred_name or {}).get('full_name') or referred_name or 'User'
+        notify_user(referrer_id, [
+            '🎉 NEW REFERRAL!',
+            f'User: {rr_name} (ID: {user_id})',
+            'You will earn 5% commission on every round they play!',
+        ])
+    except Exception:
+        pass
+    return jsonify({"ok": True, "referral_id": ref_id})
+
+
+@app.route("/api/user/referral")
+def api_user_referral():
+    """Get this user's referral status (who referred them)."""
+    user_id = _user_id_from_request()
+    if user_id is None:
+        return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
+    referrer_id = db.get_referred_by(user_id)
+    return jsonify({
+        "referred_by": referrer_id,
+        "is_referred": referrer_id is not None,
+    })
 
 
 # ----------------------------------------------------------------- frontend

@@ -239,6 +239,31 @@ class Database:
                     details    TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+                -- referral system: admins invite users via a unique referral
+                -- link and earn 5% commission on every round those users play.
+                CREATE TABLE IF NOT EXISTS referrals (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    referrer_id INTEGER NOT NULL,
+                    referred_id INTEGER NOT NULL UNIQUE,
+                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (referrer_id) REFERENCES players(user_id),
+                    FOREIGN KEY (referred_id) REFERENCES players(user_id)
+                );
+                -- commission ledger: one row per round where a referred player
+                -- participated. The commission is 5% of the total bets from
+                -- ALL cards that referred player held in that round.
+                CREATE TABLE IF NOT EXISTS referral_commissions (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    referrer_id   INTEGER NOT NULL,
+                    referred_id   INTEGER NOT NULL,
+                    game_id       INTEGER,
+                    room          INTEGER DEFAULT 30,
+                    total_bet     INTEGER NOT NULL DEFAULT 0,
+                    commission    INTEGER NOT NULL DEFAULT 0,
+                    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (referrer_id) REFERENCES players(user_id),
+                    FOREIGN KEY (referred_id) REFERENCES players(user_id)
+                );
                 """
             )
             # ----------------------------------------------------------
@@ -1302,6 +1327,128 @@ class Database:
                 FROM activity_log a
                 LEFT JOIN players p ON p.user_id = a.user_id
                 ORDER BY a.id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # --------------------------------------------------------- referral system
+    def create_referral(self, referrer_id: int, referred_id: int) -> Optional[int]:
+        """Link a new user to the admin who referred them. Returns the
+        referral id, or None if already linked / invalid."""
+        if referrer_id == referred_id:
+            return None
+        # don't re-refer someone who was already referred
+        existing = self.get_referred_by(referred_id)
+        if existing is not None:
+            return None
+        with self._session() as conn:
+            cur = conn.execute(
+                "INSERT INTO referrals (referrer_id, referred_id) VALUES (?, ?)",
+                (referrer_id, referred_id),
+            )
+            return int(cur.lastrowid)
+
+    def get_referral(self, referred_id: int) -> Optional[Dict]:
+        """Get the referral record for a referred user."""
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT * FROM referrals WHERE referred_id = ?", (referred_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_referred_by(self, referred_id: int) -> Optional[int]:
+        """Return the referrer's user_id for a referred user, or None."""
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT referrer_id FROM referrals WHERE referred_id = ?",
+                (referred_id,),
+            ).fetchone()
+            return int(row[0]) if row else None
+
+    def get_referral_count(self, referrer_id: int) -> int:
+        """How many users this admin has referred."""
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM referrals WHERE referrer_id = ?",
+                (referrer_id,),
+            ).fetchone()
+            return int(row[0]) if row else 0
+
+    def get_referral_stats(self, referrer_id: int) -> Dict:
+        """Aggregate stats for a referrer: total referrals, total commission
+        earned, referred users who played."""
+        with self._session() as conn:
+            ref_count = conn.execute(
+                "SELECT COUNT(*) FROM referrals WHERE referrer_id = ?",
+                (referrer_id,),
+            ).fetchone()[0]
+            commission_row = conn.execute(
+                "SELECT COALESCE(SUM(commission), 0), COUNT(DISTINCT referred_id) "
+                "FROM referral_commissions WHERE referrer_id = ?",
+                (referrer_id,),
+            ).fetchone()
+            referred_players = conn.execute(
+                "SELECT r.referred_id, p.full_name, p.username, p.credit, r.created_at AS joined_at "
+                "FROM referrals r "
+                "LEFT JOIN players p ON p.user_id = r.referred_id "
+                "WHERE r.referrer_id = ? ORDER BY r.id DESC",
+                (referrer_id,),
+            ).fetchall()
+            return {
+                "total_referrals": int(ref_count),
+                "total_commission": int(commission_row[0]),
+                "active_referrals": int(commission_row[1]),
+                "referred_users": [dict(r) for r in referred_players],
+            }
+
+    def get_referral_commissions(self, referrer_id: int,
+                                 limit: int = 50) -> List[Dict]:
+        """Recent commission entries for a referrer."""
+        with self._session() as conn:
+            rows = conn.execute(
+                """
+                SELECT rc.*, p.full_name AS referred_name, p.username AS referred_username
+                FROM referral_commissions rc
+                LEFT JOIN players p ON p.user_id = rc.referred_id
+                WHERE rc.referrer_id = ?
+                ORDER BY rc.id DESC LIMIT ?
+                """,
+                (referrer_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def record_referral_commission(self, referrer_id: int, referred_id: int,
+                                    game_id: Optional[int], room: int,
+                                    total_bet: int, commission: int) -> int:
+        """Record a commission earned from a referred player's round."""
+        with self._session() as conn:
+            cur = conn.execute(
+                "INSERT INTO referral_commissions "
+                "(referrer_id, referred_id, game_id, room, total_bet, commission) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (referrer_id, referred_id, game_id, room, total_bet, commission),
+            )
+            return int(cur.lastrowid)
+
+    def apply_referral_commission(self, referrer_id: int, commission: int) -> None:
+        """Credit the commission to the referrer's balance."""
+        self.update_credit(referrer_id, commission)
+
+    def get_referral_top_earners(self, limit: int = 20) -> List[Dict]:
+        """Top referrers by total commission earned (leaderboard)."""
+        with self._session() as conn:
+            rows = conn.execute(
+                """
+                SELECT rc.referrer_id AS user_id,
+                       p.full_name, p.username, p.credit,
+                       COUNT(DISTINCT rc.referred_id) AS active_referrals,
+                       COALESCE(SUM(rc.commission), 0) AS total_commission
+                FROM referral_commissions rc
+                LEFT JOIN players p ON p.user_id = rc.referrer_id
+                GROUP BY rc.referrer_id
+                ORDER BY total_commission DESC
+                LIMIT ?
                 """,
                 (limit,),
             ).fetchall()
