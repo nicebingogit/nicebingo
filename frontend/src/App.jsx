@@ -407,7 +407,7 @@ export default function App() {
         onToggleSettings={() => setShowSettings((s) => !s)}
         connected={!error}
         phase={state?.phase}
-        realPlayers={state?.real_players ?? 0}
+        realPlayers={(state?.real_players ?? 0) + (state?.bots_players ?? 0)}
         cardsInPlay={state?.cards_in_play ?? 0}
       />
 
