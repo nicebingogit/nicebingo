@@ -948,7 +948,11 @@ def api_admin_users():
     """Full user list (name, phone, credit, history) for the admin panel."""
     if _require_admin() is None:
         return jsonify({"error": "Unauthorized"}), 403
-    return jsonify({"users": db.get_all_players()})
+    users = db.get_all_players()
+    for u in users:
+        u["referral_count"] = db.get_referral_count(u["user_id"])
+        u["referral_commission"] = db.get_referral_stats(u["user_id"])["total_commission"]
+    return jsonify({"users": users})
 
 
 @app.route("/api/admin/users/delete", methods=["POST"])

@@ -648,16 +648,32 @@ class PremiumBingoBot:
                 reply_markup=self.get_main_menu(user_id),
                 parse_mode="Markdown")
             return
-        context.user_data["wallet_flow"] = {"kind": kind, "step": "amount"}
+        # Bank selection comes FIRST — the user picks the bank, then the amount.
+        settings = await self._get("/api/wallet/settings", {})
+        providers = settings.get("providers") or []
+        accounts = {d["provider"]: d["account"]
+                    for d in settings.get("deposit_accounts") or []}
+        if not providers:
+            await query.edit_message_text(
+                "⏳ No bank accounts are available right now — please try "
+                "again later.", reply_markup=self.get_main_menu(user_id))
+            return
+        banks = {str(a["id"]): p for p, a in accounts.items()}
+        accts = {str(a["id"]): a for p, a in accounts.items()}
+        context.user_data["wallet_flow"] = {
+            "kind": kind, "step": "bank",
+            "banks": banks, "accounts": accts,
+        }
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
         label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
-        hint = (f"Minimum withdrawal is {config.MIN_WITHDRAWAL} "
-                f"{config.APP_CURRENCY}." if kind == "withdraw"
-                else "You will pick the bank to pay into next.")
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
+                    for p in providers]
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
         await query.edit_message_text(
-            f"💰 **New {label}**\n\nEnter the amount in {config.APP_CURRENCY}.\n_{hint}_",
-            reply_markup=cancel_kb, parse_mode="Markdown")
+            f"💰 **New {label}**\n\n🏦 Choose the bank:" if kind == "deposit"
+            else f"💰 **New {label}**\n\n🏦 Which bank should receive your money?",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     async def _wallet_flow_text(self, update: Update,
                                 context: ContextTypes.DEFAULT_TYPE, raw: str):
@@ -690,27 +706,24 @@ class PremiumBingoBot:
                         reply_markup=cancel_kb)
                     return
             flow["amount"] = amount
-            # both flows pick a bank from the live payment-account list
-            settings = await self._get("/api/wallet/settings", {})
-            providers = settings.get("providers") or []
-            accounts = {d["provider"]: d["account"]
-                        for d in settings.get("deposit_accounts") or []}
-            if not providers:
-                context.user_data.pop("wallet_flow", None)
+            # bank is already selected — move to the next step
+            if kind == "deposit":
+                flow["step"] = "tx"
+                provider = flow.get("provider", "")
+                acc = flow.get("_selected_acc") or {}
                 await update.message.reply_text(
-                    "⏳ No bank accounts are available right now — please try "
-                    "again later.", reply_markup=self.get_main_menu(user_id))
-                return
-            flow["banks"] = {str(a["id"]): p for p, a in accounts.items()}
-            flow["accounts"] = {str(a["id"]): a for p, a in accounts.items()}
-            flow["step"] = "bank"
-            keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
-                        for p in providers]
-            keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
-            await update.message.reply_text(
-                "🏦 Choose the bank:" if kind == "deposit"
-                else "🏦 Which bank should receive your money?",
-                reply_markup=InlineKeyboardMarkup(keyboard))
+                    f"🏦 **{provider}**\n"
+                    f"Holder: {_md(acc.get('account_name', '?'))}\n"
+                    f"Number: `{acc.get('account_number', '?')}`\n\n"
+                    "Send the money to this account with your wallet app, then type "
+                    "the **transaction number** shown there:",
+                    reply_markup=cancel_kb, parse_mode="Markdown")
+            else:
+                flow["step"] = "holder"
+                await update.message.reply_text(
+                    "👤 Enter the account **holder's name** (whose account "
+                    "should receive the money):",
+                    reply_markup=cancel_kb, parse_mode="Markdown")
         elif step == "tx":
             flow["tx_id"] = raw[:100]
             await self._wallet_submit(update, context, flow)
@@ -757,19 +770,22 @@ class PremiumBingoBot:
         flow["provider"] = provider
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
+        # Bank selected — now ask for the amount (bank-first flow)
+        flow["_selected_acc"] = acc  # store for display later
         if flow.get("kind") == "deposit":
-            flow["step"] = "tx"
+            flow["step"] = "amount"
             await query.edit_message_text(
                 f"🏦 **{provider}**\n"
                 f"Holder: {_md(acc.get('account_name', '?'))}\n"
                 f"Number: `{acc.get('account_number', '?')}`\n\n"
-                "Send the money to this account with your wallet app, then type "
-                "the **transaction number** shown there:",
+                f"Now enter the amount in {config.APP_CURRENCY} you sent:",
                 reply_markup=cancel_kb, parse_mode="Markdown")
         else:
-            flow["step"] = "holder"
+            flow["step"] = "amount"
             await query.edit_message_text(
-                f"🏦 **{provider}** selected.\n\nEnter the account holder's name:",
+                f"🏦 **{provider}** selected.\n\n"
+                f"Enter the amount in {config.APP_CURRENCY} you want to withdraw "
+                f"(minimum {config.MIN_WITHDRAWAL}):",
                 reply_markup=cancel_kb, parse_mode="Markdown")
         context.user_data["wallet_flow"] = flow
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { playClick, PACKS, getPack, setPack } from '../sound.js';
 import { PATTERN_LABELS } from '../bingo.js';
+import ReferralPanel from './ReferralPanel.jsx';
 
 const TX_STATUS = {
   pending: { label: '⏳ Pending', cls: 'pending' },
@@ -254,6 +255,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
         {[
           ['wallet', '💰 Wallet'],
           ['profile', '👤 Profile'],
+          ['referral', '🔗 Referral'],
           ['sound', '🔊 Sound'],
           ['help', '❓ Help & Guide'],
         ].map(([id, label]) => (
@@ -608,6 +610,11 @@ export default function Settings({ user, settings, config, onChanged, onError, o
             )}
           </div>
         </div>
+      )}
+
+      {/* -------------------------------------------------------- REFERRAL */}
+      {tab === 'referral' && (
+        <ReferralPanel onError={onError} onClose={() => setTab('wallet')} />
       )}
 
       {/* ----------------------------------------------------------- SOUND */}

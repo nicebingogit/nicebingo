@@ -124,7 +124,7 @@ def room_label(room: int) -> str:
 # ---------------------------------------------------------------------------
 # Game timing (seconds)
 # ---------------------------------------------------------------------------
-PREPARATION_SECONDS = _int("PREPARATION_SECONDS", 60)      # between rounds
+PREPARATION_SECONDS = _int("PREPARATION_SECONDS", 40)      # between rounds
 CALL_INTERVAL_SECONDS = _int("CALL_INTERVAL_SECONDS", 4)   # between called numbers
 # How often the server-side game loop wakes up. 1 = real-time (local / Docker).
 # On throttled free hosts (PythonAnywhere) set TICK_INTERVAL=3 to cut CPU ~3x;

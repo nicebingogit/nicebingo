@@ -558,6 +558,8 @@ export default function SuperAdminPanel({ onError }) {
               <div className="profile-row"><span className="muted">Rounds played</span><b>{selected.rounds ?? 0}</b></div>
               <div className="profile-row"><span className="muted">Wins</span><b>{selected.wins ?? 0}</b></div>
               <div className="profile-row"><span className="muted">Total winnings</span><b className="gold">{selected.total_winnings ?? 0} ETB</b></div>
+              <div className="profile-row"><span className="muted">Referrals</span><b>{selected.referral_count ?? 0} users</b></div>
+              <div className="profile-row"><span className="muted">Referral earnings</span><b className="gold">{selected.referral_commission ?? 0} ETB</b></div>
             </div>
 
             <div className="credit-edit">

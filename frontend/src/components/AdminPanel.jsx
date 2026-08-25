@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { playClick } from '../sound.js';
-import ReferralPanel from './ReferralPanel.jsx';
 
 const TX_STATUS = {
   pending: { label: '⏳ Pending', cls: 'pending' },
@@ -216,7 +215,6 @@ export default function AdminPanel({ room, onError, onChanged }) {
           ['users', '👥 Users'],
           ['transactions', '🧾 Wallet'],
           ['accounts', '💳 Accounts'],
-          ['referral', '🔗 Referral'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -405,11 +403,6 @@ export default function AdminPanel({ room, onError, onChanged }) {
         </div>
       )}
 
-      {/* -------------------------------------------------------- REFERRAL */}
-      {tab === 'referral' && (
-        <ReferralPanel onError={onError} onClose={() => setTab('users')} />
-      )}
-
       {/* ------------------------------------------------ USER DETAIL MODAL */}
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
@@ -428,6 +421,8 @@ export default function AdminPanel({ room, onError, onChanged }) {
               <div className="profile-row"><span className="muted">Rounds played</span><b>{selected.rounds ?? 0}</b></div>
               <div className="profile-row"><span className="muted">Wins</span><b>{selected.wins ?? 0}</b></div>
               <div className="profile-row"><span className="muted">Total winnings</span><b className="gold">{selected.total_winnings ?? 0} ETB</b></div>
+              <div className="profile-row"><span className="muted">Referrals</span><b>{selected.referral_count ?? 0} users</b></div>
+              <div className="profile-row"><span className="muted">Referral earnings</span><b className="gold">{selected.referral_commission ?? 0} ETB</b></div>
               <div className="profile-row"><span className="muted">Account created</span><b>{selected.created_at?.slice(0, 10) || '—'}</b></div>
             </div>
 
