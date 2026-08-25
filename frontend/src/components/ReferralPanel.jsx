@@ -30,7 +30,7 @@ export default function ReferralPanel({ onError, onClose }) {
   useEffect(() => { loadData(); }, [loadData]);
 
   const refLink = stats
-    ? `https://t.me/${window.__bot_username || 'YourBot'}?start=REF_${stats.referrer_id}`
+    ? `https://t.me/${window.__bot_username || 'nice_bingobot'}?start=REF_${stats.referrer_id}`
     : '';
 
   const copyLink = async () => {
