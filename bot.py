@@ -245,22 +245,33 @@ class PremiumBingoBot:
         
 
     async def text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Captures the full name when the bot is waiting for it (after /start)."""
+        """Captures the full name when the bot is waiting for it (after /start),
+        or processes one step of the deposit/withdraw wallet chat flow."""
         user = update.effective_user
+        raw = (update.message.text or "").strip()
+        # --- wallet chat flow takes priority over everything ---
+        if context.user_data.get("wallet_flow"):
+            if not raw:
+                await update.message.reply_text("Please enter a value.")
+                return
+            try:
+                await self._wallet_flow_text(update, context, raw)
+            except Exception as exc:
+                logger.warning("wallet flow error: %s", exc)
+                context.user_data.pop("wallet_flow", None)
+                await update.message.reply_text(
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user.id))
+            return
         player0 = db.get_player(user.id) or {}
         if (player0.get("full_name") or "").strip():
             # already registered — nothing to collect (state lives in the DB,
             # so onboarding survives bot restarts / web-app reloads)
             context.user_data.pop("awaiting_full_name", None)
             return
-        raw = (update.message.text or "").strip()
         if not raw:
             await update.message.reply_text(
                 "Please enter your full name — it can't be empty.", parse_mode="Markdown")
-            return
-        # a running deposit/withdraw chat flow takes priority over onboarding
-        if context.user_data.get("wallet_flow"):
-            await self._wallet_flow_text(update, context, raw)
             return
         if len(raw) > 60:
             await update.message.reply_text(
@@ -593,6 +604,20 @@ class PremiumBingoBot:
                                               reply_markup=self.get_main_menu(user_id))
         elif data == "referral":
             await self._show_referral(update, context, user_id)
+        elif data == "referral_copy":
+            # re-show the referral so the user can long-press to copy
+            try:
+                bot_username = (await context.bot.get_me()).username
+            except Exception:
+                bot_username = "YourBingoBot"
+            ref_link = f"https://t.me/{bot_username}?start=REF_{user_id}"
+            await query.edit_message_text(
+                f"📋 **Copy this link:**\n`{ref_link}`\n\n"
+                "Long-press the link above to copy it, then share it with friends!",
+                reply_markup=self.get_main_menu(user_id),
+                parse_mode="Markdown")
+        elif data == "referral_stats":
+            await self._show_referral(update, context, user_id)
         elif data in ("wallet_deposit", "wallet_withdraw"):
             await self._wallet_start(update, context,
                                      "deposit" if data == "wallet_deposit" else "withdraw")
@@ -611,16 +636,17 @@ class PremiumBingoBot:
     async def _wallet_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                             kind: str):
         """Start a deposit/withdraw conversation IN THE CHAT — available before
-        the Mini App is ever opened."""
+        the Mini App is ever opened.  Requires only a stored full name (the
+        phone number is NOT needed for bot-chat wallet flows)."""
         query = update.callback_query
         await query.answer()
         user_id = update.effective_user.id
         player = db.get_player(user_id)
-        if not player or not player.get("is_registered"):
+        if not player or not (player.get("full_name") or "").strip():
             await query.edit_message_text(
-                "⛔ Please register first — open the game once and share your "
-                "phone number, then come back here.",
-                reply_markup=self.get_main_menu(user_id))
+                "⛔ Please send **/start** and enter your full name first.",
+                reply_markup=self.get_main_menu(user_id),
+                parse_mode="Markdown")
             return
         context.user_data["wallet_flow"] = {"kind": kind, "step": "amount"}
         cancel_kb = InlineKeyboardMarkup(
@@ -922,22 +948,27 @@ class PremiumBingoBot:
         """Send every queued bot_notification over Telegram (best effort).
 
         server.py enqueues deposit/withdraw/appeal alerts into the shared DB;
-        the announcer drains the queue on every tick so admins are notified by
-        bot message as soon as something needs their attention — even when the
-        bot runs in a different process (polling mode).
+        the bot's announcer tick drains the queue and sends it so admins are
+        notified by bot message as soon as something needs their attention —
+        even when the bot runs in a different process (polling mode).
         """
         try:
             for n in db.get_unsent_bot_notifications(50):
+                sent = False
                 try:
                     if self.application is not None and self.application.bot:
                         await self.application.bot.send_message(
                             chat_id=n["chat_id"], text=n["text"])
+                        sent = True
                 except Forbidden:
                     # recipient blocked/deleted the bot — drop the message
                     logger.info("notification to %s dropped (Forbidden)", n["chat_id"])
+                    sent = True  # no point retrying
                 except Exception as exc:
                     logger.warning("notification to %s failed: %s", n["chat_id"], exc)
-                db.mark_bot_notification_sent(n["id"])
+                    # do NOT mark as sent — the announcer will retry on the next tick
+                if sent:
+                    db.mark_bot_notification_sent(n["id"])
         except Exception as exc:
             logger.warning("notification drain error: %s", exc)
 
