@@ -43,7 +43,7 @@ if not WEBHOOK_SECRET:
 # ADMIN_IDS: comma separated numeric ids, inline "# comments" are allowed.
 ADMIN_IDS: list[int] = []
 for part in os.getenv("ADMIN_IDS", "").split(","):
-    part = part.split("#")[0].strip()
+    part = part.split("#")[0].strip() 
     if part:
         try:
             ADMIN_IDS.append(int(part))
