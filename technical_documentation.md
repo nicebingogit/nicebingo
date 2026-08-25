@@ -3,7 +3,7 @@
 This document describes the current system. It is kept up to date with every
 change so that any developer or AI can refer to it at any time.
 
-> **Latest update:** **Admin transaction visibility + super admin game controls + bot prize doubling** — admins only see their own transactions and those they've approved/declined. Super admins see all transactions and have game controls (start/pause/stop + add bots). Bot entry fees double the prize pool. Only available banks shown to users. High-priority Telegram alerts when no admin available.
+> **Latest update:** **Universal referral + bot-chat wallet + comprehensive logging** — referral is now open to ALL users (not just admins). Deposit/withdraw/referral work directly in the bot chat before the Mini App is ever opened. Super admins see every user's referral count and commission. New-player join and every transaction triggers targeted Telegram alerts to the owning admin + all super admins. Activity log increased to 500 entries with referral commission and round winner logging.
 
 ---
 
@@ -16,17 +16,18 @@ Telegram (user chat)                    Local machine
 │ telegram-bot)       │      │   - hosts the Mini App (frontend/dist)       │
 │  - /start name      │      │   - JSON API (game, wallet, admin)           │
 │  - /play button     │      │   - APScheduler game loop (source of truth)  │
-│  - announcer        │      └──────────────┬───────────────────────────────┘
-└─────────────────────┘                     │
-     ▲ Telegram Mini App (frontend/src → dist, built by Vite/React)
-     │     └────────────────────────────────┘
+│  - /deposit /withdraw│     └──────────────┬───────────────────────────────┘
+│  - /referral        │                     │
+│  - announcer        │     ▲ Telegram Mini App (frontend/src → dist, built by Vite/React)
+└─────────────────────┘     │     └────────────────────────────────┘
                     SQLite (bingo_bot.db — WAL)
 ```
 
 * The **Flask server** owns the game loop and every authoritative decision
   (bets, winners, eliminations, credit, wallet).
-* The **bot** only talks to the user in chat (collects the full name once),
-  opens the Mini App, and announces rounds. It never runs the game.
+* The **bot** collects the full name once, opens the Mini App, announces
+  rounds, and now also handles **deposit/withdraw/referral flows directly
+  in the chat** — no need to open the Mini App first.
 * The **Mini App** is the main UI. The **Telegram user ID** (verified through
   `initData` signature) is the authoritative identity; the server never trusts
   the frontend for authorization or financial operations.
@@ -109,6 +110,33 @@ Profile**. Both fields are optional but at least one must be present:
   chat) or deleting the account in **Settings → Profile** wipes the account
   (`delete_player`), so the same person can register again with new credentials.
 * Broadcasting catches `Forbidden` (blocked user) and auto-deletes the account.
+
+### 2.5 Referral deep-links
+
+When a user sends `/start REF_<referrer_id>`, the bot records the referral
+relationship (if not already set) and notifies the referrer. **Any user can
+refer friends** — the referral feature is no longer limited to admins. The
+referral link is available via the **🔗 My Referral Link** button in the main
+menu, the `/referral` command, and inside the Mini App.
+
+### 2.6 Bot-chat wallet (before the Mini App)
+
+**Deposit**, **Withdraw**, and **Referral** all work directly in the bot chat —
+the user never needs to open the Mini App first. The main menu shows three
+inline buttons:
+
+* **🔗 My Referral Link** — shows the user's referral link + stats.
+* **⬇️ Deposit** — starts a multi-step deposit conversation in the chat:
+  enter amount → pick a bank → enter transaction number → submit.
+* **⬆️ Withdraw** — starts a multi-step withdrawal conversation in the chat:
+  enter amount → pick a bank → enter account holder + number → submit.
+
+The bot uses the server's `/api/wallet/settings` endpoint to fetch the live
+bank list, and `/api/transactions` to submit requests. The flow is stored in
+`context.user_data["wallet_flow"]` and supports cancellation at any step.
+
+Commands: `/deposit`, `/withdraw`, `/referral` — all available before the Mini
+App is ever opened.
 
 ---
 
@@ -435,10 +463,23 @@ drains the queue and sends it (`notify_admins` / `notify_user`). This works in
 **both polling and webhook modes**, even when server and bot run in separate
 processes (local desktop: two processes, one SQLite file).
 
-* **Deposit request** → alert to the **owner admin** of the paid-in account
-  (only they can approve it).
-* **Withdraw request** → alert to **every admin**.
-* **No admin available** → high-priority alert to **every Super Admin** when a player tries to deposit/withdraw but no admin is online or has sufficient balance.
+**New player join:**
+* Alert to the **referring user** who referred them (if any).
+* Alert to **every Super Admin** (always — regardless of referrer).
+
+**Deposit request:**
+* Alert to the **owner admin** of the paid-in account (always — even if
+  offline or low on credit).
+* Alert to **every Super Admin** with an offline/low-credit warning if the
+  owner admin is not available.
+
+**Withdraw request:**
+* Alert to **every admin** plus **every Super Admin**.
+
+**No admin available** → high-priority alert to **every Super Admin** when a
+player tries to deposit/withdraw but no admin is online or has sufficient
+balance.
+
 * **Appeal filed** → alert to **every Super Admin**.
 * **Appeal resolved** → alert to the user.
 
@@ -504,14 +545,17 @@ The 👑 **Super** button opens the **SuperAdminPanel** with five tabs:
 
 * **📊 Overview** — **game controls** (Start / Pause / Resume / Stop / Add Bots with room selector), counts: total accounts, admins, pending wallet requests, pending appeals, payment accounts. Super admins can pause/resume/stop/start rounds and manually add bots.
 * **👥 All accounts** — EVERY account (admins AND users) with name, phone,
-  credit, role badge and online/offline badge. Tapping a row
-  opens a detail modal with **＋/− controls for player credit**.
-  The modal also has a **🛠 Make admin / Demote to user** button: promoted admins immediately get
-  the full 🛠 Admin panel, can post their own payment accounts and approve
-  wallet requests. Core admins (from
-  `ADMIN_IDS` in `.env`) are marked "core admin" and cannot be demoted from
-  the panel.
-* **🧾 All logs** — every transaction (any status) with ✓ Approve / ✕ Reject for pending ones.
+  credit, role badge, online/offline badge, **referral count** and **total
+  commission earned**. Tapping a row opens a detail modal with **＋/−
+  controls for player credit**. The modal also has a **🛠 Make admin /
+  Demote to user** button: promoted admins immediately get the full 🛠
+  Admin panel, can post their own payment accounts and approve wallet
+  requests. Core admins (from `ADMIN_IDS` in `.env`) are marked "core
+  admin" and cannot be demoted from the panel.
+* **🧾 All logs** — every activity event (transactions, referral signups,
+  referral commissions, round winners, appeal actions, new player joins,
+  registrations) with ✓ Approve / ✕ Reject for pending transactions.
+  Activity log shows up to 500 recent entries.
 * **💳 Accounts** — every admin's payment account with owner name + online status; **reassign owner** (dropdown of admins), activate/deactivate and delete.
 * **⚖️ Appeals** — every wallet appeal (user, amount, reason, tx status);
   **✓ Approve** (credits the user) or **✕ Reject** with a resolution note.
@@ -599,7 +643,11 @@ All migrations are idempotent (`CREATE TABLE IF NOT EXISTS` +
 | `/api/claim-bingo` | POST | Valid claim → winner; false claim → `eliminated:true` |
 | `/api/history` / `/api/leaderboard` | GET | Stats |
 | `/api/transactions` | GET/POST | Own wallet requests (POST: deposit = amount + tx number + payment account; withdraw = amount + account name / holder / number) |
+| `/api/wallet/settings` | GET | Public wallet settings (bank list, deposit accounts) — used by bot-chat deposit/withdraw flows |
 | `/api/appeals` | GET/POST | Own appeals; POST files one for a pending/rejected deposit (`transaction_id` + `reason`) — only super admins resolve them |
+| `/api/referral/link` | GET | Caller's referral link + stats (available to ALL users, not just admins) |
+| `/api/referral/commissions` | GET | Caller's recent commission entries (available to ALL users) |
+| `/api/referral/register` | POST | Register a referral relationship (ANY user can refer, not just admins) |
 | `/api/admin/*` | — | All guarded by `ADMIN_IDS` (server-side) |
 | `/api/superadmin/*` | — | Guarded by `SUPER_ADMIN_IDS` membership only (no `ADMIN_IDS` required) |
 
@@ -610,7 +658,8 @@ Admin endpoints: `stats`, `bots`, `force-start`, `force-call`, `reset`,
 
 Super Admin endpoints:
 * `GET /api/superadmin/users` — every account (admins + users) with credit,
-  admin credit, role (`env_admin` marker) + online status;
+  admin credit, role (`env_admin` marker), online status, **referral count**
+  and **total referral commission**;
 * `POST /api/superadmin/admin` — `{user_id, is_admin}` **promote/demote** a
   user to admin (`players.is_admin`); demoting a core `.env` admin is rejected;
   uses a two-step upsert so the player row is created if it doesn't exist;
@@ -633,7 +682,11 @@ Super Admin endpoints:
 * `GET /api/superadmin/appeals` — all appeals joined with user + tx;
 * `POST /api/superadmin/appeals/resolve` — `{id, action: approve|reject,
   resolution?}`; approve credits the user + charges the owner admin's credit
-  (works even if the admin had rejected the deposit).
+  (works even if the admin had rejected the deposit);
+* `GET /api/superadmin/referrals` — every referrer (admin or user) with
+  referral count, active referrals, total commission, and referred user list;
+* `GET /api/superadmin/activity-log` — up to 500 recent activity events
+  (transactions, referrals, commissions, round winners, appeals, registrations).
 
 `_require_admin()` resolves `admin_id` from JSON body or query params and
 rejects anything not in `config.ADMIN_IDS` (and touches `last_seen` for
@@ -768,10 +821,10 @@ server + tunnel + bot.
 
 | File | Role |
 |---|---|
-| `bot.py` | chat onboarding (full name), announcements, auto-delete on block, notification-queue drain, admin credit line in `/admin` |
-| `server.py` | Flask API + admin + payment accounts + registration contracts, online tracking, 90% admin-credit approval, appeals + super-admin console |
+| `bot.py` | chat onboarding (full name), announcements, auto-delete on block, notification-queue drain, admin credit line in `/admin`, **bot-chat wallet flow** (deposit/withdraw via `/deposit`, `/withdraw`, inline buttons), **referral for all users** (`/referral`, inline button) |
+| `server.py` | Flask API + admin + payment accounts + registration contracts, online tracking, 90% admin-credit approval, appeals + super-admin console, **`/api/wallet/settings`**, **`/api/superadmin/referrals`**, **targeted new-player + transaction notifications** |
 | `database.py` | schema, migrations, wallet/elimination/accounts storage, admin credit + online + deposit-account selection, appeals + notification queue |
-| `game_loop.py` | round lifecycle, claim validation + elimination, sequential bot joining during preparation |
+| `game_loop.py` | round lifecycle, claim validation + elimination, sequential bot joining during preparation, **round winner logging**, **referral commission logging** |
 | `game_logic.py` | patterns, winner lookup (skips eliminated), prize pool, bot names |
 | `config.py` | `APP_CURRENCY`, rooms (`ROOM_BETS` default: 10/20/30), timing, `ADMIN_IDS`, `SUPER_ADMIN_IDS`, `ADMIN_APPROVAL_RATE`, `ADMIN_ONLINE_MINUTES` |
 | `migrate_db.py` | idempotent schema/seed helper |
@@ -825,6 +878,54 @@ unchanged to any Docker host (paid plans, Railway, a VPS) — only the env vars
 ---
 
 ## Changelog
+
+### 2026-08-25 — Universal referral + bot-chat wallet + comprehensive logging
+
+**Changes:**
+* **Referral for ALL users**: the referral feature is no longer admin-only.
+  Any user can generate a referral link and earn 5% commission on their
+  referrals' bets. The `is_admin` check was removed from `/api/referral/link`,
+  `/api/referral/commissions`, `/api/referral/register`, and the bot's
+  `/start REF_<id>` handler.
+* **Bot-chat wallet flows**: deposit, withdraw and referral all work directly
+  in the Telegram bot chat — no need to open the Mini App first. The main
+  menu shows **⬇️ Deposit**, **⬆️ Withdraw** and **🔗 My Referral Link**
+  inline buttons. Commands `/deposit`, `/withdraw`, `/referral` are also
+  registered. The wallet flow is a multi-step conversation stored in
+  `context.user_data["wallet_flow"]` with cancel support at every step.
+* **`/api/wallet/settings`**: new public endpoint that returns the live bank
+  list and deposit accounts — used by the bot-chat deposit/withdraw flows
+  to fetch bank options before the Mini App is opened.
+* **Targeted new-player notifications**: when a new user joins via
+  `/api/init`, the Telegram announcement goes to the **referring user** (if
+  any) AND to **every Super Admin** (always).
+* **Targeted transaction notifications**: a DEPOSIT alert goes to the
+  **owning admin** (always — even if offline or low on credit) plus every
+  Super Admin (with offline/low-credit warnings). A WITHDRAW alert goes to
+  **every admin** plus **every Super Admin**.
+* **Super admin sees referral details**: `/api/superadmin/users` now includes
+  `referral_count` and `referral_commission` for every account.
+* **`/api/superadmin/referrals`**: new endpoint showing every referrer
+  (admin or user) with their totals, active referrals, and referred user
+  list.
+* **Referral commission logging**: every commission payment is logged via
+  `log_activity('referral_commission', ...)` for the super admin's All Logs
+  view.
+* **Round winner logging**: every round winner is logged via
+  `log_activity('round_winner', ...)` for the super admin's All Logs view.
+* **Activity log expanded**: `/api/superadmin/activity-log` now returns up to
+  500 entries (was 200).
+* **Help text updated**: the /help command now lists `/deposit`, `/withdraw`,
+  `/referral` and mentions that wallet + referral work in the chat.
+* **Main menu updated**: every user sees Referral + Deposit + Withdraw
+  buttons in the bot chat main menu (previously referral was admin-only).
+* **User payload updated**: `_user_payload()` now includes `referral_count`
+  and `referral_commission` for every user (not just admins).
+
+**Files changed:** `bot.py`, `server.py`, `game_loop.py`,
+`technical_documentation.md`
+
+**Database:** no schema change.
 
 ### 2026-08-19 — Bank selection + admin account restriction
 

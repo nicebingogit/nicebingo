@@ -136,9 +136,13 @@ class PremiumBingoBot:
             [InlineKeyboardButton("🎲 My Cards", callback_data="my_cards"),
              InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
         ]
-        # admins get a referral link button
-        if user_id and db.is_admin(user_id):
-            rows.append([InlineKeyboardButton("🔗 My Referral Link", callback_data="referral")])
+        # referral + wallet are available to EVERYONE right in the bot chat —
+        # before the Mini App is ever opened
+        rows.append([InlineKeyboardButton("🔗 My Referral Link", callback_data="referral")])
+        rows.append([
+            InlineKeyboardButton("⬇️ Deposit", callback_data="wallet_deposit"),
+            InlineKeyboardButton("⬆️ Withdraw", callback_data="wallet_withdraw"),
+        ])
         rows.append([InlineKeyboardButton("❓ Help", callback_data="help")])
         return InlineKeyboardMarkup(rows)
 
@@ -190,16 +194,15 @@ class PremiumBingoBot:
         # process referral if valid
         if referrer_id and referrer_id != user.id:
             existing_ref = db.get_referred_by(user.id)
-            if existing_ref is None and db.is_admin(referrer_id):
+            # ANY user can refer friends — the feature is not admin-only anymore
+            if existing_ref is None:
                 db.create_referral(referrer_id, user.id)
                 try:
                     db.log_activity('referral_signup', user.id,
-                                   f'Referred by admin {referrer_id}')
+                                   f'Referred by {referrer_id}')
                 except Exception:
                     pass
-                # notify the referring admin
-                referrer_name = db.get_player(referrer_id)
-                ref_name = (referrer_name or {}).get('full_name') or 'Admin'
+                # notify the referring user
                 try:
                     from bot import notify_user
                     notify_user(referrer_id, [
@@ -254,6 +257,10 @@ class PremiumBingoBot:
         if not raw:
             await update.message.reply_text(
                 "Please enter your full name — it can't be empty.", parse_mode="Markdown")
+            return
+        # a running deposit/withdraw chat flow takes priority over onboarding
+        if context.user_data.get("wallet_flow"):
+            await self._wallet_flow_text(update, context, raw)
             return
         if len(raw) > 60:
             await update.message.reply_text(
@@ -473,7 +480,10 @@ class PremiumBingoBot:
             f"marked on your cards automatically\n"
             f"5. Complete a row, column, diagonal or four corners and press **BINGO!**\n"
             f"6. Winner takes **80%** of the room's prize pool — paid instantly\n\n"
-            "Commands: /start, /play, /status, /balance, /cards, /history, /top, /help",
+            "💰 Deposit / ⬆️ Withdraw / 🔗 Referral work right here in the chat — "
+            "no need to open the game first!\n\n"
+            "Commands: /start, /play, /deposit, /withdraw, /referral, /status, "
+            "/balance, /cards, /history, /top, /help",
             reply_markup=self.get_main_menu(uid),
             parse_mode="Markdown",
         )
@@ -583,10 +593,192 @@ class PremiumBingoBot:
                                               reply_markup=self.get_main_menu(user_id))
         elif data == "referral":
             await self._show_referral(update, context, user_id)
+        elif data in ("wallet_deposit", "wallet_withdraw"):
+            await self._wallet_start(update, context,
+                                     "deposit" if data == "wallet_deposit" else "withdraw")
+        elif data.startswith("wbank_"):
+            await self._wallet_bank_pick(update, context)
+        elif data == "wallet_cancel":
+            context.user_data.pop("wallet_flow", None)
+            await query.edit_message_text("❌ Request cancelled.",
+                                          reply_markup=self.get_main_menu(user_id))
         elif data.startswith("admin_"):
             await self.admin_callback_handler(update, context)
         else:
             await query.edit_message_text("Unknown action.")
+
+    # ------------------------------------------------- wallet (bot chat)
+    async def _wallet_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                            kind: str):
+        """Start a deposit/withdraw conversation IN THE CHAT — available before
+        the Mini App is ever opened."""
+        query = update.callback_query
+        await query.answer()
+        user_id = update.effective_user.id
+        player = db.get_player(user_id)
+        if not player or not player.get("is_registered"):
+            await query.edit_message_text(
+                "⛔ Please register first — open the game once and share your "
+                "phone number, then come back here.",
+                reply_markup=self.get_main_menu(user_id))
+            return
+        context.user_data["wallet_flow"] = {"kind": kind, "step": "amount"}
+        cancel_kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
+        label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
+        hint = (f"Minimum withdrawal is {config.MIN_WITHDRAWAL} "
+                f"{config.APP_CURRENCY}." if kind == "withdraw"
+                else "You will pick the bank to pay into next.")
+        await query.edit_message_text(
+            f"💰 **New {label}**\n\nEnter the amount in {config.APP_CURRENCY}.\n_{hint}_",
+            reply_markup=cancel_kb, parse_mode="Markdown")
+
+    async def _wallet_flow_text(self, update: Update,
+                                context: ContextTypes.DEFAULT_TYPE, raw: str):
+        """One text step of the deposit/withdraw chat flow."""
+        user_id = update.effective_user.id
+        flow = context.user_data.get("wallet_flow") or {}
+        kind, step = flow.get("kind"), flow.get("step")
+        cancel_kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
+        if step == "amount":
+            try:
+                amount = int(raw.replace(",", "").strip())
+            except ValueError:
+                await update.message.reply_text(
+                    "Please enter a plain number, e.g. 200", reply_markup=cancel_kb)
+                return
+            if amount <= 0:
+                await update.message.reply_text("Amount must be positive.",
+                                                reply_markup=cancel_kb)
+                return
+            if kind == "withdraw":
+                if amount < config.MIN_WITHDRAWAL:
+                    await update.message.reply_text(
+                        f"Minimum withdrawal is {config.MIN_WITHDRAWAL} "
+                        f"{config.APP_CURRENCY}.", reply_markup=cancel_kb)
+                    return
+                if db.get_credit(user_id) < amount:
+                    await update.message.reply_text(
+                        "Insufficient balance for this withdrawal.",
+                        reply_markup=cancel_kb)
+                    return
+            flow["amount"] = amount
+            # both flows pick a bank from the live payment-account list
+            settings = await self._get("/api/wallet/settings", {})
+            providers = settings.get("providers") or []
+            accounts = {d["provider"]: d["account"]
+                        for d in settings.get("deposit_accounts") or []}
+            if not providers:
+                context.user_data.pop("wallet_flow", None)
+                await update.message.reply_text(
+                    "⏳ No bank accounts are available right now — please try "
+                    "again later.", reply_markup=self.get_main_menu(user_id))
+                return
+            flow["banks"] = {str(a["id"]): p for p, a in accounts.items()}
+            flow["accounts"] = {str(a["id"]): a for p, a in accounts.items()}
+            flow["step"] = "bank"
+            keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
+                        for p in providers]
+            keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
+            await update.message.reply_text(
+                "🏦 Choose the bank:" if kind == "deposit"
+                else "🏦 Which bank should receive your money?",
+                reply_markup=InlineKeyboardMarkup(keyboard))
+        elif step == "tx":
+            flow["tx_id"] = raw[:100]
+            await self._wallet_submit(update, context, flow)
+        elif step == "holder":
+            if len(raw) > 60:
+                await update.message.reply_text("Name is too long (max 60).",
+                                                reply_markup=cancel_kb)
+                return
+            flow["account_holder"] = raw[:60]
+            flow["step"] = "acct"
+            await update.message.reply_text(
+                "🔢 Enter YOUR account number where the money should be sent:",
+                reply_markup=cancel_kb)
+        elif step == "acct":
+            if len(raw) > 60:
+                await update.message.reply_text("Account number is too long (max 60).",
+                                                reply_markup=cancel_kb)
+                return
+            flow["account_number"] = raw[:60]
+            await self._wallet_submit(update, context, flow)
+        else:
+            context.user_data.pop("wallet_flow", None)
+            await update.message.reply_text("Session expired — start again.",
+                                            reply_markup=self.get_main_menu(user_id))
+        if step in ("amount", "bank", "tx", "holder", "acct") \
+                and not flow.get("_done"):
+            context.user_data["wallet_flow"] = flow
+
+    async def _wallet_bank_pick(self, update: Update,
+                                context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        user_id = update.effective_user.id
+        flow = context.user_data.get("wallet_flow") or {}
+        acc_id = query.data.split("_", 1)[1]
+        provider = (flow.get("banks") or {}).get(acc_id)
+        if not flow or not provider:
+            context.user_data.pop("wallet_flow", None)
+            await query.edit_message_text("Session expired — start again.",
+                                          reply_markup=self.get_main_menu(user_id))
+            return
+        acc = (flow.get("accounts") or {}).get(acc_id) or {}
+        flow["account_id"] = int(acc_id)
+        flow["provider"] = provider
+        cancel_kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
+        if flow.get("kind") == "deposit":
+            flow["step"] = "tx"
+            await query.edit_message_text(
+                f"🏦 **{provider}**\n"
+                f"Holder: {_md(acc.get('account_name', '?'))}\n"
+                f"Number: `{acc.get('account_number', '?')}`\n\n"
+                "Send the money to this account with your wallet app, then type "
+                "the **transaction number** shown there:",
+                reply_markup=cancel_kb, parse_mode="Markdown")
+        else:
+            flow["step"] = "holder"
+            await query.edit_message_text(
+                f"🏦 **{provider}** selected.\n\nEnter the account holder's name:",
+                reply_markup=cancel_kb, parse_mode="Markdown")
+        context.user_data["wallet_flow"] = flow
+
+    async def _wallet_submit(self, update: Update,
+                             context: ContextTypes.DEFAULT_TYPE, flow: dict):
+        """POST the collected deposit/withdraw to the server API."""
+        user_id = update.effective_user.id
+        kind = flow.get("kind")
+        payload = {
+            "user_id": user_id,
+            "type": kind,
+            "amount": flow.get("amount"),
+        }
+        if kind == "deposit":
+            payload["tx_id"] = flow.get("tx_id")
+            payload["payment_account_id"] = flow.get("account_id")
+        else:
+            payload["account_name"] = flow.get("provider")
+            payload["account_holder"] = flow.get("account_holder")
+            payload["account_number"] = flow.get("account_number")
+        result = await self._post("/api/transactions", payload)
+        flow["_done"] = True  # prevents _wallet_flow_text from re-saving it
+        context.user_data.pop("wallet_flow", None)
+        if result.get("ok"):
+            label = "Deposit" if kind == "deposit" else "Withdrawal"
+            await update.message.reply_text(
+                f"✅ **{label} request submitted!**\n\n"
+                f"Amount: {flow.get('amount')} {config.APP_CURRENCY}\n"
+                "The admin has been notified on Telegram and will review it "
+                "shortly. Track it under 💰 Balance → recent requests.",
+                reply_markup=self.get_main_menu(user_id), parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                f"❌ {result.get('error', 'Failed to submit — please try again.')}",
+                reply_markup=self.get_main_menu(user_id))
 
     # ---------------------------------------------------------------- referral
     async def _show_referral(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
@@ -886,6 +1078,10 @@ class PremiumBingoBot:
         self.application.add_handler(CommandHandler("admin", self.admin_command))
         self.application.add_handler(CommandHandler("give", self._give))
         self.application.add_handler(CommandHandler("take", self._take))
+        # wallet + referral are available BEFORE the Mini App opens (chat-only)
+        self.application.add_handler(CommandHandler("referral", self.referral_command))
+        self.application.add_handler(CommandHandler("deposit", self.deposit_command))
+        self.application.add_handler(CommandHandler("withdraw", self.withdraw_command))
         # collects the full name during first-time onboarding (after /start)
         self.application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND, self.text_handler))
@@ -899,6 +1095,46 @@ class PremiumBingoBot:
 
     async def _take(self, update, context):
         await self.give_take_command(update, context, -1)
+
+    async def referral_command(self, update: Update,
+                               context: ContextTypes.DEFAULT_TYPE):
+        """/referral — show the caller's referral link & stats (everyone)."""
+        await self._show_referral(update, context, update.effective_user.id)
+
+    async def deposit_command(self, update: Update,
+                              context: ContextTypes.DEFAULT_TYPE):
+        """/deposit — start a deposit request right in the chat."""
+        class _FakeQuery:
+            """Minimal shim so _wallet_start can answer both commands and taps."""
+            message = update.message
+
+            async def answer(self):
+                pass
+
+            async def edit_message_text(self, text, reply_markup=None,
+                                        parse_mode=None):
+                await update.message.reply_text(text, reply_markup=reply_markup,
+                                                parse_mode=parse_mode)
+
+        update.callback_query = _FakeQuery()
+        await self._wallet_start(update, context, "deposit")
+
+    async def withdraw_command(self, update: Update,
+                               context: ContextTypes.DEFAULT_TYPE):
+        """/withdraw — start a withdrawal request right in the chat."""
+        class _FakeQuery:
+            message = update.message
+
+            async def answer(self):
+                pass
+
+            async def edit_message_text(self, text, reply_markup=None,
+                                        parse_mode=None):
+                await update.message.reply_text(text, reply_markup=reply_markup,
+                                                parse_mode=parse_mode)
+
+        update.callback_query = _FakeQuery()
+        await self._wallet_start(update, context, "withdraw")
 
     async def _on_start(self, application):
         # baseline sync so the first tick doesn't announce a fake phase change

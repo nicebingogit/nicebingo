@@ -188,9 +188,10 @@ def _user_payload(user_id: int, room: int = 30) -> dict:
         # false-BINGO elimination for the CURRENT round only
         "eliminated": eliminated,
         "selections": selections,
-        # referral info: for admins, show referral link and stats
-        "referral_count": db.get_referral_count(user_id) if db.is_admin(user_id) else 0,
-        "referral_commission": db.get_referral_stats(user_id)['total_commission'] if db.is_admin(user_id) else 0,
+        # referral info: EVERY user has a referral link and earns commission —
+        # the feature is not limited to admins anymore
+        "referral_count": db.get_referral_count(user_id),
+        "referral_commission": db.get_referral_stats(user_id)['total_commission'],
     }
 
 
@@ -352,9 +353,19 @@ def api_init():
         try:
             db.log_activity('new_player_joined', user_id,
                            f'Username: {username}')
-            from bot import notify_admins
-            notify_admins(['🆕 NEW PLAYER JOINED',
-                          f'User: {username} (ID: {user_id})'])
+            # Telegram announcement: the REFERRING admin "owns" this new
+            # account, and the SUPER ADMINs always hear about every join.
+            from bot import notify_user
+            join_lines = ['🆕 NEW PLAYER JOINED',
+                          f'User: {username} (ID: {user_id})']
+            referrer_id = db.get_referred_by(user_id)
+            notified = set()
+            if referrer_id and referrer_id > 0:
+                notify_user(referrer_id, join_lines)
+                notified.add(referrer_id)
+            for sa_id in config.SUPER_ADMIN_IDS:
+                if sa_id not in notified:
+                    notify_user(sa_id, join_lines)
         except Exception:
             pass
     else:
@@ -577,9 +588,9 @@ def api_create_transaction():
     except Exception:
         pass
     # alert the right admin(s) in Telegram — high priority, so nothing sits
-    # unreviewed: a DEPOSIT goes to the admin who owns the paid-in account
-    # (only they can approve it and it consumes THEIR credit); a WITHDRAW goes
-    # to every admin (any of them can pay it out).
+    # unreviewed. A DEPOSIT goes to the admin who OWNS the paid-in account
+    # (always, even when offline or short on credit) AND to every super
+    # admin; a WITHDRAW goes to every admin and every super admin.
     try:
         from bot import notify_admins, notify_user
         label = "WITHDRAW" if type_ == "withdraw" else "DEPOSIT"
@@ -592,32 +603,45 @@ def api_create_transaction():
                  "Amount: " + str(amount) + " " + config.APP_CURRENCY]
         if details:
             lines.append("Details: " + details)
+        super_ids = set(config.SUPER_ADMIN_IDS)
         if type_ == "deposit" and account and account.get("admin_id"):
             owner_id = account["admin_id"]
+            # the owning admin is ALWAYS told about their own account's deposit
+            notify_user(owner_id, lines)
+            super_ids.discard(owner_id)
             owner_online = db.is_admin_online(owner_id)
             owner_credit = db.get_credit(owner_id)
-            if owner_online and owner_credit >= amount:
-                # admin is online and has enough credit — notify them
-                notify_user(owner_id, lines)
-            else:
-                # admin offline or insufficient credit — HIGH PRIORITY alert to super admin
-                alert_lines = ["🚨⚠️ HIGH PRIORITY: No admin available for this transaction!",
-                               "User: " + who,
-                               "Amount: " + str(amount) + " " + config.APP_CURRENCY,
-                               "Bank: " + str((account or {}).get("provider", "?"))]
-                if not owner_online:
-                    alert_lines.append("Reason: Admin offline")
-                else:
-                    alert_lines.append("Reason: Admin has insufficient credit (" + str(owner_credit) + " ETB)")
-                alert_lines.append("Please handle this transaction manually.")
-                for sa_id in config.SUPER_ADMIN_IDS:
-                    notify_user(sa_id, alert_lines)
+            sa_lines = list(lines)
+            if not owner_online:
+                sa_lines += ["⚠️ Owner admin (ID " + str(owner_id) +
+                             ") is OFFLINE — may need manual handling."]
+            elif owner_credit < amount:
+                sa_lines += ["⚠️ Owner admin (ID " + str(owner_id) +
+                             ") has insufficient credit (" + str(owner_credit) +
+                             " ETB) — may need manual handling."]
+            for sa_id in super_ids:
+                notify_user(sa_id, sa_lines)
         else:
-            notify_admins(lines)
+            # withdrawals (and legacy deposits without an owning account):
+            # EVERY admin plus every super admin is alerted
+            recipients = set(db.get_admin_ids()) | super_ids
+            for aid in recipients:
+                notify_user(aid, lines)
     except Exception:
         pass  # notifications must never break the request
     return jsonify({"ok": True, "id": row_id,
                     "transaction": db.get_transaction(row_id)})
+
+
+@app.route("/api/wallet/settings")
+def api_wallet_settings():
+    """Public wallet settings for the BOT-CHAT deposit/withdraw flows.
+
+    Lets users submit deposits and withdrawals from the bot chat BEFORE the
+    Mini App is ever opened — same data as state.settings (one deposit
+    account per bank: the online admin with the most credit, with the super
+    admin's account as fallback)."""
+    return jsonify(_settings_payload())
 
 
 @app.route("/api/game-state")
@@ -1249,6 +1273,10 @@ def api_superadmin_users():
     for u in users:
         u["online"] = db.is_admin_online(u["user_id"])
         u["env_admin"] = u["user_id"] in config.ADMIN_IDS
+        # every detail: each account's referral count and total commission
+        # earned, so the super admin sees admins' AND users' referral earnings
+        u["referral_count"] = db.get_referral_count(u["user_id"])
+        u["referral_commission"] = db.get_referral_stats(u["user_id"])["total_commission"]
     return jsonify({"users": users})
 
 
@@ -1578,12 +1606,36 @@ def api_superadmin_appeals():
     return jsonify({"appeals": db.get_all_appeals()})
 
 
+@app.route("/api/superadmin/referrals")
+def api_superadmin_referrals():
+    """The FULL referral picture for the super admin: EVERY referrer (admin
+    or regular user) with their totals and the complete list of referred
+    users."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    referrers = []
+    for e in db.get_referral_top_earners(500):
+        stats = db.get_referral_stats(e["user_id"])
+        referrers.append({
+            "user_id": e["user_id"],
+            "full_name": e.get("full_name"),
+            "username": e.get("username"),
+            "credit": e.get("credit", 0),
+            "is_admin": db.is_admin(e["user_id"]),
+            "total_referrals": stats["total_referrals"],
+            "active_referrals": stats["active_referrals"],
+            "total_commission": stats["total_commission"],
+            "referred_users": stats["referred_users"],
+        })
+    return jsonify({"referrers": referrers})
+
+
 @app.route("/api/superadmin/activity-log")
 def api_superadmin_activity_log():
     """Every critical activity for the super admin activity log."""
     if _require_super_admin() is None:
         return jsonify({"error": "Unauthorized"}), 403
-    return jsonify({"activities": db.get_activity_log(200)})
+    return jsonify({"activities": db.get_activity_log(500)})
 
 
 @app.route("/api/superadmin/appeals/resolve", methods=["POST"])
@@ -1730,12 +1782,11 @@ def telegram_webhook(secret: str):
 # ------------------------------------------------------- referral system
 @app.route("/api/referral/link")
 def api_referral_link():
-    """Return the admin's referral link and stats."""
+    """Return the caller's referral link and stats — available to EVERY user,
+    not just admins."""
     user_id = _user_id_from_request()
     if user_id is None:
         return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
-    if not db.is_admin(user_id):
-        return jsonify({"error": "Only admins have referral links."}), 403
     stats = db.get_referral_stats(user_id)
     return jsonify({
         "referrer_id": user_id,
@@ -1748,12 +1799,10 @@ def api_referral_link():
 
 @app.route("/api/referral/commissions")
 def api_referral_commissions():
-    """Recent commission entries for the admin."""
+    """Recent commission entries for the caller — available to EVERY user."""
     user_id = _user_id_from_request()
     if user_id is None:
         return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
-    if not db.is_admin(user_id):
-        return jsonify({"error": "Unauthorized"}), 403
     return jsonify({"commissions": db.get_referral_commissions(user_id)})
 
 
@@ -1779,8 +1828,7 @@ def api_referral_register():
         return jsonify({"error": "Invalid referrer_id"}), 400
     if referrer_id == user_id:
         return jsonify({"error": "You cannot refer yourself."}), 400
-    if not db.is_admin(referrer_id):
-        return jsonify({"error": "Referrer is not an admin."}), 400
+    # ANY user can refer — the referral feature is not admin-only anymore.
     existing = db.get_referred_by(user_id)
     if existing is not None:
         return jsonify({"ok": True, "message": "Already referred."})
@@ -1789,7 +1837,7 @@ def api_referral_register():
         return jsonify({"error": "Could not create referral."}), 400
     try:
         db.log_activity('referral_signup', user_id,
-                        f'Referred by admin {referrer_id}')
+                        f'Referred by {referrer_id}')
         from bot import notify_user
         referrer_name = db.get_player(referrer_id)
         ref_name = (referrer_name or {}).get('full_name') or 'Admin'

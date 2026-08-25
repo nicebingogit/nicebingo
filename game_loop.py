@@ -215,6 +215,12 @@ class GameLoop:
                                 payload["pattern"], pool["total_bets"], prize,
                                 pool["total_bets"] - prize, "finished")
             self._distribute_referral_commissions(room, state)
+            try:
+                self.db.log_activity('round_winner', winner["user_id"],
+                                     f'{winner_name} won {prize} '
+                                     f'{config.APP_CURRENCY} ({payload["pattern"]})')
+            except Exception:
+                pass
             logger.info("%s winner: %s (%s) won %s",
                         config.room_label(room), winner_name, payload["pattern"], prize)
 
@@ -268,6 +274,16 @@ class GameLoop:
             self.db.record_referral_commission(
                 referrer_id, uid, game_id, room, total_bet, commission)
             self.db.apply_referral_commission(referrer_id, commission)
+            try:
+                referrer_name = self._name_of(referrer_id)
+                referred_name = self._name_of(uid)
+                # every commission is logged for the super admin's All Logs view
+                self.db.log_activity(
+                    'referral_commission', referrer_id,
+                    f'+{commission} {config.APP_CURRENCY} from {referred_name}'
+                    f'\'s bet of {total_bet} (rate {int(rate * 100)}%)')
+            except Exception:
+                pass
             try:
                 from bot import notify_user
                 referrer_name = self._name_of(referrer_id)
