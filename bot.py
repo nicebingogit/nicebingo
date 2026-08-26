@@ -283,21 +283,31 @@ class PremiumBingoBot:
         is_admin = db.is_admin(user.id)
         is_super = user.id in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
+        room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
+        room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
         text = (
             f"🎰  *NICE BINGO*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"Welcome, *{_md(name)}*{badge}\n"
             f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"❓  *How to Play*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"*1.* Tap *🎮 Play Bingo* to open the full-screen arena\n"
+            f"*2.* Pick a room (*{room_names}*) — fixed bet per card "
+            f"({room_bets})\n"
+            f"*3.* During the *{config.PREPARATION_SECONDS}s countdown*, pick up to "
+            f"*{config.MAX_CARDS_PER_PLAYER}* cards\n"
+            f"*4.* A ball is called every *{config.CALL_INTERVAL_SECONDS}s* — "
+            f"numbers are marked automatically\n"
+            f"*5.* Complete a row, column, diagonal or four corners → *BINGO!*\n"
+            f"*6.* Winner takes *80%* of the prize pool — paid instantly\n\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"\n📖 *How to Play*\n"
-            f" 1. Tap *Play Bingo* to open the arena\n"
-            f" 2. Pick a room & select cards (up to {config.MAX_CARDS_PER_PLAYER})\n"
-            f" 3. Wait for the {config.PREPARATION_SECONDS}s countdown\n"
-            f" 4. Balls are called every {config.CALL_INTERVAL_SECONDS}s\n"
-            f" 5. Mark numbers on your card — complete a pattern & press *BINGO!*\n"
-            f" 6. Winner takes *80%* of the prize pool\n\n"
-            f"💰 *Deposit & Withdraw* — tap the buttons below, right in this chat\n\n"
-            f"👇 *Choose an action below:*"
+            f"*💰 Wallet* — Deposit & Withdraw right in this chat\n"
+            f"*🔗 Referral* — Earn 5% commission on every round your friends play\n\n"
+            f"*Commands:*\n"
+            f"`/start`  `/menu`  `/play`  `/status`  `/balance`\n"
+            f"`/deposit`  `/withdraw`  `/referral`  `/help`",
         )
         await update.message.reply_text(
             text,
@@ -354,27 +364,21 @@ class PremiumBingoBot:
                 await self.help_command(update, context)
             elif cb in ("wallet_deposit", "wallet_withdraw"):
                 kind = "deposit" if cb == "wallet_deposit" else "withdraw"
-                class _FakeQ:
-                    message = update.message
-                    async def answer(self, *a, **kw): pass
-                    async def edit_message_text(self, text, reply_markup=None,
-                                                parse_mode=None):
-                        await update.message.reply_text(
-                            text, reply_markup=reply_markup,
-                            parse_mode=parse_mode)
-                update.callback_query = _FakeQ()
-                await self._wallet_start(update, context, kind)
+                try:
+                    await self._wallet_start_reply(update, context, kind)
+                except Exception as exc:
+                    logger.warning("wallet start from reply keyboard: %s", exc)
+                    await update.message.reply_text(
+                        "⚠️ Something went wrong — please try /" + kind + " instead.",
+                        reply_markup=self.get_main_menu(user.id))
             elif cb == "appeal_list":
-                class _FakeQ:
-                    message = update.message
-                    async def answer(self, *a, **kw): pass
-                    async def edit_message_text(self, text, reply_markup=None,
-                                                parse_mode=None):
-                        await update.message.reply_text(
-                            text, reply_markup=reply_markup,
-                            parse_mode=parse_mode)
-                update.callback_query = _FakeQ()
-                await self.appeal_list(update, context)
+                try:
+                    await self.appeal_list(update, context)
+                except Exception as exc:
+                    logger.warning("appeal list from reply keyboard: %s", exc)
+                    await update.message.reply_text(
+                        "⚠️ Something went wrong — please try /requests instead.",
+                        reply_markup=self.get_main_menu(user.id))
             return
         # --- wallet chat flow takes priority over everything ---
         if context.user_data.get("wallet_flow"):
@@ -704,21 +708,31 @@ class PremiumBingoBot:
             is_admin = db.is_admin(user_id)
             is_super = user_id in config.SUPER_ADMIN_IDS
             badge = " ⭐" if is_super else (" 👑" if is_admin else "")
+            room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
+            room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
             text = (
                 f"🎰  *NICE BINGO*\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"Hi, *{_md(name)}*{badge}\n"
                 f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"❓  *How to Play*\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"*1.* Tap *🎮 Play Bingo* to open the full-screen arena\n"
+                f"*2.* Pick a room (*{room_names}*) — fixed bet per card "
+                f"({room_bets})\n"
+                f"*3.* During the *{config.PREPARATION_SECONDS}s countdown*, pick up to "
+                f"*{config.MAX_CARDS_PER_PLAYER}* cards\n"
+                f"*4.* A ball is called every *{config.CALL_INTERVAL_SECONDS}s* — "
+                f"numbers are marked automatically\n"
+                f"*5.* Complete a row, column, diagonal or four corners → *BINGO!*\n"
+                f"*6.* Winner takes *80%* of the prize pool — paid instantly\n\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"\n📖 *How to Play*\n"
-                f" 1. Tap *Play Bingo* to open the arena\n"
-                f" 2. Pick a room & select cards (up to {config.MAX_CARDS_PER_PLAYER})\n"
-                f" 3. Wait for the {config.PREPARATION_SECONDS}s countdown\n"
-                f" 4. Balls are called every {config.CALL_INTERVAL_SECONDS}s\n"
-                f" 5. Mark numbers on your card — complete a pattern & press *BINGO!*\n"
-                f" 6. Winner takes *80%* of the prize pool\n\n"
-                f"💰 *Deposit & Withdraw* — tap the buttons below, right in this chat\n\n"
-                f"👇 *Choose an action below:*"
+                f"*💰 Wallet* — Deposit & Withdraw right in this chat\n"
+                f"*🔗 Referral* — Earn 5% commission on every round your friends play\n\n"
+                f"*Commands:*\n"
+                f"`/start`  `/menu`  `/play`  `/status`  `/balance`\n"
+                f"`/deposit`  `/withdraw`  `/referral`  `/help`",
             )
             try:
                 await query.edit_message_text(
@@ -873,6 +887,41 @@ class PremiumBingoBot:
                     for p in providers]
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
         await query.edit_message_text(
+            f"💰 **New {label}**\n\n🏦 Choose the bank:" if kind == "deposit"
+            else f"💰 **New {label}**\n\n🏦 Which bank should receive your money?",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    async def _wallet_start_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                   kind: str):
+        """Start wallet flow from the reply keyboard — sends new messages
+        instead of editing (reply keyboard messages can't be edited)."""
+        user_id = update.effective_user.id
+        player = db.get_player(user_id)
+        if not player or not (player.get("full_name") or "").strip():
+            await update.message.reply_text(
+                "⛔ Please send /start and enter your full name first.",
+                reply_markup=self.get_main_menu(user_id))
+            return
+        settings = await self._get("/api/wallet/settings", {})
+        providers = settings.get("providers") or []
+        accounts = {d["provider"]: d["account"]
+                    for d in settings.get("deposit_accounts") or []}
+        if not providers:
+            await update.message.reply_text(
+                "⏳ No bank accounts are available right now — please try "
+                "again later.", reply_markup=self.get_main_menu(user_id))
+            return
+        banks = {str(a["id"]): p for p, a in accounts.items()}
+        accts = {str(a["id"]): a for p, a in accounts.items()}
+        context.user_data["wallet_flow"] = {
+            "kind": kind, "step": "bank",
+            "banks": banks, "accounts": accts,
+        }
+        label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
+                    for p in providers]
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
+        await update.message.reply_text(
             f"💰 **New {label}**\n\n🏦 Choose the bank:" if kind == "deposit"
             else f"💰 **New {label}**\n\n🏦 Which bank should receive your money?",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -1567,21 +1616,31 @@ class PremiumBingoBot:
         is_admin = db.is_admin(uid)
         is_super = uid in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
+        room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
+        room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
         text = (
             f"🎰  *NICE BINGO*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"Hi, *{_md(name)}*{badge}\n"
             f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"❓  *How to Play*\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"*1.* Tap *🎮 Play Bingo* to open the full-screen arena\n"
+            f"*2.* Pick a room (*{room_names}*) — fixed bet per card "
+            f"({room_bets})\n"
+            f"*3.* During the *{config.PREPARATION_SECONDS}s countdown*, pick up to "
+            f"*{config.MAX_CARDS_PER_PLAYER}* cards\n"
+            f"*4.* A ball is called every *{config.CALL_INTERVAL_SECONDS}s* — "
+            f"numbers are marked automatically\n"
+            f"*5.* Complete a row, column, diagonal or four corners → *BINGO!*\n"
+            f"*6.* Winner takes *80%* of the prize pool — paid instantly\n\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"\n📖 *How to Play*\n"
-            f" 1. Tap *Play Bingo* to open the arena\n"
-            f" 2. Pick a room & select cards (up to {config.MAX_CARDS_PER_PLAYER})\n"
-            f" 3. Wait for the {config.PREPARATION_SECONDS}s countdown\n"
-            f" 4. Balls are called every {config.CALL_INTERVAL_SECONDS}s\n"
-            f" 5. Mark numbers on your card — complete a pattern & press *BINGO!*\n"
-            f" 6. Winner takes *80%* of the prize pool\n\n"
-            f"💰 *Deposit & Withdraw* — tap the buttons below, right in this chat\n\n"
-            f"👇 *Choose an action below:*"
+            f"*💰 Wallet* — Deposit & Withdraw right in this chat\n"
+            f"*🔗 Referral* — Earn 5% commission on every round your friends play\n\n"
+            f"*Commands:*\n"
+            f"`/start`  `/menu`  `/play`  `/status`  `/balance`\n"
+            f"`/deposit`  `/withdraw`  `/referral`  `/help`",
         )
         await update.message.reply_text(
             text,

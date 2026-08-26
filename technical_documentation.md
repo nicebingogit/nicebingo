@@ -137,17 +137,23 @@ Welcome, Mk 77 👑
 💰  Balance: 2309 ETB
 ━━━━━━━━━━━━━━━━━━━━
 
-📖 How to Play
- 1. Tap Play Bingo to open the arena
- 2. Pick a room & select cards (up to 3)
- 3. Wait for the 40s countdown
- 4. Balls are called every 4s
- 5. Mark numbers on your card — complete a pattern & press BINGO!
- 6. Winner takes 80% of the prize pool
+❓  How to Play
+━━━━━━━━━━━━━━━━━━
 
-💰 Deposit & Withdraw — tap the buttons below, right in this chat
+1. Tap Play Bingo to open the full-screen arena
+2. Pick a room (Room by 10 / Room by 20 / Room by 30) — fixed bet per card
+3. During the 40s countdown, pick up to 3 cards
+4. A ball is called every 4s — numbers are marked automatically
+5. Complete a row, column, diagonal or four corners → BINGO!
+6. Winner takes 80% of the prize pool — paid instantly
 
-👇 Choose an action below:
+━━━━━━━━━━━━━━━━━━
+💰 Wallet — Deposit & Withdraw right in this chat
+🔗 Referral — Earn 5% commission on every round your friends play
+
+Commands:
+/start  /menu  /play  /status  /balance
+/deposit  /withdraw  /referral  /help
 ```
 
 **Bot commands** are registered via `set_my_commands` on startup, giving
@@ -173,6 +179,10 @@ Telegram users slash-command autocomplete and a persistent menu button:
 |-------|---------|-----------|----------|
 | Row 2 | ⬇️ Deposit | ⬆️ Withdraw | 🚨 Appeal |
 | Row 2+ | 🔧 Admin (admins only) | | |
+
+Deposit, Withdraw, and Appeal from the reply keyboard use a dedicated
+`_wallet_start_reply` method that sends new messages (reply keyboard messages
+cannot be edited in-place), ensuring the bank selection flow works correctly.
 
 **Admin panel** (shown via `/admin` or admin badge):
 
