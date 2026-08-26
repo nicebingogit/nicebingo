@@ -355,11 +355,6 @@ export default function Settings({ user, settings, config, onChanged, onError, o
               <p className="reg-hint" style={{ marginTop: 8 }}>
                 Send money to this account using your wallet app, then submit a
                 deposit request below with the transaction number.
-                {selectedDep.account.admin_online === false && (
-                  <span style={{ color: 'var(--gold)', display: 'block', marginTop: 4, fontWeight: 700 }}>
-                    ⚡ No admin is online — super admin's account is being used as fallback.
-                  </span>
-                )}
               </p>
             </div>
           )}

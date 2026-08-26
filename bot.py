@@ -227,20 +227,18 @@ class PremiumBingoBot:
         await self._send_welcome(update, context)
 
     async def _send_welcome(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """The normal welcome: balance, phase and the OPEN BINGO ARENA button."""
+        """The normal welcome: clean menu with balance — the Mini App opens
+        only when the user taps the Play button."""
         user = update.effective_user
         player = db.get_player(user.id) or {}
         name = (player.get("full_name") or "").strip() or user.first_name
         credit = db.get_credit(user.id)
-        hint = f"\n\n{HTTPS_HINT}" if not self._webapp_ok() else ""
         await update.message.reply_text(
             f"🎲 **NICE BINGO** 🎲\n\n"
             f"Welcome, {_md(name)}!\n"
             f"💰 Balance: **{credit} {config.APP_CURRENCY}**\n\n"
             f"🎰 Rooms:\n{self._rooms_line()}\n\n"
-            f"👇 Tap **🎮 OPEN BINGO ARENA** to play — pick your room (fixed "
-            f"bet 30 / 50 / 100 ETB per card). Your wallet is your phone number "
-            f"— deposit and withdraw from **Settings** inside the arena.{hint}",
+            f"👇 Choose an option below to get started.",
             reply_markup=self.get_main_menu(user.id),
             parse_mode="Markdown",
         )
@@ -332,18 +330,22 @@ class PremiumBingoBot:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🎮 OPEN BINGO ARENA",
                                       web_app={"url": _fresh_app_url()})],
+                [InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")],
             ])
-            closing = ("Tap the button to open the full-screen interactive game. "
-                       "It works best inside Telegram on your phone or desktop.")
+            closing = ("Pick your room, select cards and play! "
+                       "Works best inside Telegram on your phone or desktop.")
         else:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔒 Fix Mini App URL", callback_data="tunnel_help")],
+                [InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")],
             ])
             closing = HTTPS_HINT
+        credit = db.get_credit(user.id)
         await context.bot.send_message(
             chat_id=chat_id,
             text=(
-                f"🎰 **Bingo Arena — Mini App**\n\n"
+                f"🎰 **Bingo Arena**\n\n"
+                f"💰 Balance: **{credit} {config.APP_CURRENCY}**\n\n"
                 f"{self._rooms_line()}\n\n"
                 f"{closing}"
             ),
@@ -509,7 +511,7 @@ class PremiumBingoBot:
             f"6. Winner takes **80%** of the room's prize pool — paid instantly\n\n"
             "💰 Deposit / ⬆️ Withdraw / 🔗 Referral work right here in the chat — "
             "no need to open the game first!\n\n"
-            "Commands: /menu, /start, /play, /deposit, /withdraw, /referral, /status, "
+            "Commands: /start, /menu, /play, /deposit, /withdraw, /referral, /status, "
             "/balance, /cards, /history, /top, /help",
             reply_markup=self.get_main_menu(uid),
             parse_mode="Markdown",
@@ -563,8 +565,16 @@ class PremiumBingoBot:
         data = query.data
 
         if data == "menu":
-            await query.edit_message_text("🎲 **Main Menu**", reply_markup=self.get_main_menu(user_id),
-                                          parse_mode="Markdown")
+            player = db.get_player(user_id) or {}
+            credit = db.get_credit(user_id)
+            name = (player.get("full_name") or "").strip() or "Player"
+            await query.edit_message_text(
+                f"🎲 **NICE BINGO** 🎲\n\n"
+                f"Welcome, {_md(name)}!\n"
+                f"💰 Balance: **{credit} {config.APP_CURRENCY}**\n\n"
+                f"👇 Choose an option below:",
+                reply_markup=self.get_main_menu(user_id),
+                parse_mode="Markdown")
         elif data == "play":
             await self.play_command(update, context)
         elif data in ("status", "refresh"):

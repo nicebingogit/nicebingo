@@ -231,8 +231,8 @@ def _settings_payload() -> dict:
 
     * `payment_accounts` — every ACTIVE account (kept for compatibility).
     * `deposit_accounts` — ONE account per bank/provider: always the ONLINE
-      admin with the MOST credit. If NO admin is online for a provider, the
-      SUPER ADMIN's account is used as fallback so users can always pay.
+      admin with the MOST credit. If NO admin is online for a provider,
+      the SUPER ADMIN's account is shown so users can always pay.
     * `providers` — distinct bank names from active accounts. Only banks
       that have at least one admin account appear as options to the user.
     """
@@ -534,11 +534,13 @@ def api_create_transaction():
         account = db.get_payment_account(acc_id) if acc_id else None
         if not account or not account.get("is_active"):
             return jsonify({"error": "Please select one of the active payment accounts."}), 400
-        # only ONLINE admins' accounts can be paid into — the account shown in
-        # Settings is always the online admin with the most credit, and an
-        # account whose owner just went offline is no longer selectable
+        # Admin accounts can be paid into while the owner is online.
+        # Super admin accounts are ALWAYS available (fallback for when no
+        # regular admin is online) — deposits go through and the super admin
+        # is notified to handle them.
         owner_id = account.get("admin_id")
-        if not owner_id or not db.is_admin_online(owner_id):
+        is_super = owner_id in config.SUPER_ADMIN_IDS
+        if owner_id and not is_super and not db.is_admin_online(owner_id):
             return jsonify({
                 "error": "This payment account is not available right now — "
                          "its admin is offline. Please use the account shown "
@@ -606,13 +608,17 @@ def api_create_transaction():
         super_ids = set(config.SUPER_ADMIN_IDS)
         if type_ == "deposit" and account and account.get("admin_id"):
             owner_id = account["admin_id"]
+            is_super_owner = owner_id in config.SUPER_ADMIN_IDS
             # the owning admin is ALWAYS told about their own account's deposit
             notify_user(owner_id, lines)
             super_ids.discard(owner_id)
             owner_online = db.is_admin_online(owner_id)
             owner_credit = db.get_credit(owner_id)
             sa_lines = list(lines)
-            if not owner_online:
+            if is_super_owner:
+                # super admin's account is being used — always notify them
+                sa_lines += ["ℹ️ This deposit was sent to your payment account."]
+            elif not owner_online:
                 sa_lines += ["⚠️ Owner admin (ID " + str(owner_id) +
                              ") is OFFLINE — may need manual handling."]
             elif owner_credit < amount:
