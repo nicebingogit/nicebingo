@@ -283,22 +283,13 @@ class PremiumBingoBot:
         is_admin = db.is_admin(user.id)
         is_super = user.id in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
-        # Build room status block
-        rooms_text = "\n".join(
-            f"  • {config.room_label(room)}: {state['phase'].upper()} · "
-            f"pool {pool['prize_pool']} ETB"
-            for room in config.ROOM_BETS
-            for state in [db.get_game_state(room)]
-            for pool in [logic.calculate_prize_pool(room)]
-        )
         text = (
             f"🎰  *NICE BINGO*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"Welcome, *{_md(name)}*{badge}\n"
             f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"\n🏠 *Rooms*\n{rooms_text}\n\n"
-            f"📖 *How to Play*\n"
+            f"\n📖 *How to Play*\n"
             f" 1. Tap *Play Bingo* to open the arena\n"
             f" 2. Pick a room & select cards (up to {config.MAX_CARDS_PER_PLAYER})\n"
             f" 3. Wait for the {config.PREPARATION_SECONDS}s countdown\n"
@@ -366,14 +357,22 @@ class PremiumBingoBot:
                 class _FakeQ:
                     message = update.message
                     async def answer(self, *a, **kw): pass
-                    async def edit_message_text(self, *a, **kw): pass
+                    async def edit_message_text(self, text, reply_markup=None,
+                                                parse_mode=None):
+                        await update.message.reply_text(
+                            text, reply_markup=reply_markup,
+                            parse_mode=parse_mode)
                 update.callback_query = _FakeQ()
                 await self._wallet_start(update, context, kind)
             elif cb == "appeal_list":
                 class _FakeQ:
                     message = update.message
                     async def answer(self, *a, **kw): pass
-                    async def edit_message_text(self, *a, **kw): pass
+                    async def edit_message_text(self, text, reply_markup=None,
+                                                parse_mode=None):
+                        await update.message.reply_text(
+                            text, reply_markup=reply_markup,
+                            parse_mode=parse_mode)
                 update.callback_query = _FakeQ()
                 await self.appeal_list(update, context)
             return
@@ -705,21 +704,21 @@ class PremiumBingoBot:
             is_admin = db.is_admin(user_id)
             is_super = user_id in config.SUPER_ADMIN_IDS
             badge = " ⭐" if is_super else (" 👑" if is_admin else "")
-            rooms_text = "\n".join(
-                f"  • {config.room_label(room)}: {state['phase'].upper()} · "
-                f"pool {pool['prize_pool']} ETB"
-                for room in config.ROOM_BETS
-                for state in [db.get_game_state(room)]
-                for pool in [logic.calculate_prize_pool(room)]
-            )
             text = (
                 f"🎰  *NICE BINGO*\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"Hi, *{_md(name)}*{badge}\n"
                 f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"\n🏠 *Rooms*\n{rooms_text}\n\n"
-                f"👇 *Choose an action:*"
+                f"\n📖 *How to Play*\n"
+                f" 1. Tap *Play Bingo* to open the arena\n"
+                f" 2. Pick a room & select cards (up to {config.MAX_CARDS_PER_PLAYER})\n"
+                f" 3. Wait for the {config.PREPARATION_SECONDS}s countdown\n"
+                f" 4. Balls are called every {config.CALL_INTERVAL_SECONDS}s\n"
+                f" 5. Mark numbers on your card — complete a pattern & press *BINGO!*\n"
+                f" 6. Winner takes *80%* of the prize pool\n\n"
+                f"💰 *Deposit & Withdraw* — tap the buttons below, right in this chat\n\n"
+                f"👇 *Choose an action below:*"
             )
             try:
                 await query.edit_message_text(
@@ -1568,21 +1567,21 @@ class PremiumBingoBot:
         is_admin = db.is_admin(uid)
         is_super = uid in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
-        rooms_text = "\n".join(
-            f"  • {config.room_label(room)}: {state['phase'].upper()} · "
-            f"pool {pool['prize_pool']} ETB"
-            for room in config.ROOM_BETS
-            for state in [db.get_game_state(room)]
-            for pool in [logic.calculate_prize_pool(room)]
-        )
         text = (
             f"🎰  *NICE BINGO*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"Hi, *{_md(name)}*{badge}\n"
             f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"\n🏠 *Rooms*\n{rooms_text}\n\n"
-            f"👇 *Choose an action:*"
+            f"\n📖 *How to Play*\n"
+            f" 1. Tap *Play Bingo* to open the arena\n"
+            f" 2. Pick a room & select cards (up to {config.MAX_CARDS_PER_PLAYER})\n"
+            f" 3. Wait for the {config.PREPARATION_SECONDS}s countdown\n"
+            f" 4. Balls are called every {config.CALL_INTERVAL_SECONDS}s\n"
+            f" 5. Mark numbers on your card — complete a pattern & press *BINGO!*\n"
+            f" 6. Winner takes *80%* of the prize pool\n\n"
+            f"💰 *Deposit & Withdraw* — tap the buttons below, right in this chat\n\n"
+            f"👇 *Choose an action below:*"
         )
         await update.message.reply_text(
             text,

@@ -137,11 +137,6 @@ Welcome, Mk 77 👑
 💰  Balance: 2309 ETB
 ━━━━━━━━━━━━━━━━━━━━
 
-🏠 Rooms
-  • Room by 10: PLAYING · pool 240 ETB
-  • Room by 20: PLAYING · pool 480 ETB
-  • Room by 30: PLAYING · pool 720 ETB
-
 📖 How to Play
  1. Tap Play Bingo to open the arena
  2. Pick a room & select cards (up to 3)
@@ -189,7 +184,9 @@ Telegram users slash-command autocomplete and a persistent menu button:
 | Stats | 📊 Game Stats · 🔗 Referrals |
 | Back | 🏠 Main Menu |
 
-**Deposit**, **Withdraw**, and **Referral** all work directly in the bot chat —
+**Deposit**, **Withdraw**, and **Appeal** all work directly in the bot chat via
+the reply keyboard buttons — each button properly triggers the corresponding
+wallet/appeal flow and sends a new message with bank selection or form fields.
 the user never needs to open the Mini App first.
 
 * **🔗 Referral** — shows the user's referral link (as a clickable URL button)
