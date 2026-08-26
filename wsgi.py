@@ -15,11 +15,10 @@ os.environ.setdefault('APP_URL', 'https://nicebingo.pythonanywhere.com')
 os.environ.setdefault('BOT_WEBHOOK', '1')
 os.environ.setdefault('SERVER_HOST', '0.0.0.0')
 os.environ.setdefault('ADMIN_IDS', '1512842545,903313112')
-os.environ.setdefault('SUPER_ADMIN_IDS', '1512842545,903313112,502672318,391347553,REPLACE_ME_BIRUK_DEGU,REPLACE_ME_USER2,REPLACE_ME_USER3')
-# Replace placeholders above with real Telegram user IDs:
-# REPLACE_ME_BIRUK_DEGU = Biruk degu (phone: 0911894405)
-# REPLACE_ME_USER2      = (phone: 0911424142)
-# REPLACE_ME_USER3      = (phone: 929441950)
+os.environ.setdefault('SUPER_ADMIN_IDS', '502672318,391347553,REPLACE_WITH_TELEGRAM_ID_3')
+# Biruk degu (0911894405)       -> 502672318
+# User (0911424142)             -> 391347553
+# User (929441950)              -> REPLACE_WITH_TELEGRAM_ID_3
 
 import migrate_db
 import server  # noqa: E402
