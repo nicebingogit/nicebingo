@@ -1247,7 +1247,7 @@ def api_file_appeal():
     if existing:
         return jsonify({"error": "You already have a pending appeal for this deposit."}), 400
     appeal_id = db.add_appeal(user_id, tx_id, reason)
-    # log the activity + alert EVERY super admin
+    # log the activity + alert the owning admin AND every super admin
     try:
         who = str(tx.get("user_name") or user_id)
         db.log_activity('appeal_filed', user_id,
@@ -1259,7 +1259,15 @@ def api_file_appeal():
             "Deposit: " + str(tx["amount"]) + " " + config.APP_CURRENCY,
             "Reason: " + reason,
         ]
-        for sa_id in config.SUPER_ADMIN_IDS:
+        super_ids = set(config.SUPER_ADMIN_IDS)
+        # also notify the admin who owns the payment account
+        if tx.get("payment_account_id"):
+            acc = db.get_payment_account(tx["payment_account_id"])
+            if acc and acc.get("admin_id"):
+                owner_id = acc["admin_id"]
+                notify_user(owner_id, appeal_lines)
+                super_ids.discard(owner_id)
+        for sa_id in super_ids:
             notify_user(sa_id, appeal_lines)
     except Exception:
         pass

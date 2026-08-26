@@ -144,6 +144,7 @@ class PremiumBingoBot:
             InlineKeyboardButton("⬇️ Deposit", callback_data="wallet_deposit"),
             InlineKeyboardButton("⬆️ Withdraw", callback_data="wallet_withdraw"),
         ])
+        rows.append([InlineKeyboardButton("📋 My Requests", callback_data="requests")])
         rows.append([InlineKeyboardButton("❓ Help", callback_data="help")])
         return InlineKeyboardMarkup(rows)
 
@@ -260,6 +261,20 @@ class PremiumBingoBot:
             except Exception as exc:
                 logger.warning("wallet flow error: %s", exc)
                 context.user_data.pop("wallet_flow", None)
+                await update.message.reply_text(
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user.id))
+            return
+        # --- appeal chat flow ---
+        if context.user_data.get("appeal_flow"):
+            if not raw:
+                await update.message.reply_text("Please enter a reason.")
+                return
+            try:
+                await self._appeal_flow_text(update, context, raw)
+            except Exception as exc:
+                logger.warning("appeal flow error: %s", exc)
+                context.user_data.pop("appeal_flow", None)
                 await update.message.reply_text(
                     "⚠️ Something went wrong — please try again.",
                     reply_markup=self.get_main_menu(user.id))
@@ -638,6 +653,19 @@ class PremiumBingoBot:
                                           reply_markup=self.get_main_menu(user_id))
         elif data.startswith("admin_"):
             await self.admin_callback_handler(update, context)
+        elif data == "requests":
+            await self.requests_command(update, context)
+        elif data.startswith("appeal_"):
+            if data == "appeal_cancel":
+                context.user_data.pop("appeal_flow", None)
+                await query.edit_message_text("❌ Appeal cancelled.",
+                                              reply_markup=self.get_main_menu(user_id))
+            else:
+                try:
+                    tx_id = int(data.split("_", 1)[1])
+                    await self._start_appeal(update, context, tx_id)
+                except (ValueError, IndexError):
+                    await query.edit_message_text("Unknown action.")
         else:
             await query.edit_message_text("Unknown action.")
 
@@ -829,6 +857,129 @@ class PremiumBingoBot:
         else:
             await update.message.reply_text(
                 f"❌ {result.get('error', 'Failed to submit — please try again.')}",
+                reply_markup=self.get_main_menu(user_id))
+
+    # ------------------------------------------------- requests / appeals
+    async def requests_command(self, update: Update,
+                               context: ContextTypes.DEFAULT_TYPE):
+        """/requests — show recent wallet transactions with appeal buttons
+        for pending deposits."""
+        query = update.callback_query
+        if query:
+            await query.answer()
+        user_id = update.effective_user.id
+        txs = db.get_user_transactions(user_id, limit=10)
+        if not txs:
+            text = "📋 **Your Requests**\n\nNo transactions yet."
+            kb = self.get_main_menu(user_id)
+        else:
+            lines = ["📋 **Your Requests**\n"]
+            buttons = []
+            for tx in txs:
+                icon = "⬇️" if tx["type"] == "deposit" else "⬆️"
+                status = tx["status"].upper()
+                status_icon = {"PENDING": "🟡", "APPROVED": "🟢",
+                               "REJECTED": "🔴"}.get(status, "⚪")
+                lines.append(
+                    f"{icon} **{tx['type'].title()}** — {tx['amount']} {config.APP_CURRENCY} "
+                    f"{status_icon} {status}\n"
+                    f"   ID: #{tx['id']} · {tx.get('created_at', '')[:16]}")
+                if tx.get('admin_note'):
+                    lines.append(f"   📝 {tx['admin_note']}")
+                # add appeal button for pending/rejected deposits
+                if (tx["type"] == "deposit"
+                        and tx["status"] in ("pending", "rejected")):
+                    # check if user already has a pending appeal for this tx
+                    existing = [a for a in db.get_user_appeals(user_id)
+                                if a["transaction_id"] == tx["id"]
+                                and a["status"] == "pending"]
+                    if not existing:
+                        buttons.append([
+                            InlineKeyboardButton(
+                                f"🚨 Appeal #{tx['id']} ({tx['amount']} ETB)",
+                                callback_data=f"appeal_{tx['id']}")
+                        ])
+            text = "\n\n".join(lines)
+            kb_rows = buttons if buttons else []
+            kb_rows.append([InlineKeyboardButton("🏠 Menu", callback_data="menu")])
+            kb = InlineKeyboardMarkup(kb_rows)
+        if query:
+            try:
+                await query.edit_message_text(text, reply_markup=kb,
+                                              parse_mode="Markdown")
+            except Exception:
+                await query.message.reply_text(text, reply_markup=kb,
+                                              parse_mode="Markdown")
+        else:
+            await update.message.reply_text(text, reply_markup=kb,
+                                            parse_mode="Markdown")
+
+    async def _start_appeal(self, update: Update,
+                            context: ContextTypes.DEFAULT_TYPE, tx_id: int):
+        """Begin an appeal flow for a specific deposit transaction."""
+        query = update.callback_query
+        await query.answer()
+        user_id = update.effective_user.id
+        tx = db.get_transaction(tx_id)
+        if not tx or tx["user_id"] != user_id:
+            await query.edit_message_text("❌ Transaction not found.",
+                                          reply_markup=self.get_main_menu(user_id))
+            return
+        if tx["type"] != "deposit":
+            await query.edit_message_text("❌ Only deposits can be appealed.",
+                                          reply_markup=self.get_main_menu(user_id))
+            return
+        if tx["status"] not in ("pending", "rejected"):
+            await query.edit_message_text("❌ This transaction is already finished.",
+                                          reply_markup=self.get_main_menu(user_id))
+            return
+        existing = [a for a in db.get_user_appeals(user_id)
+                    if a["transaction_id"] == tx_id and a["status"] == "pending"]
+        if existing:
+            await query.edit_message_text(
+                "❌ You already have a pending appeal for this deposit.",
+                reply_markup=self.get_main_menu(user_id))
+            return
+        context.user_data["appeal_flow"] = {"tx_id": tx_id}
+        cancel_kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Cancel", callback_data="appeal_cancel")]])
+        await query.edit_message_text(
+            f"🚨 **Appeal for Deposit #{tx_id}**\n\n"
+            f"Amount: {tx['amount']} {config.APP_CURRENCY}\n"
+            f"Status: {tx['status'].upper()}\n\n"
+            "Please describe your issue in detail — "
+            "what happened, when you paid, etc.:",
+            reply_markup=cancel_kb, parse_mode="Markdown")
+
+    async def _appeal_flow_text(self, update: Update,
+                                context: ContextTypes.DEFAULT_TYPE, reason: str):
+        """Process the appeal reason text and submit it."""
+        user_id = update.effective_user.id
+        flow = context.user_data.get("appeal_flow") or {}
+        tx_id = flow.get("tx_id")
+        if not tx_id:
+            context.user_data.pop("appeal_flow", None)
+            await update.message.reply_text(
+                "Session expired — start again.",
+                reply_markup=self.get_main_menu(user_id))
+        reason = reason[:500]
+        result = await self._post("/api/appeals", {
+            "user_id": user_id,
+            "transaction_id": tx_id,
+            "reason": reason,
+        })
+        context.user_data.pop("appeal_flow", None)
+        if result.get("ok"):
+            await update.message.reply_text(
+                f"✅ **Appeal submitted!**\n\n"
+                f"Deposit #{tx_id} — your issue has been sent to the "
+                "super admin for review. You'll be notified when it's "
+                "resolved.",
+                reply_markup=self.get_main_menu(user_id),
+                parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                f"❌ {result.get('error', 'Failed to submit appeal.')}",
                 reply_markup=self.get_main_menu(user_id))
 
     # ---------------------------------------------------------------- referral
@@ -1143,6 +1294,7 @@ class PremiumBingoBot:
         self.application.add_handler(CommandHandler("referral", self.referral_command))
         self.application.add_handler(CommandHandler("deposit", self.deposit_command))
         self.application.add_handler(CommandHandler("withdraw", self.withdraw_command))
+        self.application.add_handler(CommandHandler("requests", self.requests_command))
         # collects the full name during first-time onboarding (after /start)
         self.application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND, self.text_handler))
