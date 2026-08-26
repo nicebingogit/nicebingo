@@ -27,7 +27,7 @@ def _bool(name: str, default: bool) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Telegram  
+# Telegram   
 # ---------------------------------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 # BOT_WEBHOOK=1 switches the bot from polling to webhook mode. Used on always-on

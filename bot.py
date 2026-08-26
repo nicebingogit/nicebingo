@@ -284,17 +284,11 @@ class PremiumBingoBot:
         is_admin = db.is_admin(user.id)
         is_super = user.id in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
-        room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
-        room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
         text = (
             f"🎰  *NICE BINGO*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"Welcome, *{_md(name)}*{badge}\n"
-            f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"Rooms: *{room_names}*\n"
-            f"Bets: *{room_bets}* per card\n"
-            f"Max cards: *{config.MAX_CARDS_PER_PLAYER}* per player",
+            f"💰  Balance: *{credit} {config.APP_CURRENCY}*",
         )
         await update.message.reply_text(
             text,
@@ -695,17 +689,11 @@ class PremiumBingoBot:
             is_admin = db.is_admin(user_id)
             is_super = user_id in config.SUPER_ADMIN_IDS
             badge = " ⭐" if is_super else (" 👑" if is_admin else "")
-            room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
-            room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
             text = (
                 f"🎰  *NICE BINGO*\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"Hi, *{_md(name)}*{badge}\n"
-                f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
-                f"━━━━━━━━━━━━━━━━━━\n\n"
-                f"Rooms: *{room_names}*\n"
-                f"Bets: *{room_bets}* per card\n"
-                f"Max cards: *{config.MAX_CARDS_PER_PLAYER}* per player",
+                f"💰  Balance: *{credit} {config.APP_CURRENCY}*",
             )
             try:
                 await query.edit_message_text(
@@ -1620,17 +1608,11 @@ class PremiumBingoBot:
         is_admin = db.is_admin(uid)
         is_super = uid in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
-        room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
-        room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
         text = (
             f"🎰  *NICE BINGO*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"Hi, *{_md(name)}*{badge}\n"
-            f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
-            f"━━━━━━━━━━━━━━━━━━\n\n"
-            f"Rooms: *{room_names}*\n"
-            f"Bets: *{room_bets}* per card\n"
-            f"Max cards: *{config.MAX_CARDS_PER_PLAYER}* per player",
+            f"💰  Balance: *{credit} {config.APP_CURRENCY}*",
         )
         await update.message.reply_text(
             text,
