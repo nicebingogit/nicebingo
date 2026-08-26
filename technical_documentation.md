@@ -3,7 +3,7 @@
 This document describes the current system. It is kept up to date with every
 change so that any developer or AI can refer to it at any time.
 
-> **Latest update:** **Universal referral + bot-chat wallet + comprehensive logging** — referral is now open to ALL users (not just admins). Deposit/withdraw/referral work directly in the bot chat before the Mini App is ever opened. Super admins see every user's referral count and commission. New-player join and every transaction triggers targeted Telegram alerts to the owning admin + all super admins. Activity log increased to 500 entries with referral commission and round winner logging.
+> **Latest update:** **Professional bot menu + how-to-play guide + referral link fix** — Bot commands registered via `set_my_commands` for Telegram's slash autocomplete and persistent menu button. Main menu redesigned with clear sections (Play → Game → Wallet → More). Welcome message shows a how-to-play guide instead of admin credit. Referral "Copy Link" button replaced with working "Open Link" URL button. Super admin fallback accounts accept deposits without the "no admin online" warning.
 
 ---
 
@@ -116,20 +116,81 @@ Profile**. Both fields are optional but at least one must be present:
 When a user sends `/start REF_<referrer_id>`, the bot records the referral
 relationship (if not already set) and notifies the referrer. **Any user can
 refer friends** — the referral feature is no longer limited to admins. The
-referral link is available via the **🔗 My Referral Link** button in the main
-menu, the `/referral` command, and inside the Mini App.
+referral link is available via the **🔗 Referral** button in the main menu,
+the `/referral` command, and inside the Mini App.
 
-### 2.6 Bot-chat wallet (before the Mini App)
+**Referral link buttons** (bot chat):
+* **🔗 Open Link** — a URL button that opens the referral deep link in
+  Telegram (user can forward/share it).
+* **📤 Share on Telegram** — opens Telegram's share dialog with pre-filled
+  text + link.
+
+### 2.6 Bot menu & commands (professional UX)
+
+When a user sends `/start` (or any registered user returns), the bot shows a
+**professional welcome card** with:
+
+```
+🎰  NICE BINGO
+━━━━━━━━━━━━━━━━━━━━
+Welcome, Mk 77 👑
+💰  Balance: 2309 ETB
+━━━━━━━━━━━━━━━━━━━━
+
+🏠 Rooms
+  • Room by 10: PLAYING · pool 240 ETB
+  • Room by 20: PLAYING · pool 480 ETB
+  • Room by 30: PLAYING · pool 720 ETB
+
+📖 How to Play
+ 1. Tap Play Bingo to open the arena
+ 2. Pick a room & select cards (up to 3)
+ 3. Wait for the 40s countdown
+ 4. Balls are called every 4s
+ 5. Mark numbers on your card — complete a pattern & press BINGO!
+ 6. Winner takes 80% of the prize pool
+
+💰 Deposit & Withdraw — tap the buttons below, right in this chat
+
+👇 Choose an action below:
+```
+
+**Bot commands** are registered via `set_my_commands` on startup, giving
+Telegram users slash-command autocomplete and a persistent menu button:
+
+`/start` `/play` `/menu` `/status` `/balance` `/cards` `/deposit` `/withdraw`
+`/referral` `/leaderboard` `/help`
+
+**Main menu layout** (inline keyboard with clear sections):
+
+| Section | Buttons |
+|---------|----------|
+| Play | 🎮 Play Bingo (opens Mini App) |
+| Game | 📊 Status · 💰 Balance |
+|        | 🎲 My Cards · 🏆 Rankings |
+| Wallet | ⬇️ Deposit · ⬆️ Withdraw |
+|        | 📋 My Requests |
+| More   | 🔗 Referral · ❓ Help |
+
+**Admin panel** (shown via `/admin` or admin badge):
+
+| Section | Buttons |
+|---------|----------|
+| Round Control | ▶️ Force Start · ⏭ Call Next Ball |
+|               | 🔄 Reset Round |
+| Players | 🤖 Add Bots · 🔀 Toggle Bots |
+| Stats | 📊 Game Stats · 🔗 Referrals |
+| Back | 🏠 Main Menu |
 
 **Deposit**, **Withdraw**, and **Referral** all work directly in the bot chat —
-the user never needs to open the Mini App first. The main menu shows three
-inline buttons:
+the user never needs to open the Mini App first.
 
-* **🔗 My Referral Link** — shows the user's referral link + stats.
+* **🔗 Referral** — shows the user's referral link (as a clickable URL button)
+  + stats + recent commissions.
 * **⬇️ Deposit** — starts a multi-step deposit conversation in the chat:
-  enter amount → pick a bank → enter transaction number → submit.
+  pick a bank → enter amount → enter transaction number → submit.
 * **⬆️ Withdraw** — starts a multi-step withdrawal conversation in the chat:
-  enter amount → pick a bank → enter account holder + number → submit.
+  pick a bank → enter amount → enter account holder + number → submit.
 
 The bot uses the server's `/api/wallet/settings` endpoint to fetch the live
 bank list, and `/api/transactions` to submit requests. The flow is stored in
@@ -476,9 +537,10 @@ processes (local desktop: two processes, one SQLite file).
 **Withdraw request:**
 * Alert to **every admin** plus **every Super Admin**.
 
-**No admin available** → high-priority alert to **every Super Admin** when a
-player tries to deposit/withdraw but no admin is online or has sufficient
-balance.
+**Super admin fallback**: When no regular admin is online for a provider,
+the super admin's account is shown and **always accepts deposits** (the
+admin-online check is skipped for super admin accounts). The super admin
+is always notified of deposits on their account.
 
 * **Appeal filed** → alert to **every Super Admin**.
 * **Appeal resolved** → alert to the user.
@@ -821,7 +883,7 @@ server + tunnel + bot.
 
 | File | Role |
 |---|---|
-| `bot.py` | chat onboarding (full name), announcements, auto-delete on block, notification-queue drain, admin credit line in `/admin`, **bot-chat wallet flow** (deposit/withdraw via `/deposit`, `/withdraw`, inline buttons), **referral for all users** (`/referral`, inline button) |
+| `bot.py` | chat onboarding (full name), **professional bot menu** (sections: Play/Game/Wallet/More, how-to-play guide, bot commands via `set_my_commands`), announcements, auto-delete on block, notification-queue drain, admin panel, **bot-chat wallet flow** (deposit/withdraw via `/deposit`, `/withdraw`, inline buttons), **referral for all users** (`/referral`, Open Link URL button) |
 | `server.py` | Flask API + admin + payment accounts + registration contracts, online tracking, 90% admin-credit approval, appeals + super-admin console, **`/api/wallet/settings`**, **`/api/superadmin/referrals`**, **targeted new-player + transaction notifications** |
 | `database.py` | schema, migrations, wallet/elimination/accounts storage, admin credit + online + deposit-account selection, appeals + notification queue |
 | `game_loop.py` | round lifecycle, claim validation + elimination, sequential bot joining during preparation, **round winner logging**, **referral commission logging** |

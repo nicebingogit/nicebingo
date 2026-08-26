@@ -242,7 +242,7 @@ class PremiumBingoBot:
         await self._send_welcome(update, context)
 
     async def _send_welcome(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Professional welcome card — clean, modern, information-rich."""
+        """Professional welcome card — clean, modern, how-to-play guide."""
         user = update.effective_user
         player = db.get_player(user.id) or {}
         name = (player.get("full_name") or "").strip() or user.first_name
@@ -264,12 +264,17 @@ class PremiumBingoBot:
             f"Welcome, *{_md(name)}*{badge}\n"
             f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"\n🏠 *Rooms*\n{rooms_text}\n"
+            f"\n🏠 *Rooms*\n{rooms_text}\n\n"
+            f"📖 *How to Play*\n"
+            f" 1. Tap *Play Bingo* to open the arena\n"
+            f" 2. Pick a room & select cards (up to {config.MAX_CARDS_PER_PLAYER})\n"
+            f" 3. Wait for the {config.PREPARATION_SECONDS}s countdown\n"
+            f" 4. Balls are called every {config.CALL_INTERVAL_SECONDS}s\n"
+            f" 5. Mark numbers on your card — complete a pattern & press *BINGO!*\n"
+            f" 6. Winner takes *80%* of the prize pool\n\n"
+            f"💰 *Deposit & Withdraw* — tap the buttons below, right in this chat\n\n"
+            f"👇 *Choose an action below:*"
         )
-        if is_admin or is_super:
-            admin_credit = db.get_admin_credit(user.id)
-            text += f"\n🔧 *Admin credit:* {admin_credit} ETB\n"
-        text += f"\n👇 *Choose an action below:*"
         await update.message.reply_text(
             text,
             reply_markup=self.get_main_menu(user.id),
@@ -610,13 +615,21 @@ class PremiumBingoBot:
             is_admin = db.is_admin(user_id)
             is_super = user_id in config.SUPER_ADMIN_IDS
             badge = " ⭐" if is_super else (" 👑" if is_admin else "")
+            rooms_text = "\n".join(
+                f"  • {config.room_label(room)}: {state['phase'].upper()} · "
+                f"pool {pool['prize_pool']} ETB"
+                for room in config.ROOM_BETS
+                for state in [db.get_game_state(room)]
+                for pool in [logic.calculate_prize_pool(room)]
+            )
             text = (
                 f"🎰  *NICE BINGO*\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"Hi, *{_md(name)}*{badge}\n"
                 f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"\n👇 *Choose an action:*"
+                f"\n🏠 *Rooms*\n{rooms_text}\n\n"
+                f"👇 *Choose an action:*"
             )
             try:
                 await query.edit_message_text(
@@ -1390,13 +1403,21 @@ class PremiumBingoBot:
         is_admin = db.is_admin(uid)
         is_super = uid in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
+        rooms_text = "\n".join(
+            f"  • {config.room_label(room)}: {state['phase'].upper()} · "
+            f"pool {pool['prize_pool']} ETB"
+            for room in config.ROOM_BETS
+            for state in [db.get_game_state(room)]
+            for pool in [logic.calculate_prize_pool(room)]
+        )
         text = (
             f"🎰  *NICE BINGO*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"Hi, *{_md(name)}*{badge}\n"
             f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"\n👇 *Choose an action:*"
+            f"\n🏠 *Rooms*\n{rooms_text}\n\n"
+            f"👇 *Choose an action:*"
         )
         await update.message.reply_text(
             text,
