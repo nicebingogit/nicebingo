@@ -704,19 +704,16 @@ class PremiumBingoBot:
             ref_link = f"https://t.me/{bot_username}?start=REF_{user_id}"
             share_text = urllib.parse.quote(
                 f"🎰 Join Nice Bingo and play with me! Use my referral link:\n{ref_link}")
-            await query.answer(text="✅ Link ready — tap Open Link to share!", show_alert=False)
-            await query.edit_message_text(
-                f"📋 **Your Referral Link:**\n\n"
-                f"`{ref_link}`\n\n"
-                "Tap **Open Link** below to open it, then forward to friends!",
+            await query.answer(
+                text=f"📋 Your link:\n\n{ref_link}\n\nTap Share Link below to send it!",
+                show_alert=True)
+            await query.edit_message_reply_markup(
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔗 Open Link", url=ref_link)],
-                    [InlineKeyboardButton("📤 Share on Telegram",
+                    [InlineKeyboardButton("📤 Share Link",
                                           url=f"https://t.me/share/url?url={share_text}")],
                     [InlineKeyboardButton("🔙 Back", callback_data="referral")],
                     [InlineKeyboardButton("🏠 Menu", callback_data="menu")],
-                ]),
-                parse_mode="Markdown")
+                ]))
         elif data == "referral_stats":
             await self._show_referral(update, context, user_id)
         elif data in ("wallet_deposit", "wallet_withdraw"):
@@ -1083,7 +1080,7 @@ class PremiumBingoBot:
             f"💰 Earn **5%% commission** on every round your referrals play!\n\n"
             f"📨 **Your referral link:**\n"
             f"`{ref_link}`\n\n"
-            f"Tap **Open Link** below to open and share with friends!\n\n"
+            f"Tap **Share Link** below to send to friends!\n\n"
             f"📊 **Stats:**\n"
             f"👥 Total referrals: **{total_refs}**\n"
             f"🎮 Active players: **{active_refs}**\n"
@@ -1105,8 +1102,7 @@ class PremiumBingoBot:
         share_text = urllib.parse.quote(
             f"🎰 Join Nice Bingo and play with me! Use my referral link:\n{ref_link}")
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔗 Open Link", url=ref_link)],
-            [InlineKeyboardButton("📤 Share on Telegram",
+            [InlineKeyboardButton("📤 Share Link",
                                   url=f"https://t.me/share/url?url={share_text}")],
             [InlineKeyboardButton("📊 Full Stats", callback_data="referral_stats")],
             [InlineKeyboardButton("🏠 Menu", callback_data="menu")],

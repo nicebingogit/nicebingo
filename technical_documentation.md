@@ -120,10 +120,10 @@ referral link is available via the **🔗 Referral** button in the main menu,
 the `/referral` command, and inside the Mini App.
 
 **Referral link buttons** (bot chat):
-* **🔗 Open Link** — a URL button that opens the referral deep link in
-  Telegram (user can forward/share it).
-* **📤 Share on Telegram** — opens Telegram's share dialog with pre-filled
-  text + link.
+* **📤 Share Link** — opens Telegram's native share dialog with the
+  referral link pre-filled (user picks a chat/contact to send it to).
+* Tapping **📋 Copy Link** shows the link in a popup alert so the user
+  can read/copy it, then the button changes to **📤 Share Link**.
 
 ### 2.6 Bot menu & commands (professional UX)
 
