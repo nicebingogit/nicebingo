@@ -88,6 +88,7 @@ class PremiumBingoBot:
         # its own round with its own ball order and pool)
         self._last = {room: {"phase": None, "count": -1, "round": None}
                       for room in config.ROOM_BETS}
+        self._last_promo_date = None  # tracks last daily promo date (YYYY-MM-DD)
 
     # ------------------------------------------------------------ rooms
     @staticmethod
@@ -291,23 +292,9 @@ class PremiumBingoBot:
             f"Welcome, *{_md(name)}*{badge}\n"
             f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"❓  *How to Play*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"*1.* Tap *🎮 Play Bingo* to open the full-screen arena\n"
-            f"*2.* Pick a room (*{room_names}*) — fixed bet per card "
-            f"({room_bets})\n"
-            f"*3.* During the *{config.PREPARATION_SECONDS}s countdown*, pick up to "
-            f"*{config.MAX_CARDS_PER_PLAYER}* cards\n"
-            f"*4.* A ball is called every *{config.CALL_INTERVAL_SECONDS}s* — "
-            f"numbers are marked automatically\n"
-            f"*5.* Complete a row, column, diagonal or four corners → *BINGO!*\n"
-            f"*6.* Winner takes *80%* of the prize pool — paid instantly\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"*💰 Wallet* — Deposit & Withdraw right in this chat\n"
-            f"*🔗 Referral* — Earn 5% commission on every round your friends play\n\n"
-            f"*Commands:*\n"
-            f"`/start`  `/menu`  `/play`  `/status`  `/balance`\n"
-            f"`/deposit`  `/withdraw`  `/referral`  `/help`",
+            f"Rooms: *{room_names}*\n"
+            f"Bets: *{room_bets}* per card\n"
+            f"Max cards: *{config.MAX_CARDS_PER_PLAYER}* per player",
         )
         await update.message.reply_text(
             text,
@@ -716,23 +703,9 @@ class PremiumBingoBot:
                 f"Hi, *{_md(name)}*{badge}\n"
                 f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
                 f"━━━━━━━━━━━━━━━━━━\n\n"
-                f"❓  *How to Play*\n"
-                f"━━━━━━━━━━━━━━━━━━\n\n"
-                f"*1.* Tap *🎮 Play Bingo* to open the full-screen arena\n"
-                f"*2.* Pick a room (*{room_names}*) — fixed bet per card "
-                f"({room_bets})\n"
-                f"*3.* During the *{config.PREPARATION_SECONDS}s countdown*, pick up to "
-                f"*{config.MAX_CARDS_PER_PLAYER}* cards\n"
-                f"*4.* A ball is called every *{config.CALL_INTERVAL_SECONDS}s* — "
-                f"numbers are marked automatically\n"
-                f"*5.* Complete a row, column, diagonal or four corners → *BINGO!*\n"
-                f"*6.* Winner takes *80%* of the prize pool — paid instantly\n\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"*💰 Wallet* — Deposit & Withdraw right in this chat\n"
-                f"*🔗 Referral* — Earn 5% commission on every round your friends play\n\n"
-                f"*Commands:*\n"
-                f"`/start`  `/menu`  `/play`  `/status`  `/balance`\n"
-                f"`/deposit`  `/withdraw`  `/referral`  `/help`",
+                f"Rooms: *{room_names}*\n"
+                f"Bets: *{room_bets}* per card\n"
+                f"Max cards: *{config.MAX_CARDS_PER_PLAYER}* per player",
             )
             try:
                 await query.edit_message_text(
@@ -1456,6 +1429,22 @@ class PremiumBingoBot:
         """
         try:
             await self._drain_notifications()
+            # send one promotional message per day to all players
+            today = datetime.now().strftime("%Y-%m-%d")
+            if self._last_promo_date != today:
+                self._last_promo_date = today
+                players = db.get_all_player_ids()
+                if players:
+                    promo_lines = [
+                        "🎉 Daily Promo",
+                        f"Today is {datetime.now().strftime('%A, %B %d')}!",
+                        "",
+                        "🔥 Deposit today and get bonus credit!",
+                        "💰 Tap /deposit to add funds to your wallet.",
+                        "",
+                        "🎰 Open the Bingo Arena and play now!",
+                    ]
+                    await self.broadcast(players, "\n".join(promo_lines))
             players = db.get_all_player_ids()
             if not players:
                 return
@@ -1624,23 +1613,9 @@ class PremiumBingoBot:
             f"Hi, *{_md(name)}*{badge}\n"
             f"💰  Balance: *{credit} {config.APP_CURRENCY}*\n"
             f"━━━━━━━━━━━━━━━━━━\n\n"
-            f"❓  *How to Play*\n"
-            f"━━━━━━━━━━━━━━━━━━\n\n"
-            f"*1.* Tap *🎮 Play Bingo* to open the full-screen arena\n"
-            f"*2.* Pick a room (*{room_names}*) — fixed bet per card "
-            f"({room_bets})\n"
-            f"*3.* During the *{config.PREPARATION_SECONDS}s countdown*, pick up to "
-            f"*{config.MAX_CARDS_PER_PLAYER}* cards\n"
-            f"*4.* A ball is called every *{config.CALL_INTERVAL_SECONDS}s* — "
-            f"numbers are marked automatically\n"
-            f"*5.* Complete a row, column, diagonal or four corners → *BINGO!*\n"
-            f"*6.* Winner takes *80%* of the prize pool — paid instantly\n\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"*💰 Wallet* — Deposit & Withdraw right in this chat\n"
-            f"*🔗 Referral* — Earn 5% commission on every round your friends play\n\n"
-            f"*Commands:*\n"
-            f"`/start`  `/menu`  `/play`  `/status`  `/balance`\n"
-            f"`/deposit`  `/withdraw`  `/referral`  `/help`",
+            f"Rooms: *{room_names}*\n"
+            f"Bets: *{room_bets}* per card\n"
+            f"Max cards: *{config.MAX_CARDS_PER_PLAYER}* per player",
         )
         await update.message.reply_text(
             text,

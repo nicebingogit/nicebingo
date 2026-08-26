@@ -1086,6 +1086,25 @@ def api_admin_transaction_review():
                        f'{action.title()} {tx.get("type","?")} {tx.get("amount","?")} {config.APP_CURRENCY} by {tx_user}')
     except Exception:
         pass
+    # notify the user about their transaction result
+    try:
+        from bot import notify_user
+        tx = db.get_transaction(tx_id)
+        if tx:
+            label = "Deposit" if tx["type"] == "deposit" else "Withdrawal"
+            if action == "approve":
+                notify_user(tx["user_id"], [
+                    f"✅ {label} APPROVED",
+                    f"Amount: {tx['amount']} {config.APP_CURRENCY}",
+                    f"Your balance: {db.get_credit(tx['user_id'])} {config.APP_CURRENCY}",
+                ])
+            else:
+                notify_user(tx["user_id"], [
+                    f"❌ {label} REJECTED",
+                    f"Amount: {tx['amount']} {config.APP_CURRENCY}",
+                ])
+    except Exception:
+        pass
     updated = db.get_transaction(tx_id)
     updated["credit"] = db.get_credit(tx["user_id"])
     return jsonify({"ok": True, "transaction": updated})

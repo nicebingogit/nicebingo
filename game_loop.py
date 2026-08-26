@@ -98,8 +98,9 @@ class GameLoop:
                     if self.db.get_bots_enabled(room):
                         # add ONE bot per tick so players see them joining
                         # gradually (feels like humans picking cards)
-                        breakdown = self.logic.player_breakdown(room)
-                        if breakdown["real"] + breakdown["bots"] < config.MAX_TOTAL_PLAYERS:
+                        # count total CARDS in play, not unique players
+                        cards_in_play = len(self.db.get_all_selections(room))
+                        if cards_in_play < config.MAX_TOTAL_PLAYERS:
                             self.logic.add_bot_player(room)
                     end = _parse(state.get("preparation_end_time"))
                     if end and now >= end:

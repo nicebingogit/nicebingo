@@ -230,25 +230,28 @@ class GameLogic:
     def ensure_minimum_players(self, room: int = 30,
                                    min_total: int | None = None,
                                    max_total: int | None = None) -> int:
-        """Add bots until a random target between min_total and max_total is
-        reached. Returns how many bots were added.
+        """Add bots until a random target of total CARDS (not players) between
+        min_total and max_total is reached. Returns how many bots were added.
 
         The target is randomized each round so the room feels dynamic —
-        sometimes packed, sometimes smaller. Bots always get 1 card each
-        so the prize pool scales naturally with the player count.
+        sometimes packed, sometimes smaller. Each bot gets exactly 1 card,
+        and some real players may hold 2-3 cards, so the total card count
+        (not unique player count) determines when to stop filling.
         """
         if min_total is None:
             min_total = config.MIN_TOTAL_PLAYERS
         if max_total is None:
             max_total = config.MAX_TOTAL_PLAYERS
         target = random.randint(min_total, max_total)
-        player_ids = {s["user_id"] for s in self.db.get_all_selections(room)}
+        # count total CARDS in play (not unique players) — bots are added
+        # one card each until the total card count reaches the target.
+        cards_in_play = len(self.db.get_all_selections(room))
         added = 0
-        while len(player_ids) < target:
+        while cards_in_play < target:
             bot = self.add_bot_player(room)
             if not bot:
                 break
-            player_ids.add(bot["bot_id"])
+            cards_in_play += 1  # each bot adds exactly 1 card
             added += 1
         return added
 
