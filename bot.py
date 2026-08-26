@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import threading
+import urllib.parse
 from datetime import datetime
 
 import requests
@@ -125,20 +126,20 @@ class PremiumBingoBot:
     def get_main_menu(self, user_id: int = 0):
         rows = []
         if self._webapp_ok():
-            rows.append([InlineKeyboardButton("🎮 OPEN BINGO ARENA",
+            rows.append([InlineKeyboardButton("🎮 Open Arena",
                                               web_app={"url": _fresh_app_url()})])
         else:
             rows.append([InlineKeyboardButton("🔒 Fix Mini App URL",
                                               callback_data="tunnel_help")])
         rows += [
-            [InlineKeyboardButton("📊 Status", callback_data="status"),
-             InlineKeyboardButton("💰 Balance", callback_data="balance")],
+            [InlineKeyboardButton("📊 Game Status", callback_data="status"),
+             InlineKeyboardButton("💰 My Balance", callback_data="balance")],
             [InlineKeyboardButton("🎲 My Cards", callback_data="my_cards"),
              InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
         ]
         # referral + wallet are available to EVERYONE right in the bot chat —
         # before the Mini App is ever opened
-        rows.append([InlineKeyboardButton("🔗 My Referral Link", callback_data="referral")])
+        rows.append([InlineKeyboardButton("🔗 Referral", callback_data="referral")])
         rows.append([
             InlineKeyboardButton("⬇️ Deposit", callback_data="wallet_deposit"),
             InlineKeyboardButton("⬆️ Withdraw", callback_data="wallet_withdraw"),
@@ -493,7 +494,7 @@ class PremiumBingoBot:
             f"6. Winner takes **80%** of the room's prize pool — paid instantly\n\n"
             "💰 Deposit / ⬆️ Withdraw / 🔗 Referral work right here in the chat — "
             "no need to open the game first!\n\n"
-            "Commands: /start, /play, /deposit, /withdraw, /referral, /status, "
+            "Commands: /menu, /start, /play, /deposit, /withdraw, /referral, /status, "
             "/balance, /cards, /history, /top, /help",
             reply_markup=self.get_main_menu(uid),
             parse_mode="Markdown",
@@ -605,16 +606,24 @@ class PremiumBingoBot:
         elif data == "referral":
             await self._show_referral(update, context, user_id)
         elif data == "referral_copy":
-            # re-show the referral so the user can long-press to copy
             try:
                 bot_username = (await context.bot.get_me()).username
             except Exception:
                 bot_username = "YourBingoBot"
             ref_link = f"https://t.me/{bot_username}?start=REF_{user_id}"
+            share_text = urllib.parse.quote(
+                f"🎰 Join Nice Bingo and play with me! Use my referral link:\n{ref_link}")
+            await query.answer(text="📋 Link below — tap it to copy!", show_alert=False)
             await query.edit_message_text(
-                f"📋 **Copy this link:**\n`{ref_link}`\n\n"
-                "Long-press the link above to copy it, then share it with friends!",
-                reply_markup=self.get_main_menu(user_id),
+                f"📋 **Your Referral Link:**\n\n"
+                f"{ref_link}\n\n"
+                "👆 **Tap the link above** to copy it, then share with friends!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📤 Share on Telegram",
+                                          url=f"https://t.me/share/url?url={share_text}")],
+                    [InlineKeyboardButton("🔙 Back to Referral", callback_data="referral")],
+                    [InlineKeyboardButton("🏠 Menu", callback_data="menu")],
+                ]),
                 parse_mode="Markdown")
         elif data == "referral_stats":
             await self._show_referral(update, context, user_id)
@@ -845,7 +854,8 @@ class PremiumBingoBot:
             f"🔗 **Your Referral Program**\n\n"
             f"💰 Earn **5%% commission** on every round your referrals play!\n\n"
             f"📨 **Share this link:**\n"
-            f"`{ref_link}`\n\n"
+            f"{ref_link}\n\n"
+            f"👆 Tap the link above to copy it\n\n"
             f"📊 **Stats:**\n"
             f"👥 Total referrals: **{total_refs}**\n"
             f"🎮 Active players: **{active_refs}**\n"
@@ -864,10 +874,13 @@ class PremiumBingoBot:
             for c in commissions:
                 cname = c.get("referred_name") or c.get("referred_username") or f"#{c['referred_id']}"
                 text += f"  • +{c['commission']} {config.APP_CURRENCY} from {_md(cname)} (bet {c['total_bet']} ETB)\n"
+        share_text = urllib.parse.quote(
+            f"🎰 Join Nice Bingo and play with me! Use my referral link:\n{ref_link}")
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 Copy Link", callback_data="referral_copy")],
+            [InlineKeyboardButton("📋 Copy Link", callback_data="referral_copy"),
+             InlineKeyboardButton("📤 Share", url=f"https://t.me/share/url?url={share_text}")],
             [InlineKeyboardButton("📊 Full Stats", callback_data="referral_stats")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu")],
+            [InlineKeyboardButton("🏠 Menu", callback_data="menu")],
         ])
         if query:
             try:
@@ -1122,6 +1135,7 @@ class PremiumBingoBot:
         self.application.add_handler(CommandHandler("history", self.history_command))
         self.application.add_handler(CommandHandler("top", self.top_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("menu", self.menu_command))
         self.application.add_handler(CommandHandler("admin", self.admin_command))
         self.application.add_handler(CommandHandler("give", self._give))
         self.application.add_handler(CommandHandler("take", self._take))
@@ -1142,6 +1156,15 @@ class PremiumBingoBot:
 
     async def _take(self, update, context):
         await self.give_take_command(update, context, -1)
+
+    async def menu_command(self, update: Update,
+                           context: ContextTypes.DEFAULT_TYPE):
+        """/menu — show the main menu (works before the Mini App is opened)."""
+        uid = update.effective_user.id
+        await update.message.reply_text(
+            "🎲 **Main Menu** — tap a button below:",
+            reply_markup=self.get_main_menu(uid),
+            parse_mode="Markdown")
 
     async def referral_command(self, update: Update,
                                context: ContextTypes.DEFAULT_TYPE):
