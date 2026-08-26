@@ -169,8 +169,15 @@ Telegram users slash-command autocomplete and a persistent menu button:
 | Game | 📊 Status · 💰 Balance |
 |        | 🎲 My Cards · 🏆 Rankings |
 | Wallet | ⬇️ Deposit · ⬆️ Withdraw |
-|        | 📋 My Requests |
+|        | 📋 My Requests · 🚨 Appeal |
 | More   | 🔗 Referral · ❓ Help |
+
+**Persistent reply keyboard** (shown above the text input, stays visible):
+
+| Row 1 | 🎮 Play | 💰 Balance | 🎲 Cards |
+|-------|---------|-----------|----------|
+| Row 2 | ⬇️ Deposit | ⬆️ Withdraw | 🚨 Appeal |
+| Row 2+ | 🔧 Admin (admins only) | | |
 
 **Admin panel** (shown via `/admin` or admin badge):
 

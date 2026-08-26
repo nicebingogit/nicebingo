@@ -22,7 +22,7 @@ from datetime import datetime
 import requests
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram import ChatMember
+from telegram import ChatMember, ReplyKeyboardMarkup, KeyboardButton
 from telegram.error import Forbidden
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ChatMemberHandler,
@@ -149,7 +149,10 @@ class PremiumBingoBot:
             InlineKeyboardButton("⬇️  Deposit", callback_data="wallet_deposit"),
             InlineKeyboardButton("⬆️  Withdraw", callback_data="wallet_withdraw"),
         ])
-        rows.append([InlineKeyboardButton("📋  My Requests", callback_data="requests")])
+        rows.append([
+            InlineKeyboardButton("📋  My Requests", callback_data="requests"),
+            InlineKeyboardButton("🚨  Appeal", callback_data="appeal_list"),
+        ])
         rows.append([])  # spacer
         # ── MORE ──────────────────────────────────────────
         rows.append([
@@ -167,6 +170,36 @@ class PremiumBingoBot:
             [InlineKeyboardButton("🎯 Show Cards", callback_data="show_cards"),
              InlineKeyboardButton("🏠 Menu", callback_data="menu")],
         ])
+
+    @staticmethod
+    def get_reply_keyboard(user_id: int = 0) -> ReplyKeyboardMarkup:
+        """Persistent reply keyboard shown above the text input.
+
+        Two rows of quick-action emoji buttons so the user always has
+        fast access to the most common actions without scrolling through
+        the inline menu.
+        """
+        from database import Database
+        import config as _cfg
+        _db = Database(_cfg.DB_PATH)
+        is_admin = _db.is_admin(user_id)
+        row1 = [
+            KeyboardButton("🎮 Play"),
+            KeyboardButton("💰 Balance"),
+            KeyboardButton("🎲 Cards"),
+        ]
+        row2 = [
+            KeyboardButton("⬇️ Deposit"),
+            KeyboardButton("⬆️ Withdraw"),
+            KeyboardButton("🚨 Appeal"),
+        ]
+        if is_admin:
+            row2.append(KeyboardButton("🔧 Admin"))
+        return ReplyKeyboardMarkup(
+            [row1, row2],
+            resize_keyboard=True,
+            one_time_keyboard=False,
+        )
 
     def get_admin_menu(self):
         """Professional admin panel with grouped actions."""
@@ -280,6 +313,12 @@ class PremiumBingoBot:
             reply_markup=self.get_main_menu(user.id),
             parse_mode="Markdown",
         )
+        # Show the persistent reply keyboard (stays above the text input)
+        await update.message.reply_text(
+            "👇 *Quick actions* — tap any button below:",
+            reply_markup=self.get_reply_keyboard(user.id),
+            parse_mode="Markdown",
+        )
         
 
     async def text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -287,6 +326,57 @@ class PremiumBingoBot:
         or processes one step of the deposit/withdraw wallet chat flow."""
         user = update.effective_user
         raw = (update.message.text or "").strip()
+        # --- reply keyboard quick actions ---
+        _rk = {
+            "🎮 Play": "play",
+            "💰 Balance": "balance",
+            "🎲 Cards": "my_cards",
+            "⬇️ Deposit": "wallet_deposit",
+            "⬆️ Withdraw": "wallet_withdraw",
+            "🚨 Appeal": "appeal_list",
+            "🔧 Admin": "admin_panel",
+            "🏠 Menu": "menu",
+            "📊 Status": "status",
+            "🏆 Leaderboard": "leaderboard",
+            "🔗 Referral": "referral",
+            "❓ Help": "help",
+        }
+        if raw in _rk:
+            cb = _rk[raw]
+            if cb == "play":
+                await self.play_command(update, context)
+            elif cb == "admin_panel":
+                await self.admin_command(update, context)
+            elif cb == "menu":
+                await self.menu_command(update, context)
+            elif cb == "balance":
+                await self.balance_command(update, context)
+            elif cb == "my_cards":
+                await self.my_cards_command(update, context)
+            elif cb == "status":
+                await self.status_command(update, context)
+            elif cb == "leaderboard":
+                await self.top_command(update, context)
+            elif cb == "referral":
+                await self._show_referral(update, context, user.id)
+            elif cb == "help":
+                await self.help_command(update, context)
+            elif cb in ("wallet_deposit", "wallet_withdraw"):
+                kind = "deposit" if cb == "wallet_deposit" else "withdraw"
+                class _FakeQ:
+                    message = update.message
+                    async def answer(self, *a, **kw): pass
+                    async def edit_message_text(self, *a, **kw): pass
+                update.callback_query = _FakeQ()
+                await self._wallet_start(update, context, kind)
+            elif cb == "appeal_list":
+                class _FakeQ:
+                    message = update.message
+                    async def answer(self, *a, **kw): pass
+                    async def edit_message_text(self, *a, **kw): pass
+                update.callback_query = _FakeQ()
+                await self.appeal_list(update, context)
+            return
         # --- wallet chat flow takes priority over everything ---
         if context.user_data.get("wallet_flow"):
             if not raw:
@@ -729,6 +819,8 @@ class PremiumBingoBot:
             await self.admin_callback_handler(update, context)
         elif data == "requests":
             await self.requests_command(update, context)
+        elif data == "appeal_list":
+            await self.appeal_list(update, context)
         elif data.startswith("appeal_"):
             if data == "appeal_cancel":
                 context.user_data.pop("appeal_flow", None)
@@ -988,6 +1080,71 @@ class PremiumBingoBot:
             await update.message.reply_text(text, reply_markup=kb,
                                             parse_mode="Markdown")
 
+    # --------------------------------------------------- dedicated appeal
+    async def appeal_list(self, update: Update,
+                          context: ContextTypes.DEFAULT_TYPE):
+        """Show a clean appeal screen: only pending/rejected deposits that
+        can be appealed, with a simple one-tap flow."""
+        query = update.callback_query
+        if query:
+            await query.answer()
+        user_id = update.effective_user.id
+        txs = db.get_user_transactions(user_id, limit=20)
+        appealable = []
+        for tx in txs:
+            if tx["type"] != "deposit":
+                continue
+            if tx["status"] not in ("pending", "rejected"):
+                continue
+            # skip if user already has a pending appeal for this tx
+            existing = [a for a in db.get_user_appeals(user_id)
+                        if a["transaction_id"] == tx["id"]
+                        and a["status"] == "pending"]
+            if existing:
+                continue
+            appealable.append(tx)
+        if not appealable:
+            text = (
+                f"🚨  *Appeal Center*\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"You have no deposits that need an appeal.\n\n"
+                f"Appeals are available for *pending* or *rejected* deposits."
+            )
+            kb = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠  Menu", callback_data="menu")]])
+        else:
+            lines = [
+                f"🚨  *Appeal Center*",
+                f"━━━━━━━━━━━━━━━━━━",
+                f"",
+                f"Select a deposit to appeal. The super admin will review it.",
+                f"",
+            ]
+            buttons = []
+            for tx in appealable[:5]:
+                status_icon = "🟡" if tx["status"] == "pending" else "🔴"
+                lines.append(
+                    f"{status_icon} *Deposit #{tx['id']}* — {tx['amount']} {config.APP_CURRENCY}\n"
+                    f"   Status: {tx['status'].upper()} · {tx.get('created_at', '')[:16]}")
+                buttons.append([
+                    InlineKeyboardButton(
+                        f"🚨  Appeal #{tx['id']} — {tx['amount']} ETB",
+                        callback_data=f"appeal_{tx['id']}")
+                ])
+            text = "\n".join(lines)
+            buttons.append([InlineKeyboardButton("🏠  Menu", callback_data="menu")])
+            kb = InlineKeyboardMarkup(buttons)
+        if query:
+            try:
+                await query.edit_message_text(text, reply_markup=kb,
+                                              parse_mode="Markdown")
+            except Exception:
+                await query.message.reply_text(text, reply_markup=kb,
+                                              parse_mode="Markdown")
+        else:
+            await update.message.reply_text(text, reply_markup=kb,
+                                            parse_mode="Markdown")
+
     async def _start_appeal(self, update: Update,
                             context: ContextTypes.DEFAULT_TYPE, tx_id: int):
         """Begin an appeal flow for a specific deposit transaction."""
@@ -1016,13 +1173,21 @@ class PremiumBingoBot:
             return
         context.user_data["appeal_flow"] = {"tx_id": tx_id}
         cancel_kb = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("❌ Cancel", callback_data="appeal_cancel")]])
+            [[InlineKeyboardButton("❌  Cancel", callback_data="appeal_cancel")],
+             [InlineKeyboardButton("🏠  Menu", callback_data="menu")]])
+        text = (
+            f"🚨  *Appeal — Deposit #{tx_id}*\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰  Amount: *{tx['amount']} {config.APP_CURRENCY}*\n"
+            f"📋  Status: *{tx['status'].upper()}*\n\n"
+            f"Please describe your issue:\n"
+            f"• When did you pay?\n"
+            f"• What happened?\n"
+            f"• Any reference number?\n\n"
+            f"Type your reason below:"
+        )
         await query.edit_message_text(
-            f"🚨 **Appeal for Deposit #{tx_id}**\n\n"
-            f"Amount: {tx['amount']} {config.APP_CURRENCY}\n"
-            f"Status: {tx['status'].upper()}\n\n"
-            "Please describe your issue in detail — "
-            "what happened, when you paid, etc.:",
+            text,
             reply_markup=cancel_kb, parse_mode="Markdown")
 
     async def _appeal_flow_text(self, update: Update,
@@ -1044,11 +1209,15 @@ class PremiumBingoBot:
         })
         context.user_data.pop("appeal_flow", None)
         if result.get("ok"):
+            text = (
+                f"✅  *Appeal Submitted!*\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"📋  Deposit #{tx_id} — your issue has been sent to the "
+                f"super admin for review.\n\n"
+                f"You'll be notified when it's resolved."
+            )
             await update.message.reply_text(
-                f"✅ **Appeal submitted!**\n\n"
-                f"Deposit #{tx_id} — your issue has been sent to the "
-                "super admin for review. You'll be notified when it's "
-                "resolved.",
+                text,
                 reply_markup=self.get_main_menu(user_id),
                 parse_mode="Markdown")
         else:
@@ -1419,6 +1588,11 @@ class PremiumBingoBot:
             text,
             reply_markup=self.get_main_menu(uid),
             parse_mode="Markdown")
+        await update.message.reply_text(
+            "👇 *Quick actions* — tap any button below:",
+            reply_markup=self.get_reply_keyboard(uid),
+            parse_mode="Markdown",
+        )
 
     async def referral_command(self, update: Update,
                                context: ContextTypes.DEFAULT_TYPE):
