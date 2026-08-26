@@ -1430,6 +1430,7 @@ class PremiumBingoBot:
         try:
             await self._drain_notifications()
             # send one promotional message per day to all players
+            # uses notify_user (DB queue) so it works in both polling and webhook mode
             today = datetime.now().strftime("%Y-%m-%d")
             if self._last_promo_date != today:
                 self._last_promo_date = today
@@ -1444,7 +1445,12 @@ class PremiumBingoBot:
                         "",
                         "🎰 Open the Bingo Arena and play now!",
                     ]
-                    await self.broadcast(players, "\n".join(promo_lines))
+                    promo_text = "\n".join(str(line) for line in promo_lines)
+                    for uid in players:
+                        try:
+                            db.add_bot_notification(uid, promo_text)
+                        except Exception:
+                            pass
             players = db.get_all_player_ids()
             if not players:
                 return
@@ -1457,43 +1463,52 @@ class PremiumBingoBot:
                 label = config.room_label(room)
 
                 if phase == "preparation" and last["phase"] != "preparation" and config.ANNOUNCE_ROUNDS:
-                    await self.broadcast(
-                        players,
-                        f"🔄 **{label}** is preparing — {config.PREPARATION_SECONDS}s to pick your cards!\n"
-                        f"Tap **/play** to open the Mini App 🎰")
+                    msg = (f"🔄 **{label}** is preparing — {config.PREPARATION_SECONDS}s to pick your cards!\n"
+                            f"Tap **/play** to open the Mini App 🎰")
+                    for uid in players:
+                        try:
+                            db.add_bot_notification(uid, msg)
+                        except Exception:
+                            pass
                 elif phase == "playing" and last["phase"] != "playing" and config.ANNOUNCE_ROUNDS:
                     pool = logic.calculate_prize_pool(room)
-                    # NOTE: no round number is ever announced to users
-                    await self.broadcast(
-                        players,
-                        f"🎰 **{label}**: A new Bingo round has started!\n\n"
-                        f"💰 Prize pool: **{pool['prize_pool']} ETB**\n"
-                        f"👥 Players: **{pool['real_players']}**\n\nGood luck! 🍀")
+                    msg = (f"🎰 **{label}**: A new Bingo round has started!\n\n"
+                            f"💰 Prize pool: **{pool['prize_pool']} ETB**\n"
+                            f"👥 Players: **{pool['real_players']}**\n\nGood luck! 🍀")
+                    for uid in players:
+                        try:
+                            db.add_bot_notification(uid, msg)
+                        except Exception:
+                            pass
                 elif phase == "ended" and last["phase"] != "ended" and config.ANNOUNCE_ROUNDS:
                     if state.get("winner_user_id"):
                         info = json.loads(state["winning_pattern"] or "{}")
                         winner = db.get_player(state["winner_user_id"])
-                        name = (winner or {}).get("full_name") or (winner or {}).get("username") or (
+                        wname = (winner or {}).get("full_name") or (winner or {}).get("username") or (
                             bot_name(state["winner_user_id"])
                             if state["winner_user_id"] < 0 else "Player")
                         card_id = info.get('card_id', '?')
-                        await self.broadcast(
-                            players,
-                            f"🎉 **BINGO!** 🎉 ({label})\n\n🏆 Winner: **{_md(name)}**\n"
-                            f"🃏 Winning Card: **#{card_id}**\n"
-                            f"🎯 Pattern: **{info.get('pattern')}**\n"
-                            f"💰 Prize: **{info.get('prize', 0)} {config.APP_CURRENCY}**")
+                        msg = (f"🎉 **BINGO!** 🎉 ({label})\n\n🏆 Winner: **{_md(wname)}**\n"
+                                f"🃏 Winning Card: **#{card_id}**\n"
+                                f"🎯 Pattern: **{info.get('pattern')}**\n"
+                                f"💰 Prize: **{info.get('prize', 0)} {config.APP_CURRENCY}**")
                     else:
-                        await self.broadcast(
-                            players,
-                            f"🛑 **{label}**: all 75 balls called — no winner. Next round soon!")
+                        msg = f"🛑 **{label}**: all 75 balls called — no winner. Next round soon!"
+                    for uid in players:
+                        try:
+                            db.add_bot_notification(uid, msg)
+                        except Exception:
+                            pass
 
                 if phase == "playing" and config.ANNOUNCE_NUMBERS and count > last["count"]:
                     for idx, n in enumerate(called[last["count"]:count],
                                             start=last["count"] + 1):
-                        await self.broadcast(
-                            players,
-                            f"🎯 **{n}**  ·  {idx}/{config.TOTAL_NUMBERS} ({label})")
+                        ball_msg = f"🎯 **{n}**  ·  {idx}/{config.TOTAL_NUMBERS} ({label})"
+                        for uid in players:
+                            try:
+                                db.add_bot_notification(uid, ball_msg)
+                            except Exception:
+                                pass
 
                 last.update(phase=phase, count=count, round=round_no)
         except Exception as exc:
@@ -1884,6 +1899,10 @@ def dispatch_webhook(update_dict: dict) -> bool:
     is scheduled on the bot's event loop and the HTTP request returns at once.
     Returns False only while the bot is still starting up (Telegram will
     retry the delivery).
+
+    Also drains the notification queue on every incoming update so that
+    deposit/withdraw alerts, daily promos, and round announcements are
+    delivered promptly even when the announcer tick is slow or not running.
     """
     if _webhook_app is None or _webhook_loop is None:
         # App not ready yet — try to (re)start the bot
@@ -1898,6 +1917,20 @@ def dispatch_webhook(update_dict: dict) -> bool:
             time.sleep(0.5)
         if _webhook_app is None or _webhook_loop is None:
             return False
+    # drain queued notifications on every webhook update so alerts are
+    # delivered promptly (deposit/withdraw, daily promo, round events)
+    try:
+        for n in db.get_unsent_bot_notifications(50):
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    _webhook_app.bot.send_message(
+                        chat_id=n["chat_id"], text=n["text"]),
+                    _webhook_loop)
+                db.mark_bot_notification_sent(n["id"])
+            except Exception:
+                pass
+    except Exception:
+        pass
     try:
         update = Update.de_json(update_dict, _webhook_app.bot)
         if update is None:

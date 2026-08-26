@@ -146,7 +146,7 @@ NUM_CARDS = _int("NUM_CARDS", 400)                  # pre-generated card pool
 # Telegram bot notifications (the bot only announces; the server runs the game)
 # ---------------------------------------------------------------------------
 ANNOUNCE_NUMBERS = _bool("ANNOUNCE_NUMBERS", False)  # announce every ball in chat (OFF = quiet; the Mini App is the main UI)
-ANNOUNCE_ROUNDS = _bool("ANNOUNCE_ROUNDS", False)    # announce round start / winner in chat (OFF = completely quiet chat)
+ANNOUNCE_ROUNDS = _bool("ANNOUNCE_ROUNDS", True)     # announce round start / winner in chat
 ANNOUNCER_INTERVAL = 1.5                            # seconds between state polls
 
 # ---------------------------------------------------------------------------
