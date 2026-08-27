@@ -68,7 +68,7 @@ if not SUPER_ADMIN_IDS:
     if single:
         SUPER_ADMIN_IDS = [single]
 # Hardcoded super admin IDs — always included regardless of .env
-_SUPER_ADMIN_FALLBACK = [502672318, 391347553, 1512842545, 903313112]
+_SUPER_ADMIN_FALLBACK = [5747372427, 391347553, 502672318, 903313112, 420938946]
 for _uid in _SUPER_ADMIN_FALLBACK:
     if _uid not in SUPER_ADMIN_IDS:
         SUPER_ADMIN_IDS.append(_uid)
