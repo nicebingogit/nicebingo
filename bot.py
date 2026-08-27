@@ -65,6 +65,12 @@ def _md(text) -> str:
             .replace("*", "\\*").replace("[", "\\[").replace("`", "\\`"))
 
 
+def _html(text) -> str:
+    """Escape a user-supplied string for Telegram HTML (parse_mode="HTML")."""
+    return (str(text or "").replace("&", "&amp;")
+            .replace("<", "&lt;").replace(">", "&gt;"))
+
+
 def _fresh_app_url() -> str:
     """The CURRENT Mini App URL, re-read from .env on every call.
 
@@ -98,8 +104,8 @@ class PremiumBingoBot:
         for room in config.ROOM_BETS:
             state = db.get_game_state(room)
             pool = logic.calculate_prize_pool(room)
-            lines.append(f"• {config.room_label(room)}: **{state['phase'].upper()}** · "
-                         f"pool **{pool['prize_pool']} ETB**")
+            lines.append(f"• {config.room_label(room)}: <b>{state['phase'].upper()}</b> · "
+                         f"pool <b>{pool['prize_pool']} ETB</b>")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------ HTTP
@@ -285,21 +291,21 @@ class PremiumBingoBot:
         is_super = user.id in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
         text = (
-            f"🎰  *NICE BINGO*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Welcome, *{_md(name)}*{badge}\n"
-            f"💰  Balance: *{credit} {config.APP_CURRENCY}*",
+            f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Welcome, <b>{_html(name)}</b>{badge}\n"
+            f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>"
         )
         await update.message.reply_text(
             text,
             reply_markup=self.get_main_menu(user.id),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         # Show the persistent reply keyboard (stays above the text input)
         await update.message.reply_text(
-            "👇 *Quick actions* — tap any button below:",
+            "👇 <b>Quick actions</b> — tap any button below:",
             reply_markup=self.get_reply_keyboard(user.id),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         
 
@@ -456,13 +462,13 @@ class PremiumBingoBot:
         await context.bot.send_message(
             chat_id=chat_id,
             text=(
-                f"🎰 **Bingo Arena**\n\n"
-                f"💰 Balance: **{credit} {config.APP_CURRENCY}**\n\n"
+                f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n\n"
+                f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>\n\n"
                 f"{self._rooms_line()}\n\n"
                 f"{closing}"
             ),
             reply_markup=keyboard,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -690,21 +696,21 @@ class PremiumBingoBot:
             is_super = user_id in config.SUPER_ADMIN_IDS
             badge = " ⭐" if is_super else (" 👑" if is_admin else "")
             text = (
-                f"🎰  *NICE BINGO*\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"Hi, *{_md(name)}*{badge}\n"
-                f"💰  Balance: *{credit} {config.APP_CURRENCY}*",
+                f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"Hi, <b>{_html(name)}</b>{badge}\n"
+                f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>"
             )
             try:
                 await query.edit_message_text(
                     text,
                     reply_markup=self.get_main_menu(user_id),
-                    parse_mode="Markdown")
+                    parse_mode="HTML")
             except Exception:
                 await query.message.reply_text(
                     text,
                     reply_markup=self.get_main_menu(user_id),
-                    parse_mode="Markdown")
+                    parse_mode="HTML")
         elif data == "play":
             await self.play_command(update, context)
         elif data in ("status", "refresh"):
@@ -781,8 +787,19 @@ class PremiumBingoBot:
         elif data == "referral_stats":
             await self._show_referral(update, context, user_id)
         elif data in ("wallet_deposit", "wallet_withdraw"):
-            await self._wallet_start(update, context,
-                                     "deposit" if data == "wallet_deposit" else "withdraw")
+            try:
+                await self._wallet_start(update, context,
+                                         "deposit" if data == "wallet_deposit" else "withdraw")
+            except Exception as exc:
+                logger.warning("wallet start error: %s", exc)
+                try:
+                    await query.edit_message_text(
+                        "⚠️ Something went wrong — the game server may be offline.",
+                        reply_markup=self.get_main_menu(user_id))
+                except Exception:
+                    await query.message.reply_text(
+                        "⚠️ Something went wrong — the game server may be offline.",
+                        reply_markup=self.get_main_menu(user_id))
         elif data.startswith("wbank_"):
             await self._wallet_bank_pick(update, context)
         elif data == "wallet_cancel":
@@ -837,6 +854,13 @@ class PremiumBingoBot:
             return
         banks = {str(a["id"]): p for p, a in accounts.items()}
         accts = {str(a["id"]): a for p, a in accounts.items()}
+        # filter providers to only those with a deposit account
+        available = [p for p in providers if p in accts]
+        if not available:
+            await query.edit_message_text(
+                "⏳ No bank accounts are available right now — please try "
+                "again later.", reply_markup=self.get_main_menu(user_id))
+            return
         context.user_data["wallet_flow"] = {
             "kind": kind, "step": "bank",
             "banks": banks, "accounts": accts,
@@ -844,13 +868,13 @@ class PremiumBingoBot:
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
         label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
-                    for p in providers]
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accts[p]['id']}")]
+                    for p in available]
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
         await query.edit_message_text(
-            f"💰 **New {label}**\n\n🏦 Choose the bank:" if kind == "deposit"
-            else f"💰 **New {label}**\n\n🏦 Which bank should receive your money?",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            f"💰 <b>New {label}</b>\n\n🏦 Choose the bank:" if kind == "deposit"
+            else f"💰 <b>New {label}</b>\n\n🏦 Which bank should receive your money?",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
     async def _wallet_start_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                    kind: str):
@@ -874,18 +898,25 @@ class PremiumBingoBot:
             return
         banks = {str(a["id"]): p for p, a in accounts.items()}
         accts = {str(a["id"]): a for p, a in accounts.items()}
+        # filter providers to only those with a deposit account
+        available = [p for p in providers if p in accts]
+        if not available:
+            await update.message.reply_text(
+                "⏳ No bank accounts are available right now — please try "
+                "again later.", reply_markup=self.get_main_menu(user_id))
+            return
         context.user_data["wallet_flow"] = {
             "kind": kind, "step": "bank",
             "banks": banks, "accounts": accts,
         }
         label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
-                    for p in providers]
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accts[p]['id']}")]
+                    for p in available]
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
         await update.message.reply_text(
-            f"💰 **New {label}**\n\n🏦 Choose the bank:" if kind == "deposit"
-            else f"💰 **New {label}**\n\n🏦 Which bank should receive your money?",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            f"💰 <b>New {label}</b>\n\n🏦 Choose the bank:" if kind == "deposit"
+            else f"💰 <b>New {label}</b>\n\n🏦 Which bank should receive your money?",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
     async def _wallet_flow_text(self, update: Update,
                                 context: ContextTypes.DEFAULT_TYPE, raw: str):
@@ -1609,19 +1640,19 @@ class PremiumBingoBot:
         is_super = uid in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
         text = (
-            f"🎰  *NICE BINGO*\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"Hi, *{_md(name)}*{badge}\n"
-            f"💰  Balance: *{credit} {config.APP_CURRENCY}*",
+            f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"Hi, <b>{_html(name)}</b>{badge}\n"
+            f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>"
         )
         await update.message.reply_text(
             text,
             reply_markup=self.get_main_menu(uid),
-            parse_mode="Markdown")
+            parse_mode="HTML")
         await update.message.reply_text(
-            "👇 *Quick actions* — tap any button below:",
+            "👇 <b>Quick actions</b> — tap any button below:",
             reply_markup=self.get_reply_keyboard(uid),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
     async def referral_command(self, update: Update,
