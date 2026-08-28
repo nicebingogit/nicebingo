@@ -65,14 +65,23 @@ export default function Settings({ user, settings, config, onChanged, onError, o
   const [appealTx, setAppealTx] = useState(null);
   const [appealReason, setAppealReason] = useState('');
 
+  // announcements: essential messages from the super admin
+  const [announcements, setAnnouncements] = useState([]);
+
   // deposit_accounts = ONE account per bank/provider — always the account of
   // the ONLINE admin with the most credit; offline admins' accounts are never
-  // listed. The system picks the richest ONLINE admin per bank.
+  // listed. BUT: super admin accounts are ALWAYS shown even when offline.
   const depositAccounts = settings?.deposit_accounts || [];
-  // Build a lookup of online admin accounts by provider name (case-insensitive)
+  // Build a lookup of admin accounts by provider name (case-insensitive)
   const onlineAccountsMap = {};
   depositAccounts.forEach((d) => {
-    onlineAccountsMap[d.provider.toLowerCase()] = d;
+    const key = d.provider.toLowerCase();
+    // Super admin accounts always take priority — they're shown even when offline
+    if (d.is_super_admin_account) {
+      onlineAccountsMap[key] = d;
+    } else if (!onlineAccountsMap[key]) {
+      onlineAccountsMap[key] = d;
+    }
   });
   // Available banks: only those that have at least one active admin account
   // (either an online admin or super admin fallback). The providers list comes
@@ -115,6 +124,16 @@ export default function Settings({ user, settings, config, onChanged, onError, o
   }, []);
 
   useEffect(() => { loadTxs(); loadAppeals(); }, [loadTxs, loadAppeals]);
+
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      const d = await api.announcements();
+      setAnnouncements(d.announcements || []);
+    } catch (e) { /* silent */ }
+  }, []);
+
+  useEffect(() => { loadAnnouncements(); }, [loadAnnouncements]);
+  useEffect(() => { const i = setInterval(loadAnnouncements, 15000); return () => clearInterval(i); }, [loadAnnouncements]);
 
   // default the deposit picker to the first available bank
   useEffect(() => {
@@ -274,6 +293,21 @@ export default function Settings({ user, settings, config, onChanged, onError, o
       {/* ---------------------------------------------------------- WALLET */}
       {tab === 'wallet' && (
         <div className="wallet">
+
+          {/* ---- ANNOUNCEMENTS BANNER ---- */}
+          {announcements.length > 0 && (
+            <div className="announcements-banner">
+              <div className="announcements-header">📢 Announcements</div>
+              {announcements.slice(0, 3).map((a) => (
+                <div key={a.id} className="announcement-item">
+                  <span className="announcement-text">{a.text}</span>
+                  <span className="announcement-meta">
+                    {a.posted_by ? `— ${a.posted_by}` : ''} {a.created_at?.slice(0, 10)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="wallet-balance">
             <span className="wallet-balance-label">Your balance</span>
             <span className="wallet-balance-num">
@@ -331,14 +365,19 @@ export default function Settings({ user, settings, config, onChanged, onError, o
                   <div style={{ fontWeight: 900, fontSize: 15, color: 'var(--text)' }}>{selectedDep.provider}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>Payment Account</div>
                 </div>
-                {selectedDep.account.admin_online === false && (
+                {selectedDep.is_super_admin_account && (
                   <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: 'var(--purple)', background: 'rgba(217,92,255,0.15)', border: '1px solid rgba(217,92,255,0.3)', borderRadius: 999, padding: '2px 8px' }}>
-                    ⚡ SUPER ADMIN
+                    ⚡ SUPER ADMIN — always available
                   </span>
                 )}
-                {selectedDep.account.admin_online === true && (
+                {!selectedDep.is_super_admin_account && selectedDep.account.admin_online === true && (
                   <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: 'var(--green)', background: 'rgba(75,227,160,0.15)', border: '1px solid rgba(75,227,160,0.3)', borderRadius: 999, padding: '2px 8px' }}>
                     ● ONLINE
+                  </span>
+                )}
+                {!selectedDep.is_super_admin_account && selectedDep.account.admin_online === false && (
+                  <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: 'var(--muted)', background: 'rgba(139,147,199,0.15)', border: '1px solid rgba(139,147,199,0.3)', borderRadius: 999, padding: '2px 8px' }}>
+                    ⚪ OFFLINE
                   </span>
                 )}
               </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { playClick } from '../sound.js';
+import { getTelegramUser } from '../telegram.js';
 
 const TX_STATUS = {
   pending: { label: '⏳ Pending', cls: 'pending' },
@@ -8,13 +9,16 @@ const TX_STATUS = {
   rejected: { label: '❌ Rejected', cls: 'rejected' },
 };
 
-export default function SuperAdminPanel({ onError }) {
+export default function SuperAdminPanel({ onError, onChanged }) {
   const [tab, setTab] = useState('overview');
   const [users, setUsers] = useState([]);
   const [txs, setTxs] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [appeals, setAppeals] = useState([]);
   const [activities, setActivities] = useState([]);
+  const [gameHistory, setGameHistory] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [announceText, setAnnounceText] = useState('');
   const [flash, setFlash] = useState('');
 
   // user detail modal (click a row) — credit editing
@@ -26,11 +30,18 @@ export default function SuperAdminPanel({ onError }) {
 
   // account management
   const [confirmDelAcc, setConfirmDelAcc] = useState(null);
-  const [reassignAcc, setReassignAcc] = useState(null); // account id being re-owned
+  const [reassignAcc, setReassignAcc] = useState(null);
   const [reassignTo, setReassignTo] = useState('');
 
   // appeal resolution
-  const [resDraft, setResDraft] = useState({}); // appeal id -> resolution text
+  const [resDraft, setResDraft] = useState({});
+
+  // inline delete confirm for users
+  const [confirmDel, setConfirmDel] = useState(null);
+
+  // payment account form
+  const [accForm, setAccForm] = useState({ provider: '', account_name: '', account_number: '', is_active: true });
+  const [editingAcc, setEditingAcc] = useState(null);
 
   const flashMsg = (m) => { setFlash(m); setTimeout(() => setFlash(''), 3500); };
 
@@ -59,12 +70,23 @@ export default function SuperAdminPanel({ onError }) {
     catch (e) { onError?.(e.message); }
   }, [onError]);
 
+  const loadGameHistory = useCallback(async () => {
+    try { setGameHistory((await api.superAdmin.gameplayHistory()).history || []); }
+    catch (e) { /* silent — endpoint may not exist yet */ }
+  }, []);
+
+  const loadAnnouncements = useCallback(async () => {
+    try { setAnnouncements((await api.announcements()).announcements || []); }
+    catch (e) { /* silent */ }
+  }, []);
+
   const loadAll = useCallback(async () => {
-    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities()]);
-  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities]);
+    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities(), loadGameHistory(), loadAnnouncements()]);
+  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities, loadGameHistory, loadAnnouncements]);
 
   // game state for controls
   const [gamePhase, setGamePhase] = useState('preparation');
+  const [gamePaused, setGamePaused] = useState(false);
   const [room, setRoom] = useState(10);
   const [botsEnabled, setBotsEnabled] = useState(true);
   const [botsDifficulty, setBotsDifficulty] = useState(2);
@@ -76,6 +98,7 @@ export default function SuperAdminPanel({ onError }) {
     try {
       const { state: d } = await api.gameState(room);
       setGamePhase(d.phase || 'preparation');
+      setGamePaused(!!d.paused);
       setBotsEnabled(!!d.bots_enabled);
       setBotsDifficulty(d.bots_difficulty ?? 2);
     } catch (e) { /* silent */ }
@@ -86,6 +109,7 @@ export default function SuperAdminPanel({ onError }) {
   useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { const i = setInterval(loadAppeals, 10000); return () => clearInterval(i); }, [loadAppeals]);
   useEffect(() => { const i = setInterval(loadActivities, 15000); return () => clearInterval(i); }, [loadActivities]);
+  useEffect(() => { const i = setInterval(loadAnnouncements, 20000); return () => clearInterval(i); }, [loadAnnouncements]);
 
   const gameControl = async (fn, okMsg) => {
     playClick();
@@ -96,6 +120,42 @@ export default function SuperAdminPanel({ onError }) {
     } catch (e) { flashMsg(`❌ ${e.message}`); }
   };
 
+  // ---- PAUSE / RESUME ----
+  const pauseGame = async () => {
+    playClick();
+    try {
+      await api.superAdmin.pauseGame(room);
+      setGamePaused(true);
+      flashMsg('⏸️ Game paused for ALL players.');
+      await loadGameState();
+    } catch (e) { flashMsg(`❌ ${e.message}`); }
+  };
+
+  const resumeGame = async () => {
+    playClick();
+    try {
+      await api.superAdmin.resumeGame(room);
+      setGamePaused(false);
+      flashMsg('▶️ Game resumed!');
+      await loadGameState();
+    } catch (e) { flashMsg(`❌ ${e.message}`); }
+  };
+
+  // ---- ANNOUNCEMENTS ----
+  const postAnnouncement = async () => {
+    const text = announceText.trim();
+    if (!text) { flashMsg('Type an announcement first.'); return; }
+    playClick();
+    try {
+      await api.superAdmin.postAnnouncement(text);
+      setAnnounceText('');
+      flashMsg('📢 Announcement posted to all users, admins & super admins!');
+      await loadAnnouncements();
+      onChanged?.();
+    } catch (e) { flashMsg(`❌ ${e.message}`); }
+  };
+
+  // ---- CREDIT EDITING ----
   const adjustCredit = async (delta) => {
     if (!selected) return;
     playClick();
@@ -111,6 +171,7 @@ export default function SuperAdminPanel({ onError }) {
     }
   };
 
+  // ---- ADMIN ROLE ----
   const toggleAdminRole = async (u, makeAdmin) => {
     playClick();
     try {
@@ -147,14 +208,63 @@ export default function SuperAdminPanel({ onError }) {
     }
   };
 
+  const deleteUser = async (target) => {
+    playClick();
+    setConfirmDel(null);
+    try {
+      // Use the admin-level delete which also works for super admin
+      const user = getTelegramUser();
+      await fetch('/api/admin/users/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: target, admin_id: user.id }),
+      }).then(r => r.json()).then(d => { if (d.error) throw new Error(d.error); });
+      if (selected?.user_id === target) setSelected(null);
+      await loadUsers();
+      onChanged?.();
+      flashMsg('✅ User deleted.');
+    } catch (err) {
+      flashMsg(`❌ ${err.message}`);
+    }
+  };
+
+  // ---- TRANSACTIONS ----
   const reviewTx = async (id, action) => {
     playClick();
     try {
       await api.superAdmin.reviewTransaction(id, action);
       await loadTxs(); await loadUsers();
       flashMsg(action === 'approve' ? '✅ Transaction approved.' : '❌ Transaction rejected.');
+      onChanged?.();
     } catch (err) {
       onError?.(err.message);
+    }
+  };
+
+  // ---- PAYMENT ACCOUNTS ----
+  const saveAccount = async (e) => {
+    e.preventDefault();
+    playClick();
+    try {
+      if (editingAcc) {
+        await api.superAdmin.updateAccount({ id: editingAcc, ...accForm });
+      } else {
+        // Use admin-level add which also works for super admin
+        const user = getTelegramUser();
+        await fetch('/api/admin/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...accForm, admin_id: user.id }),
+        }).then(r => r.json()).then(d => { if (d.error) throw new Error(d.error); });
+      }
+      setAccForm({ provider: '', account_name: '', account_number: '', is_active: true });
+      setEditingAcc(null);
+      flashMsg('✅ Payment account saved.');
+      setTimeout(() => setFlash(''), 3000);
+      await loadAccounts();
+      onChanged?.();
+    } catch (err) {
+      flashMsg(`❌ ${err.message}`);
     }
   };
 
@@ -164,6 +274,12 @@ export default function SuperAdminPanel({ onError }) {
       await api.superAdmin.updateAccount({ id: a.id, is_active: !a.is_active });
       await loadAccounts();
     } catch (err) { onError?.(err.message); }
+  };
+
+  const editAccount = (a) => {
+    playClick();
+    setEditingAcc(a.id);
+    setAccForm({ provider: a.provider, account_name: a.account_name, account_number: a.account_number, is_active: a.is_active });
   };
 
   const saveReassign = async (a) => {
@@ -185,6 +301,7 @@ export default function SuperAdminPanel({ onError }) {
     } catch (err) { onError?.(err.message); }
   };
 
+  // ---- APPEALS ----
   const resolveAppeal = async (a, action) => {
     playClick();
     const resolution = (resDraft[a.id] || '').trim();
@@ -196,6 +313,7 @@ export default function SuperAdminPanel({ onError }) {
       await api.superAdmin.resolveAppeal(a.id, action, resolution);
       await loadAppeals(); await loadTxs(); await loadUsers();
       flashMsg(action === 'approve' ? '✅ Appeal approved — deposit credited.' : '❌ Appeal rejected.');
+      onChanged?.();
     } catch (err) {
       onError?.(err.message);
     }
@@ -205,19 +323,23 @@ export default function SuperAdminPanel({ onError }) {
   const pendingAppeals = appeals.filter((a) => a.status === 'pending').length;
   const admins = users.filter((u) => u.is_admin);
 
+  const tabs = [
+    ['overview', '📊 Overview'],
+    ['users', '👥 All Users'],
+    ['transactions', '🧾 All Logs'],
+    ['accounts', '💳 Accounts'],
+    ['appeals', `⚖️ Appeals${pendingAppeals ? ` (${pendingAppeals})` : ''}`],
+    ['activity', '📋 Activity Log'],
+    ['history', '🎮 Game History'],
+    ['announce', '📢 Announcements'],
+  ];
+
   return (
     <div className="panel admin-panel">
       <div className="picker-title">👑 Super Admin controls</div>
 
       <div className="settings-tabs">
-        {[
-          ['overview', '📊 Overview'],
-          ['users', '👥 All accounts'],
-          ['transactions', '🧾 All logs'],
-          ['accounts', '💳 Accounts'],
-          ['appeals', `⚖️ Appeals${pendingAppeals ? ` (${pendingAppeals})` : ''}`],
-          ['activity', '📋 Activity Log'],
-        ].map(([id, label]) => (
+        {tabs.map(([id, label]) => (
           <button
             key={id}
             className={`settings-tab ${tab === id ? 'active' : ''}`}
@@ -251,17 +373,39 @@ export default function SuperAdminPanel({ onError }) {
                 {[10, 20, 30].map((r) => <option key={r} value={r}>Room {r}</option>)}
               </select>
               <span className="user-badge" style={{ alignSelf: 'center' }}>
-                {gamePhase}
+                {gamePaused ? '⏸️ PAUSED' : gamePhase}
               </span>
             </div>
+
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-              {gamePhase === 'preparation' && (
+              {gamePhase === 'preparation' && !gamePaused && (
                 <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.startGame, '▶️ Round started!')}>▶️ Start</button>
               )}
 
               {gamePhase === 'playing' && (
                 <button className="btn btn-ghost user-btn danger" onClick={() => gameControl(api.superAdmin.stopGame, '⏹️ Round stopped.')}>⏹️ Stop</button>
               )}
+
+              {/* ---- PAUSE / RESUME (super admin only) ---- */}
+              {!gamePaused && gamePhase !== 'ended' && (
+                <button
+                  className="btn btn-ghost user-btn"
+                  style={{ background: 'rgba(255, 165, 0, 0.15)', color: '#ffa500', border: '1px solid rgba(255, 165, 0, 0.4)' }}
+                  onClick={pauseGame}
+                >
+                  ⏸️ Pause Game
+                </button>
+              )}
+              {gamePaused && (
+                <button
+                  className="btn btn-ghost user-btn"
+                  style={{ background: 'rgba(75, 227, 160, 0.15)', color: 'var(--green)', border: '1px solid rgba(75, 227, 160, 0.4)' }}
+                  onClick={resumeGame}
+                >
+                  ▶️ Resume Game
+                </button>
+              )}
+
               <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.addBots, '🤖 Players added!')}>🤖 Add Players</button>
               <button
                 className="btn btn-ghost user-btn"
@@ -325,17 +469,17 @@ export default function SuperAdminPanel({ onError }) {
             </div>
             <p className="reg-hint" style={{ marginTop: 8 }}>
               You control every account, every transaction log, wallet appeals,
-              and the game itself.
+              and the game itself. Only you can pause and resume the game.
             </p>
           </div>
         </div>
       )}
 
-      {/* ------------------------------------------------- ALL ACCOUNTS */}
+      {/* ------------------------------------------------- ALL USERS */}
       {tab === 'users' && (
         <div className="users-tab">
-          <p className="reg-hint">              Every account — admins AND users. Tap a row to change their{' '}
-            <b>credit</b>.
+          <p className="reg-hint">
+            Every account — admins AND users. Tap a row to change their <b>credit</b>.
           </p>
           <div className="user-list">
             {users.map((u) => (
@@ -348,8 +492,9 @@ export default function SuperAdminPanel({ onError }) {
                   <div className="user-name">
                     {u.full_name || u.username || `User #${u.user_id}`}
                     {u.is_admin && <span className="user-badge on">admin</span>}
-                    {u.online && u.is_admin ? <span className="user-badge on">online</span>
-                      : u.is_admin ? <span className="user-badge">offline</span> : null}
+                    {u.is_super_admin && <span className="user-badge" style={{ background: 'rgba(217,92,255,0.18)', color: 'var(--purple)', borderColor: 'rgba(217,92,255,0.4)' }}>super</span>}
+                    {u.online && (u.is_admin || u.is_super_admin) ? <span className="user-badge on">online</span>
+                      : (u.is_admin || u.is_super_admin) ? <span className="user-badge">offline</span> : null}
                     {!u.is_registered && <span className="user-badge">unregistered</span>}
                   </div>
                   <div className="user-meta">
@@ -410,9 +555,7 @@ export default function SuperAdminPanel({ onError }) {
       {tab === 'accounts' && (
         <div className="account-tab">
           <p className="reg-hint">
-            Every admin's payment account. Only the account of an{' '}
-            <b>online</b> admin with the most credit is shown to users for each
-            bank. You can reassign the owner, toggle it and delete it.
+            Every admin's payment account. <b>Super admin accounts are always shown to users for deposits, even when offline.</b> You can reassign the owner, toggle it and delete it.
           </p>
           <div className="acc-admin-list">
             {accounts.map((a) => (
@@ -423,6 +566,11 @@ export default function SuperAdminPanel({ onError }) {
                     <span className={`user-badge ${a.is_active ? 'on' : ''}`}>
                       {a.is_active ? 'active' : 'inactive'}
                     </span>
+                    {a.is_super_admin_account && (
+                      <span className="user-badge" style={{ background: 'rgba(217,92,255,0.18)', color: 'var(--purple)', borderColor: 'rgba(217,92,255,0.4)' }}>
+                        👑 always visible
+                      </span>
+                    )}
                   </div>
                   <div className="user-meta">
                     {a.account_number} · owner{' '}
@@ -487,7 +635,7 @@ export default function SuperAdminPanel({ onError }) {
                   {a.user_phone ? ` · ${a.user_phone}` : ''}
                   {a.tx_provider ? ` · ${a.tx_provider}` : ''}
                   {a.tx_ref ? ` · Ref ${a.tx_ref}` : ''} · tx {a.tx_status} · {a.created_at?.slice(0, 16)}
-                  <br />“{a.reason || 'no reason given'}”
+                  <br />"{a.reason || 'no reason given'}"
                   {a.resolution && <><br />📝 {a.resolution}</>}
                 </span>
               </div>
@@ -539,6 +687,91 @@ export default function SuperAdminPanel({ onError }) {
         </div>
       )}
 
+      {/* ------------------------------------------------- GAME HISTORY */}
+      {tab === 'history' && (
+        <div className="tx-admin">
+          <p className="reg-hint">
+            🎮 Gameplay history — only rounds with <b>at least one human player</b> are recorded here. Each entry shows the round result, winner, players, and prize pool.
+          </p>
+          <div style={{ marginTop: 8 }}>
+            <button className="btn btn-ghost user-btn" onClick={() => { playClick(); loadGameHistory(); }}>
+              🔄 Refresh
+            </button>
+          </div>
+          {gameHistory.length === 0 && <div className="muted" style={{ marginTop: 12 }}>No gameplay history yet — games with human players will appear here.</div>}
+          {gameHistory.map((g, i) => (
+            <div key={g.id || i} className={`tx-row ${g.winner_id ? 'approved' : ''}`} style={{ fontSize: 11 }}>
+              <div className="tx-main" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                <span style={{ fontWeight: 800, color: g.winner_id ? 'var(--gold)' : 'var(--muted)' }}>
+                  🎮 Room {g.room ?? '?'} · {g.pattern || 'No winner'}
+                </span>
+                <span className="tx-meta">
+                  {g.winner_name ? <>🏆 <b>{g.winner_name}</b> won <b className="gold">{g.prize} ETB</b></> : 'No winner this round'}
+                  {g.human_players != null ? ` · ${g.human_players} human player(s)` : ''}
+                  {g.total_players != null ? ` · ${g.total_players} total` : ''}
+                  {g.cards_played != null ? ` · ${g.cards_played} cards` : ''}
+                  {g.called_count != null ? ` · ${g.called_count}/75 balls` : ''}
+                  {g.created_at ? ` · ${g.created_at.slice(0, 16)}` : ''}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ------------------------------------------------ ANNOUNCEMENTS */}
+      {tab === 'announce' && (
+        <div className="tx-admin">
+          <p className="reg-hint">
+            📢 Post announcements that are visible to <b>all users, admins, and super admins</b>. Use this for important updates, maintenance notices, or promotions.
+          </p>
+
+          <div className="credit-edit" style={{ marginTop: 12 }}>
+            <div className="wallet-form-title">📢 New Announcement</div>
+            <div className="wallet-form-row" style={{ flexDirection: 'column', gap: 8 }}>
+              <textarea
+                rows={3}
+                maxLength={500}
+                placeholder="Type your announcement… (visible to everyone)"
+                value={announceText}
+                onChange={(e) => setAnnounceText(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px', borderRadius: 10,
+                  background: 'rgba(0,0,0,0.35)', border: '1px solid var(--border)',
+                  color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical',
+                }}
+              />
+              <button
+                className="btn btn-primary"
+                disabled={!announceText.trim()}
+                onClick={postAnnouncement}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                📢 Post Announcement
+              </button>
+            </div>
+          </div>
+
+          {announcements.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div className="wallet-form-title">📋 Recent Announcements</div>
+              {announcements.map((a) => (
+                <div key={a.id} className="tx-row approved" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                  <div style={{ fontWeight: 800, color: 'var(--gold)', fontSize: 12 }}>📢 Announcement</div>
+                  <div style={{ fontSize: 13, color: 'var(--text)' }}>{a.text}</div>
+                  <div className="tx-meta">
+                    {a.posted_by ? <b>{a.posted_by}</b> : 'System'} · {a.created_at?.slice(0, 16)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {announcements.length === 0 && (
+            <div className="muted" style={{ marginTop: 12 }}>No announcements yet.</div>
+          )}
+        </div>
+      )}
+
       {/* ------------------------------------------- USER DETAIL MODAL */}
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
@@ -553,7 +786,7 @@ export default function SuperAdminPanel({ onError }) {
               <div className="profile-row"><span className="muted">Telegram username</span><b>@{selected.username || '—'}</b></div>
               <div className="profile-row"><span className="muted">Telegram ID</span><b>{selected.user_id}</b></div>
               <div className="profile-row"><span className="muted">Phone</span><b>{selected.phone || '—'}</b></div>
-              <div className="profile-row"><span className="muted">Role</span><b>{selected.is_admin ? '🛠 Admin' : '👤 User'}</b></div>
+              <div className="profile-row"><span className="muted">Role</span><b>{selected.is_super_admin ? '👑 Super Admin' : selected.is_admin ? '🛠 Admin' : '👤 User'}</b></div>
               <div className="profile-row"><span className="muted">Online</span><b>{selected.online ? '🟢 Online' : '⚪ Offline'}</b></div>
               <div className="profile-row"><span className="muted">Rounds played</span><b>{selected.rounds ?? 0}</b></div>
               <div className="profile-row"><span className="muted">Wins</span><b>{selected.wins ?? 0}</b></div>
@@ -594,10 +827,10 @@ export default function SuperAdminPanel({ onError }) {
 
             <div className="credit-edit">
               <div className="wallet-form-title">
-                🛠 Role: <b>{selected.is_admin ? 'Admin' : 'User'}</b>
+                🛠 Role: <b>{selected.is_super_admin ? '👑 Super Admin' : selected.is_admin ? 'Admin' : 'User'}</b>
                 {selected.env_admin && <span className="muted"> · core admin (from .env)</span>}
               </div>
-              {!selected.env_admin && (
+              {!selected.env_admin && !selected.is_super_admin && (
                 <div className="wallet-form-row">
                   {selected.is_admin ? (
                     <button className="btn btn-ghost user-btn" onClick={() => toggleAdminRole(selected, false)}>
@@ -655,9 +888,27 @@ export default function SuperAdminPanel({ onError }) {
                 Edit any user's name and phone number.
               </p>
             </div>
+
+            {/* ---- DANGER ZONE: DELETE USER ---- */}
+            <div className="danger-zone">
+              {confirmDel === selected.user_id ? (
+                <div className="danger-confirm">
+                  <p className="reg-hint">Delete this account entirely? This cannot be undone.</p>
+                  <div className="wallet-form-row">
+                    <button className="btn btn-danger" onClick={() => deleteUser(selected.user_id)}>Yes, delete</button>
+                    <button className="btn btn-ghost" onClick={() => { playClick(); setConfirmDel(null); }}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button className="btn btn-danger" onClick={() => { playClick(); setConfirmDel(selected.user_id); }}>
+                  🗑 Delete account
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
+

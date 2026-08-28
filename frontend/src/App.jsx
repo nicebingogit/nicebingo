@@ -59,6 +59,9 @@ export default function App() {
   const spectateUserIdRef = useRef(null); // pin to the same player across refreshes
   const spectateUserId = spectating?.spectate_user_id || spectateUserIdRef.current;
 
+  // Announcements: essential messages from super admin visible to everyone
+  const [announcements, setAnnouncements] = useState([]);
+
   const state = session?.state;
   const myUser = session?.user;
   const myCards = myUser?.selections || [];
@@ -80,6 +83,17 @@ export default function App() {
       setLoading(false);
     }
   }, [room]);
+
+  // Load announcements periodically
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      const d = await api.announcements();
+      setAnnouncements(d.announcements || []);
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { loadAnnouncements(); }, [loadAnnouncements]);
+  useEffect(() => { const i = setInterval(loadAnnouncements, 15000); return () => clearInterval(i); }, [loadAnnouncements]);
 
   // bootstrap: paint the cached state instantly (if any), then refresh live
   useEffect(() => {
@@ -427,7 +441,7 @@ export default function App() {
       )}
 
       {showSuper && myUser?.is_super_admin && (
-        <SuperAdminPanel onError={showError} />
+        <SuperAdminPanel onError={showError} onChanged={handleChanged} />
       )}
 
       {showSettings && (
@@ -441,7 +455,31 @@ export default function App() {
         />
       )}
 
-      {state.phase === 'preparation' && (
+      {/* ---- ANNOUNCEMENTS BANNER (always visible) ---- */}
+      {announcements.length > 0 && !showAdmin && !showSuper && !showSettings && (
+        <div className="announcements-banner">
+          <div className="announcements-header">📢 Announcements</div>
+          {announcements.slice(0, 2).map((a) => (
+            <div key={a.id} className="announcement-item">
+              <span className="announcement-text">{a.text}</span>
+              <span className="announcement-meta">
+                {a.posted_by ? `— ${a.posted_by}` : ''} {a.created_at?.slice(0, 10)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- GAME PAUSED BANNER (visible to ALL players) ---- */}
+      {state?.paused && (
+        <div className="pause-banner">
+          <div className="pause-icon">⏸️</div>
+          <div className="pause-text">Game Paused</div>
+          <div className="pause-sub">The super admin has paused the game. Wait for the game to be resumed.</div>
+        </div>
+      )}
+
+      {state.phase === 'preparation' && !state?.paused && (
         <section className="phase-prep">
           <div className="hero-card">
             <div className="hero-top">
@@ -476,8 +514,17 @@ export default function App() {
         </section>
       )}
 
-      {state.phase === 'playing' && (
+      {state.phase === 'playing' && state?.paused && (
         <section className="phase-play">
+          <div className="pause-banner">
+            <div className="pause-icon">⏸️</div>
+            <div className="pause-text">Game Paused</div>
+            <div className="pause-sub">The game is paused by the super admin. All players must wait until the game is resumed.</div>
+            <div className="pause-sub" style={{ marginTop: 4, fontSize: 11 }}>
+              You can still see your cards, but no new numbers will be called.
+            </div>
+          </div>
+          {/* Still show the board and cards while paused */}
           <div className="current-call">
             <div className="cc-ball" key={state.current_call}>
               {state.current_call || '–'}
@@ -623,7 +670,7 @@ export default function App() {
       {state.phase === 'ended' && !endedWithWinner && (
         <section className="phase-ended">
           <div className="ended-card">
-            <div className="ended-title">Round finished · Room by {room}</div>
+            <div className="ended-title">Round finished · Room {room}</div>
             {state.winner ? (
               <p className="ended-sub">
                 🏆 <b>{state.winner.name}</b> won <b className="gold">{state.winner.prize} ETB</b>{' '}

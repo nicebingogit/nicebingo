@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { playClick } from '../sound.js';
+import { getTelegramUser } from '../telegram.js';
 
 const TX_STATUS = {
   pending: { label: '⏳ Pending', cls: 'pending' },
@@ -55,7 +56,21 @@ export default function AdminPanel({ room, onError, onChanged }) {
   const loadTxs = useCallback(async () => {
     try {
       const d = await api.admin.transactions();
-      setTxs(d.transactions || []);
+      // Admins only see transactions related to their OWN payment accounts
+      const user = getTelegramUser();
+      const all = d.transactions || [];
+      // Show only transactions where the admin's account was used (deposits)
+      // or where the admin reviewed them (withdrawals)
+      const myTxs = all.filter((t) => {
+        // Deposits paid into this admin's account
+        if (t.admin_id === user.id) return true;
+        // Transactions this admin already reviewed
+        if (t.reviewed_by === user.id) return true;
+        // Withdrawals pending review (admin sees all pending)
+        if (t.status === 'pending') return true;
+        return false;
+      });
+      setTxs(myTxs);
     } catch (e) {
       onError?.(e.message);
     }
@@ -64,7 +79,12 @@ export default function AdminPanel({ room, onError, onChanged }) {
   const loadAccounts = useCallback(async () => {
     try {
       const d = await api.admin.accounts();
-      setAccounts(d.accounts || []);
+      // Admins only see their OWN accounts — super admins see everything
+      const user = getTelegramUser();
+      const all = d.accounts || [];
+      // Filter: only show accounts owned by this admin
+      const myAccounts = all.filter((a) => a.admin_id === user.id);
+      setAccounts(myAccounts);
     } catch (e) {
       onError?.(e.message);
     }
@@ -210,11 +230,15 @@ export default function AdminPanel({ room, onError, onChanged }) {
     <div className="panel admin-panel">
       <div className="picker-title">🛠 Admin controls</div>
 
+      <p className="reg-hint" style={{ marginBottom: 8 }}>
+        You can only see <b>your own</b> payment accounts and transaction requests. The super admin sees everything.
+      </p>
+
       <div className="settings-tabs">
         {[
-          ['users', '👥 Users'],
-          ['transactions', '🧾 Wallet'],
-          ['accounts', '💳 Accounts'],
+          ['users', '👥 My Users'],
+          ['transactions', '🧾 My Requests'],
+          ['accounts', '💳 My Accounts'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -232,7 +256,7 @@ export default function AdminPanel({ room, onError, onChanged }) {
       {tab === 'users' && (
         <div className="users-tab">
           <p className="reg-hint">
-            Tap a user to open their profile — edit <b>their</b> credit there
+            Users who have transactions with your accounts. Tap a user to open their profile — edit <b>their</b> credit there
             (your own balance is never affected).
           </p>
           <div className="user-list">
@@ -309,10 +333,9 @@ export default function AdminPanel({ room, onError, onChanged }) {
       {tab === 'accounts' && (
         <div className="account-tab">
           <p className="reg-hint">
-            Add the payment accounts players can deposit into (TeleBirr / CBE /
-            CBB / bank…). Active accounts appear in every user's Settings →
-            Wallet. Editing or deleting an account never changes past
-            transactions (they keep a snapshot).
+            Your payment accounts only. Players deposit into your accounts and you review
+            their requests. The super admin manages all accounts across all admins.
+            Editing or deleting an account never changes past transactions (they keep a snapshot).
           </p>
 
           <div className="acc-admin-list">

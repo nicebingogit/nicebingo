@@ -140,6 +140,13 @@ export const api = {
     resolveAppeal: (id, action, resolution) =>
       superAdminRequest('/api/superadmin/appeals/resolve', { body: { id, action, resolution } }),
     // game controls
+    pauseGame: (room) => superAdminRequest('/api/superadmin/game/pause', { body: roomParams(room) }),
+    resumeGame: (room) => superAdminRequest('/api/superadmin/game/resume', { body: roomParams(room) }),
+    // announcements
+    announcements: () => request('/api/announcements'),
+    postAnnouncement: (text) => superAdminRequest('/api/superadmin/announcements', { body: { text } }),
+    // gameplay history (game results log)
+    gameplayHistory: () => superAdminRequest('/api/superadmin/gameplay-history', { method: 'GET' }),
 
     stopGame: (room) => superAdminRequest('/api/superadmin/game/stop', { body: roomParams(room) }),
     startGame: (room) => superAdminRequest('/api/superadmin/game/start', { body: roomParams(room) }),
