@@ -35,6 +35,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 import config
 from database import Database
 from game_logic import GameLogic, bot_name
+from game_loop import GameLoop
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -52,6 +53,7 @@ HTTPS_HINT = (
 
 db = Database(config.DB_PATH)
 logic = GameLogic(db)
+loop = GameLoop(db, logic)
 
 
 def _md(text) -> str:
@@ -259,7 +261,6 @@ class PremiumBingoBot:
                     pass
                 # notify the referring user
                 try:
-                    from bot import notify_user
                     notify_user(referrer_id, [
                         '🎉 NEW REFERRAL!',
                         f'User: {user.first_name} (ID: {user.id})',
@@ -743,16 +744,28 @@ class PremiumBingoBot:
         elif data == "leaderboard":
             await self.top_command(update, context)
         elif data == "quick_play":
-            result = await self._post("/api/quick-play",
-                                      {"user_id": user_id, "room": config.ROOM_DEFAULT})
-            if "chosen" in result:
-                await query.edit_message_text(
-                    f"✅ Auto-selected {len(result['chosen'])} card(s)! "
-                    f"Balance: {result['user']['credit']} ETB",
-                    reply_markup=self.get_main_menu(user_id))
-            else:
-                await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
+            # Direct DB — avoids HTTP self-request deadlock on PA.
+            room = config.ROOM_DEFAULT
+            state = db.get_game_state(room)
+            if state.get("phase") != "preparation":
+                await query.edit_message_text("❌ The round already started.",
                                               reply_markup=self.get_main_menu(user_id))
+            else:
+                selections = db.get_user_selections(user_id, room)
+                slots = config.MAX_CARDS_PER_PLAYER - len(selections)
+                taken = {s["card_id"] for s in db.get_all_selections(room)}
+                available = [c for c in db.get_all_cards() if c["id"] not in taken][:slots]
+                chosen = []
+                for card in available:
+                    if db.get_credit(user_id) < room:
+                        break
+                    db.select_card(user_id, card["id"], room, room)
+                    db.update_credit(user_id, -room)
+                    chosen.append(card["id"])
+                credit = db.get_credit(user_id)
+                await query.edit_message_text(
+                    f"✅ Auto-selected {len(chosen)} card(s)! Balance: {credit} ETB",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "help":
             await self.help_command(update, context)
         elif data == "tunnel_help":
@@ -764,27 +777,55 @@ class PremiumBingoBot:
             await self.deselect_command(update, context)
         elif data.startswith("select_"):
             card_id = data.split("_", 1)[1]
-            result = await self._post("/api/select-card",
-                                      {"user_id": user_id, "card_id": card_id,
-                                       "room": config.ROOM_DEFAULT})
-            if result.get("ok"):
-                await query.edit_message_text(
-                    f"✅ Card #{card_id} selected · {result['user']['credit']} ETB left",
-                    reply_markup=self.get_game_menu())
-            else:
-                await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
+            # Direct DB — avoids HTTP self-request deadlock on PA.
+            room = config.ROOM_DEFAULT
+            state = db.get_game_state(room)
+            if state.get("phase") != "preparation":
+                await query.edit_message_text("❌ Selection is closed.",
                                               reply_markup=self.get_main_menu(user_id))
+            elif len(db.get_user_selections(user_id, room)) >= config.MAX_CARDS_PER_PLAYER:
+                await query.edit_message_text(f"❌ Max {config.MAX_CARDS_PER_PLAYER} cards.",
+                                              reply_markup=self.get_main_menu(user_id))
+            elif db.is_card_taken(card_id, room):
+                await query.edit_message_text("❌ That card is already taken.",
+                                              reply_markup=self.get_main_menu(user_id))
+            elif not db.get_card(card_id):
+                await query.edit_message_text("❌ Unknown card.",
+                                              reply_markup=self.get_main_menu(user_id))
+            elif db.get_credit(user_id) < room:
+                await query.edit_message_text(f"❌ Insufficient credit — {room} ETB needed.",
+                                              reply_markup=self.get_main_menu(user_id))
+            else:
+                db.select_card(user_id, card_id, room, room)
+                db.update_credit(user_id, -room)
+                credit = db.get_credit(user_id)
+                await query.edit_message_text(
+                    f"✅ Card #{card_id} selected · {credit} ETB left",
+                    reply_markup=self.get_game_menu())
         elif data.startswith("deselect_"):
             card_id = data.split("_", 1)[1]
-            result = await self._post("/api/deselect-card",
-                                      {"user_id": user_id, "card_id": card_id})
-            if result.get("ok"):
-                await query.edit_message_text(
-                    f"✅ Card #{card_id} removed — {result['user']['credit']} ETB refunded",
-                    reply_markup=self.get_main_menu(user_id))
-            else:
-                await query.edit_message_text(f"❌ {result.get('error', 'Failed')}",
+            # Direct DB — avoids HTTP self-request deadlock on PA.
+            room = config.ROOM_DEFAULT
+            state = db.get_game_state(room)
+            if state.get("phase") != "preparation":
+                await query.edit_message_text("❌ The round already started.",
                                               reply_markup=self.get_main_menu(user_id))
+            else:
+                found = False
+                for sel in db.get_user_selections(user_id, room):
+                    if sel["card_id"] == card_id:
+                        db.update_credit(user_id, sel["bet_amount"])
+                        db.deselect_card(user_id, card_id)
+                        found = True
+                        break
+                if found:
+                    credit = db.get_credit(user_id)
+                    await query.edit_message_text(
+                        f"✅ Card #{card_id} removed — {credit} ETB refunded",
+                        reply_markup=self.get_main_menu(user_id))
+                else:
+                    await query.edit_message_text("❌ Card not selected.",
+                                                  reply_markup=self.get_main_menu(user_id))
         elif data == "referral":
             await self._show_referral(update, context, user_id)
         elif data == "referral_copy":
@@ -848,6 +889,34 @@ class PremiumBingoBot:
             await query.edit_message_text("Unknown action.")
 
     # ------------------------------------------------- wallet (bot chat)
+    # ------------------------------------------------------------------ DB helpers
+    @staticmethod
+    def _wallet_settings_from_db() -> dict:
+        """Read wallet settings directly from the database — avoids the
+        HTTP self-request that deadlocks on PythonAnywhere (bot + Flask
+        share the same process; requests.get() to the same URL blocks.
+        """
+        best: dict = {}
+        for acc in db.get_deposit_accounts():
+            best.setdefault(acc["provider"], acc)
+        # super-admin fallback
+        for acc in db.get_payment_accounts(active_only=True):
+            if acc.get("admin_id") in config.SUPER_ADMIN_IDS:
+                best.setdefault(acc["provider"], acc)
+        # final fallback: any active account
+        for acc in db.get_payment_accounts(active_only=True):
+            prov = acc.get("provider")
+            if prov and prov not in best:
+                best[prov] = acc
+        active_providers = db.get_distinct_providers()
+        return {
+            "providers": active_providers,
+            "deposit_accounts": [
+                {"provider": p, "account": a} for p, a in best.items()
+            ],
+            "payment_accounts": db.get_payment_accounts(active_only=True),
+        }
+
     async def _wallet_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                             kind: str):
         """Start a deposit/withdraw conversation IN THE CHAT — available before
@@ -864,7 +933,8 @@ class PremiumBingoBot:
                 parse_mode="Markdown")
             return
         # Bank selection comes FIRST — the user picks the bank, then the amount.
-        settings = await self._get("/api/wallet/settings", {})
+        # Read directly from DB to avoid HTTP self-request deadlock on PA.
+        settings = self._wallet_settings_from_db()
         providers = settings.get("providers") or []
         accounts = {d["provider"]: d["account"]
                     for d in settings.get("deposit_accounts") or []}
@@ -895,8 +965,6 @@ class PremiumBingoBot:
             "kind": kind, "step": "bank",
             "banks": banks, "accounts": accts,
         }
-        cancel_kb = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
         label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
         keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
                     for p in available]
@@ -917,7 +985,8 @@ class PremiumBingoBot:
                 "⛔ Please send /start and enter your full name first.",
                 reply_markup=self.get_main_menu(user_id))
             return
-        settings = await self._get("/api/wallet/settings", {})
+        # Read directly from DB — avoids HTTP self-request deadlock on PA.
+        settings = self._wallet_settings_from_db()
         providers = settings.get("providers") or []
         accounts = {d["provider"]: d["account"]
                     for d in settings.get("deposit_accounts") or []}
@@ -1073,36 +1142,110 @@ class PremiumBingoBot:
 
     async def _wallet_submit(self, update: Update,
                              context: ContextTypes.DEFAULT_TYPE, flow: dict):
-        """POST the collected deposit/withdraw to the server API."""
+        """Write the deposit/withdraw directly to the DB (avoids HTTP
+        self-request deadlock on PythonAnywhere)."""
         user_id = update.effective_user.id
         kind = flow.get("kind")
-        payload = {
-            "user_id": user_id,
-            "type": kind,
-            "amount": flow.get("amount"),
-        }
-        if kind == "deposit":
-            payload["tx_id"] = flow.get("tx_id")
-            payload["payment_account_id"] = flow.get("account_id")
-        else:
-            payload["account_name"] = flow.get("provider")
-            payload["account_holder"] = flow.get("account_holder")
-            payload["account_number"] = flow.get("account_number")
-        result = await self._post("/api/transactions", payload)
-        flow["_done"] = True  # prevents _wallet_flow_text from re-saving it
-        context.user_data.pop("wallet_flow", None)
-        if result.get("ok"):
+        amount = flow.get("amount")
+        player = db.get_player(user_id) or {}
+        try:
+            if kind == "deposit":
+                tx_id_val = flow.get("tx_id")
+                acc_id = flow.get("account_id")
+                account = db.get_payment_account(acc_id) if acc_id else None
+                # Check that the account owner is online (or super admin)
+                owner_id = (account or {}).get("admin_id")
+                is_super_owner = owner_id in config.SUPER_ADMIN_IDS if owner_id else False
+                if owner_id and not is_super_owner and not db.is_admin_online(owner_id):
+                    flow["_done"] = True
+                    context.user_data.pop("wallet_flow", None)
+                    await update.message.reply_text(
+                        "❌ This payment account's admin is offline. "
+                        "Please try again later.",
+                        reply_markup=self.get_main_menu(user_id))
+                    return
+                row_id = db.add_transaction(
+                    user_id, "deposit", amount, tx_id_val,
+                    phone=player.get("phone"),
+                    user_name=player.get("full_name") or player.get("username"),
+                    account_id=(account or {}).get("id"),
+                    provider=(account or {}).get("provider"),
+                    account_number=(account or {}).get("account_number"),
+                    account_holder=(account or {}).get("account_name"),
+                )
+                # Notify the account owner + super admins
+                try:
+                    who = player.get("full_name") or player.get("username") or str(user_id)
+                    lines = ["🚨 NEW DEPOSIT REQUEST",
+                             "User: " + who,
+                             "Amount: " + str(amount) + " " + config.APP_CURRENCY,
+                             "Details: " + (tx_id_val or "")]
+                    super_ids = set(config.SUPER_ADMIN_IDS)
+                    if owner_id:
+                        notify_user(owner_id, lines)
+                        super_ids.discard(owner_id)
+                    for sa_id in super_ids:
+                        notify_user(sa_id, lines)
+                except Exception:
+                    pass
+            else:  # withdraw
+                if db.get_credit(user_id) < amount:
+                    flow["_done"] = True
+                    context.user_data.pop("wallet_flow", None)
+                    await update.message.reply_text(
+                        "❌ Insufficient balance for this withdrawal.",
+                        reply_markup=self.get_main_menu(user_id))
+                    return
+                wd_name = (flow.get("provider") or "").strip()
+                wd_holder = (flow.get("account_holder") or "").strip()
+                wd_number = (flow.get("account_number") or "").strip()
+                if not wd_name or not wd_holder or not wd_number:
+                    flow["_done"] = True
+                    context.user_data.pop("wallet_flow", None)
+                    await update.message.reply_text(
+                        "❌ Incomplete withdrawal details.",
+                        reply_markup=self.get_main_menu(user_id))
+                    return
+                row_id = db.add_transaction(
+                    user_id, "withdraw", amount,
+                    user_name=player.get("full_name") or player.get("username"),
+                    provider=wd_name,
+                    account_number=wd_number,
+                    account_holder=wd_holder,
+                )
+                # Notify all admins
+                try:
+                    who = player.get("full_name") or player.get("username") or str(user_id)
+                    lines = ["🚨 NEW WITHDRAWAL REQUEST",
+                             "User: " + who,
+                             "Amount: " + str(amount) + " " + config.APP_CURRENCY,
+                             "Details: " + wd_name + " | " + wd_holder + " | " + wd_number]
+                    notify_admins(lines)
+                except Exception:
+                    pass
+            # log activity
+            try:
+                who = player.get("full_name") or player.get("username") or str(user_id)
+                label = 'Deposit' if kind == 'deposit' else 'Withdrawal'
+                db.log_activity(kind + '_request', user_id,
+                               label + ': ' + str(amount) + ' ' + config.APP_CURRENCY + ' by ' + who)
+            except Exception:
+                pass
             label = "Deposit" if kind == "deposit" else "Withdrawal"
             await update.message.reply_text(
                 f"✅ **{label} request submitted!**\n\n"
-                f"Amount: {flow.get('amount')} {config.APP_CURRENCY}\n"
+                f"Amount: {amount} {config.APP_CURRENCY}\n"
                 "The admin has been notified on Telegram and will review it "
                 "shortly. Track it under 💰 Balance → recent requests.",
                 reply_markup=self.get_main_menu(user_id), parse_mode="Markdown")
-        else:
+        except Exception as exc:
+            logger.warning("_wallet_submit error: %s", exc)
             await update.message.reply_text(
-                f"❌ {result.get('error', 'Failed to submit — please try again.')}",
+                "❌ Failed to submit — please try again.",
                 reply_markup=self.get_main_menu(user_id))
+        finally:
+            flow["_done"] = True
+            context.user_data.pop("wallet_flow", None)
 
     # ------------------------------------------------- requests / appeals
     async def requests_command(self, update: Update,
@@ -1271,7 +1414,7 @@ class PremiumBingoBot:
 
     async def _appeal_flow_text(self, update: Update,
                                 context: ContextTypes.DEFAULT_TYPE, reason: str):
-        """Process the appeal reason text and submit it."""
+        """Process the appeal reason text and submit directly to DB."""
         user_id = update.effective_user.id
         flow = context.user_data.get("appeal_flow") or {}
         tx_id = flow.get("tx_id")
@@ -1280,14 +1423,24 @@ class PremiumBingoBot:
             await update.message.reply_text(
                 "Session expired — start again.",
                 reply_markup=self.get_main_menu(user_id))
+            return
         reason = reason[:500]
-        result = await self._post("/api/appeals", {
-            "user_id": user_id,
-            "transaction_id": tx_id,
-            "reason": reason,
-        })
-        context.user_data.pop("appeal_flow", None)
-        if result.get("ok"):
+        try:
+            db.add_appeal(user_id, tx_id, reason)
+            # Notify super admins
+            try:
+                player = db.get_player(user_id) or {}
+                who = player.get("full_name") or player.get("username") or str(user_id)
+                for sa_id in config.SUPER_ADMIN_IDS:
+                    notify_user(sa_id, [
+                        '🚨 NEW APPEAL',
+                        'User: ' + who,
+                        'Deposit #' + str(tx_id),
+                        'Reason: ' + reason,
+                    ])
+            except Exception:
+                pass
+            context.user_data.pop("appeal_flow", None)
             text = (
                 f"✅  *Appeal Submitted!*\n"
                 f"━━━━━━━━━━━━━━━━━━\n\n"
@@ -1299,9 +1452,11 @@ class PremiumBingoBot:
                 text,
                 reply_markup=self.get_main_menu(user_id),
                 parse_mode="Markdown")
-        else:
+        except Exception as exc:
+            logger.warning("_appeal_flow_text error: %s", exc)
+            context.user_data.pop("appeal_flow", None)
             await update.message.reply_text(
-                f"❌ {result.get('error', 'Failed to submit appeal.')}",
+                "❌ Failed to submit appeal — please try again.",
                 reply_markup=self.get_main_menu(user_id))
 
     # ---------------------------------------------------------------- referral
@@ -1370,9 +1525,10 @@ class PremiumBingoBot:
             await update.message.reply_text("⛔ Unauthorized!")
             return
         db.touch_admin(user_id)
-        stats = await self._get("/api/admin/stats", {"admin_id": user_id})
-        s = stats.get("stats", {})
-        bots = await self._get("/api/admin/bots", {"admin_id": user_id})
+        # Read directly from DB — avoids HTTP self-request deadlock on PA.
+        s = db.game_stats()
+        bots_enabled = db.get_bots_enabled()
+        bots_count = db.bot_count()
         admin_credit = db.get_admin_credit(user_id)
         text = (
             f"🔧  *Admin Panel*\n"
@@ -1383,8 +1539,8 @@ class PremiumBingoBot:
             f"  Total bets: *{s.get('total_bets', 0)} ETB*\n"
             f"  Paid out: *{s.get('prize_paid', 0)} ETB*\n"
             f"  House kept: *{s.get('house_kept', 0)} ETB*\n\n"
-            f"🤖  Bots: *{'ON' if bots.get('enabled') else 'OFF'}* "
-            f"({bots.get('count', 0)} accounts)\n"
+            f"🤖  Bots: *{'ON' if bots_enabled else 'OFF'}* "
+            f"({bots_count} accounts)\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"👇 *Choose an action:*"
         )
@@ -1407,48 +1563,94 @@ class PremiumBingoBot:
         except ValueError:
             await update.message.reply_text("Usage: /give <user_id> <amount>")
             return
-        result = await self._post("/api/admin/credit",
-                                  {"admin_id": user_id, "user_id": target, "amount": amount})
-        if result.get("ok"):
+        try:
+            db.create_player(target, f"Player_{target}", credit=0)
+            db.update_credit(target, amount)
+            try:
+                target_player = db.get_player(target) or {}
+                target_name = target_player.get('full_name') or target_player.get('username') or str(target)
+                db.log_activity('admin_credit_adjustment', user_id,
+                               f'{amount:+d} {config.APP_CURRENCY} to {target_name} (ID: {target})')
+            except Exception:
+                pass
+            credit = db.get_credit(target)
             await update.message.reply_text(
-                f"✅ User {target} now has **{result['credit']} ETB**")
-        else:
-            await update.message.reply_text(result.get("error", "Failed"))
+                f"✅ User {target} now has **{credit} ETB**")
+        except Exception as exc:
+            logger.warning("give_take error: %s", exc)
+            await update.message.reply_text("❌ Failed — please try again.")
 
     async def admin_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = update.effective_user.id
         if not db.is_admin(user_id) and user_id not in config.SUPER_ADMIN_IDS:
-            await query.edit_message_text("⛔ Unauthorized!")
+            try:
+                await query.edit_message_text("⛔ Unauthorized!")
+            except Exception:
+                pass
             return
         data = query.data
-        actions = {
-            "admin_start": ("/api/admin/force-start", {}),
-            "admin_call": ("/api/admin/force-call", {}),
-            "admin_bots": ("/api/admin/bots/add", {}),
-            "admin_reset": ("/api/admin/reset", {}),
-            "admin_bots_toggle": ("/api/admin/bots/toggle", {}),
-        }
-        labels = {
-            "admin_start": "✅ Round force-started!",
-            "admin_call": "✅ Ball called!",
-            "admin_bots": "✅ Bots filled the room!",
-            "admin_reset": "✅ Round reset — new preparation phase.",
-            "admin_bots_toggle": "✅ Bots toggled.",
-        }
-        if data in actions:
-            path, _ = actions[data]
-            result = await self._post(path, {"admin_id": user_id})
-            msg = labels[data] if result.get("ok") else f"❌ {result.get('error', 'Failed')}"
-            await query.edit_message_text(msg, reply_markup=self.get_admin_menu())
-        elif data == "admin_status":
-            stats = await self._get("/api/admin/stats", {"admin_id": user_id})
-            s = stats.get("stats", {})
-            await query.edit_message_text(
-                f"📊 **Admin Stats**\n\nRounds: {s.get('rounds', '?')}\n"
-                f"Total bets: {s.get('total_bets', 0)} ETB\nPaid out: {s.get('prize_paid', 0)} ETB\n"
-                f"House kept: {s.get('house_kept', 0)} ETB\nReal winners: {s.get('real_winners', 0)}",
-                reply_markup=self.get_admin_menu(), parse_mode="Markdown")
+        # All admin actions now use direct game_loop / DB calls
+        # (avoids HTTP self-request deadlock on PythonAnywhere).
+        room = config.ROOM_DEFAULT
+        try:
+            if data == "admin_start":
+                result = loop.force_start(room)
+                msg = "✅ Round force-started!" if result.get("ok") else f"❌ {result.get('error', 'Failed')}"
+                try:
+                    await query.edit_message_text(msg, reply_markup=self.get_admin_menu())
+                except Exception:
+                    await query.message.reply_text(msg, reply_markup=self.get_admin_menu())
+            elif data == "admin_call":
+                result = loop.force_call(room)
+                msg = "✅ Ball called!" if result.get("ok") else f"❌ {result.get('error', 'Failed')}"
+                try:
+                    await query.edit_message_text(msg, reply_markup=self.get_admin_menu())
+                except Exception:
+                    await query.message.reply_text(msg, reply_markup=self.get_admin_menu())
+            elif data == "admin_bots":
+                result = loop.add_bots(room)
+                msg = "✅ Bots filled the room!" if result.get("ok") else f"❌ {result.get('error', 'Failed')}"
+                try:
+                    await query.edit_message_text(msg, reply_markup=self.get_admin_menu())
+                except Exception:
+                    await query.message.reply_text(msg, reply_markup=self.get_admin_menu())
+            elif data == "admin_reset":
+                loop.reset_round(room)
+                msg = "✅ Round reset — new preparation phase."
+                try:
+                    await query.edit_message_text(msg, reply_markup=self.get_admin_menu())
+                except Exception:
+                    await query.message.reply_text(msg, reply_markup=self.get_admin_menu())
+            elif data == "admin_bots_toggle":
+                current = db.get_bots_enabled(room)
+                loop.toggle_bots(not current)
+                msg = "✅ Bots toggled."
+                try:
+                    await query.edit_message_text(msg, reply_markup=self.get_admin_menu())
+                except Exception:
+                    await query.message.reply_text(msg, reply_markup=self.get_admin_menu())
+            elif data == "admin_status":
+                # Read directly from DB — avoids HTTP self-request deadlock on PA.
+                s = db.game_stats()
+                try:
+                    await query.edit_message_text(
+                        f"📊 **Admin Stats**\n\nRounds: {s.get('rounds', '?')}\n"
+                        f"Total bets: {s.get('total_bets', 0)} ETB\nPaid out: {s.get('prize_paid', 0)} ETB\n"
+                        f"House kept: {s.get('house_kept', 0)} ETB\nReal winners: {s.get('real_winners', 0)}",
+                        reply_markup=self.get_admin_menu(), parse_mode="Markdown")
+                except Exception:
+                    await query.message.reply_text(
+                        f"📊 **Admin Stats**\n\nRounds: {s.get('rounds', '?')}\n"
+                        f"Total bets: {s.get('total_bets', 0)} ETB\nPaid out: {s.get('prize_paid', 0)} ETB\n"
+                        f"House kept: {s.get('house_kept', 0)} ETB\nReal winners: {s.get('real_winners', 0)}",
+                        reply_markup=self.get_admin_menu(), parse_mode="Markdown")
+        except Exception as exc:
+            logger.warning("admin_callback error for '%s': %s", data, exc)
+            try:
+                await query.edit_message_text(f"❌ Error: {exc}", reply_markup=self.get_admin_menu())
+            except Exception:
+                await query.message.reply_text(f"❌ Error: {exc}", reply_markup=self.get_admin_menu())
 
     # -------------------------------------------------------------- announcer
     async def _drain_notifications(self):
