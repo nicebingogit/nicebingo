@@ -88,7 +88,7 @@ def _touch_admin_if_admin(user_id: Optional[int]) -> None:
     ONLINE admins' payment accounts are shown to users for deposits, and the
     richest ONLINE admin is selected for each bank.
     """
-    if user_id is not None and db.is_admin(user_id):
+    if user_id is not None and (db.is_admin(user_id) or user_id in config.SUPER_ADMIN_IDS):
         try:
             db.touch_admin(user_id)
         except Exception:
@@ -250,6 +250,15 @@ def _settings_payload() -> dict:
     for provider, acc in super_accounts.items():
         if provider not in best:
             best[provider] = acc
+    # Final fallback: if ANY provider is still missing from best, grab the
+    # first active account for that provider so users always have somewhere
+    # to pay. This covers the case where no admin is online AND the super
+    # admin doesn't own an account for that provider.
+    all_active = db.get_payment_accounts(active_only=True)
+    for acc in all_active:
+        prov = acc.get("provider")
+        if prov and prov not in best:
+            best[prov] = acc
     # Only include banks that have at least one active account — banks
     # with zero accounts are hidden from the user's bank list.
     active_providers = db.get_distinct_providers()
@@ -824,14 +833,24 @@ def api_leaderboard():
 
 # ------------------------------------------------------------------- admin API
 def _require_admin() -> Optional[int]:
-    """Resolve admin_id from the JSON body OR a query param (GET endpoints)."""
+    """Resolve admin_id from the JSON body OR a query param (GET endpoints).
+
+    Super admins always pass this guard even if they are not in the admins
+    table — super-admin status grants access to every admin endpoint.
+    """
     data = request.get_json(silent=True) or {}
     admin_id = data.get("admin_id") or request.args.get("admin_id")
     try:
         admin_id = int(admin_id) if admin_id is not None else None
     except (TypeError, ValueError):
         admin_id = None
-    if admin_id is None or not db.is_admin(admin_id):
+    if admin_id is None:
+        return None
+    # super admins always pass — they have full access to every admin endpoint
+    if admin_id in config.SUPER_ADMIN_IDS:
+        _touch_admin_if_admin(admin_id)
+        return admin_id
+    if not db.is_admin(admin_id):
         return None
     _touch_admin_if_admin(admin_id)
     return admin_id
@@ -927,7 +946,7 @@ def api_admin_bots():
         admin_id = int(admin_id) if admin_id is not None else None
     except (TypeError, ValueError):
         admin_id = None
-    if admin_id is None or not db.is_admin(admin_id):
+    if admin_id is None or (not db.is_admin(admin_id) and admin_id not in config.SUPER_ADMIN_IDS):
         return jsonify({"error": "Unauthorized"}), 403
     _touch_admin_if_admin(admin_id)
     room = _room_from_request()
@@ -944,7 +963,7 @@ def api_admin_stats():
         admin_id = int(admin_id) if admin_id is not None else None
     except (TypeError, ValueError):
         admin_id = None
-    if admin_id is None or not db.is_admin(admin_id):
+    if admin_id is None or (not db.is_admin(admin_id) and admin_id not in config.SUPER_ADMIN_IDS):
         return jsonify({"error": "Unauthorized"}), 403
     _touch_admin_if_admin(admin_id)
     return jsonify({"stats": db.game_stats(), "recent": db.recent_games(8)})

@@ -186,10 +186,8 @@ class PremiumBingoBot:
         fast access to the most common actions without scrolling through
         the inline menu.
         """
-        from database import Database
-        import config as _cfg
-        _db = Database(_cfg.DB_PATH)
-        is_admin = _db.is_admin(user_id)
+        is_admin = db.is_admin(user_id)
+        is_super = user_id in config.SUPER_ADMIN_IDS
         row1 = [
             KeyboardButton("🎮 Play"),
             KeyboardButton("💰 Balance"),
@@ -200,7 +198,7 @@ class PremiumBingoBot:
             KeyboardButton("⬆️ Withdraw"),
             KeyboardButton("🚨 Appeal"),
         ]
-        if is_admin:
+        if is_admin or is_super:
             row2.append(KeyboardButton("🔧 Admin"))
         return ReplyKeyboardMarkup(
             [row1, row2],
@@ -296,18 +294,23 @@ class PremiumBingoBot:
             f"Welcome, <b>{_html(name)}</b>{badge}\n"
             f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>"
         )
-        await update.message.reply_text(
-            text,
-            reply_markup=self.get_main_menu(user.id),
-            parse_mode="HTML",
-        )
+        try:
+            await update.message.reply_text(
+                text,
+                reply_markup=self.get_main_menu(user.id),
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("_send_welcome main menu failed: %s", exc)
         # Show the persistent reply keyboard (stays above the text input)
-        await update.message.reply_text(
-            "👇 <b>Quick actions</b> — tap any button below:",
-            reply_markup=self.get_reply_keyboard(user.id),
-            parse_mode="HTML",
-        )
-        
+        try:
+            await update.message.reply_text(
+                "👇 <b>Quick actions</b> — tap any button below:",
+                reply_markup=self.get_reply_keyboard(user.id),
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("_send_welcome reply keyboard failed: %s", exc)
 
     async def text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Captures the full name when the bot is waiting for it (after /start),
@@ -865,15 +868,24 @@ class PremiumBingoBot:
         providers = settings.get("providers") or []
         accounts = {d["provider"]: d["account"]
                     for d in settings.get("deposit_accounts") or []}
-        if not providers:
+        # fallback: if deposit_accounts is empty, build from ALL active accounts
+        if not accounts:
+            for a in (settings.get("payment_accounts") or []):
+                accounts.setdefault(a["provider"], a)
+        if not providers and not accounts:
             await query.edit_message_text(
                 "⏳ No bank accounts are available right now — please try "
                 "again later.", reply_markup=self.get_main_menu(user_id))
             return
+        if not providers:
+            providers = list(accounts.keys())
         banks = {str(a["id"]): p for p, a in accounts.items()}
         accts = {str(a["id"]): a for p, a in accounts.items()}
         # filter providers to only those with a deposit account
         available = [p for p in providers if p in accounts]
+        if not available:
+            # last resort: show any available accounts
+            available = list(accounts.keys())
         if not available:
             await query.edit_message_text(
                 "⏳ No bank accounts are available right now — please try "
@@ -909,15 +921,24 @@ class PremiumBingoBot:
         providers = settings.get("providers") or []
         accounts = {d["provider"]: d["account"]
                     for d in settings.get("deposit_accounts") or []}
-        if not providers:
+        # fallback: if deposit_accounts is empty, build from ALL active accounts
+        if not accounts:
+            for a in (settings.get("payment_accounts") or []):
+                accounts.setdefault(a["provider"], a)
+        if not providers and not accounts:
             await update.message.reply_text(
                 "⏳ No bank accounts are available right now — please try "
                 "again later.", reply_markup=self.get_main_menu(user_id))
             return
+        if not providers:
+            providers = list(accounts.keys())
         banks = {str(a["id"]): p for p, a in accounts.items()}
         accts = {str(a["id"]): a for p, a in accounts.items()}
         # filter providers to only those with a deposit account
         available = [p for p in providers if p in accounts]
+        if not available:
+            # last resort: show any available accounts
+            available = list(accounts.keys())
         if not available:
             await update.message.reply_text(
                 "⏳ No bank accounts are available right now — please try "
@@ -1345,7 +1366,7 @@ class PremiumBingoBot:
     # ------------------------------------------------------------------ admin
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
-        if not db.is_admin(user_id):
+        if not db.is_admin(user_id) and user_id not in config.SUPER_ADMIN_IDS:
             await update.message.reply_text("⛔ Unauthorized!")
             return
         db.touch_admin(user_id)
@@ -1373,7 +1394,7 @@ class PremiumBingoBot:
     async def give_take_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                 sign: int):
         user_id = update.effective_user.id
-        if not db.is_admin(user_id):
+        if not db.is_admin(user_id) and user_id not in config.SUPER_ADMIN_IDS:
             await update.message.reply_text("⛔ Unauthorized!")
             return
         db.touch_admin(user_id)
@@ -1397,7 +1418,7 @@ class PremiumBingoBot:
     async def admin_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = update.effective_user.id
-        if not db.is_admin(user_id):
+        if not db.is_admin(user_id) and user_id not in config.SUPER_ADMIN_IDS:
             await query.edit_message_text("⛔ Unauthorized!")
             return
         data = query.data
