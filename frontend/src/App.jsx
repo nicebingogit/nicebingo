@@ -514,8 +514,9 @@ export default function App() {
         </section>
       )}
 
-      {state.phase === 'playing' && state?.paused && (
+      {state.phase === 'playing' && (
         <section className="phase-play">
+          {state?.paused && (
           <div className="pause-banner">
             <div className="pause-icon">⏸️</div>
             <div className="pause-text">Game Paused</div>
@@ -524,6 +525,7 @@ export default function App() {
               You can still see your cards, but no new numbers will be called.
             </div>
           </div>
+          )}
           {/* Still show the board and cards while paused */}
           <div className="current-call">
             <div className="cc-ball" key={state.current_call}>
