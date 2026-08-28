@@ -1063,18 +1063,18 @@ class PremiumBingoBot:
                 provider = flow.get("provider", "")
                 acc = flow.get("_selected_acc") or {}
                 await update.message.reply_text(
-                    f"🏦 **{provider}**\n"
-                    f"Holder: {_md(acc.get('account_name', '?'))}\n"
-                    f"Number: `{acc.get('account_number', '?')}`\n\n"
+                    f"🏦 <b>{_html(provider)}</b>\n"
+                    f"Holder: {_html(acc.get('account_name', '?'))}\n"
+                    f"Number: <code>{_html(acc.get('account_number', '?'))}</code>\n\n"
                     "Send the money to this account with your wallet app, then type "
-                    "the **transaction number** shown there:",
-                    reply_markup=cancel_kb, parse_mode="Markdown")
+                    "the <b>transaction number</b> shown there:",
+                    reply_markup=cancel_kb, parse_mode="HTML")
             else:
                 flow["step"] = "holder"
                 await update.message.reply_text(
-                    "👤 Enter the account **holder's name** (whose account "
+                    "👤 Enter the account <b>holder's name</b> (whose account "
                     "should receive the money):",
-                    reply_markup=cancel_kb, parse_mode="Markdown")
+                    reply_markup=cancel_kb, parse_mode="HTML")
         elif step == "tx":
             flow["tx_id"] = raw[:100]
             await self._wallet_submit(update, context, flow)
@@ -1105,39 +1105,55 @@ class PremiumBingoBot:
 
     async def _wallet_bank_pick(self, update: Update,
                                 context: ContextTypes.DEFAULT_TYPE):
+        """Handle bank selection — reads account info directly from DB
+        so it works even when context.user_data is lost (webhook mode).
+        """
         query = update.callback_query
         await query.answer()
         user_id = update.effective_user.id
         flow = context.user_data.get("wallet_flow") or {}
-        acc_id = query.data.split("_", 1)[1]
-        provider = (flow.get("banks") or {}).get(acc_id)
-        if not flow or not provider:
-            context.user_data.pop("wallet_flow", None)
-            await query.edit_message_text("Session expired — start again.",
+        # Extract the account ID from callback data (e.g. "wbank_123" -> "123")
+        parts = query.data.split("_", 1)
+        acc_id_str = parts[1] if len(parts) > 1 else ""
+        if not acc_id_str:
+            await query.edit_message_text("❌ Invalid selection.",
                                           reply_markup=self.get_main_menu(user_id))
             return
-        acc = (flow.get("accounts") or {}).get(acc_id) or {}
-        flow["account_id"] = int(acc_id)
+        try:
+            acc_id = int(acc_id_str)
+        except ValueError:
+            await query.edit_message_text("❌ Invalid selection.",
+                                          reply_markup=self.get_main_menu(user_id))
+            return
+        # Read account directly from DB — no dependency on context.user_data
+        acc = db.get_payment_account(acc_id)
+        if not acc or not acc.get("is_active"):
+            await query.edit_message_text(
+                "❌ This account is no longer available.",
+                reply_markup=self.get_main_menu(user_id))
+            return
+        provider = acc.get("provider", "Wallet")
+        # Restore or create the flow in user_data
+        flow.setdefault("kind", "deposit")
+        flow["account_id"] = acc_id
         flow["provider"] = provider
+        flow["_selected_acc"] = acc
+        flow["step"] = "amount"
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
-        # Bank selected — now ask for the amount (bank-first flow)
-        flow["_selected_acc"] = acc  # store for display later
         if flow.get("kind") == "deposit":
-            flow["step"] = "amount"
             await query.edit_message_text(
-                f"🏦 **{provider}**\n"
-                f"Holder: {_md(acc.get('account_name', '?'))}\n"
-                f"Number: `{acc.get('account_number', '?')}`\n\n"
+                f"🏦 **{_html(provider)}**\n"
+                f"Holder: {_html(acc.get('account_name', '?'))}\n"
+                f"Number: `{_html(acc.get('account_number', '?'))}`\n\n"
                 f"Now enter the amount in {config.APP_CURRENCY} you sent:",
-                reply_markup=cancel_kb, parse_mode="Markdown")
+                reply_markup=cancel_kb, parse_mode="HTML")
         else:
-            flow["step"] = "amount"
             await query.edit_message_text(
-                f"🏦 **{provider}** selected.\n\n"
+                f"🏦 **{_html(provider)}** selected.\n\n"
                 f"Enter the amount in {config.APP_CURRENCY} you want to withdraw "
                 f"(minimum {config.MIN_WITHDRAWAL}):",
-                reply_markup=cancel_kb, parse_mode="Markdown")
+                reply_markup=cancel_kb, parse_mode="HTML")
         context.user_data["wallet_flow"] = flow
 
     async def _wallet_submit(self, update: Update,
@@ -2119,31 +2135,63 @@ def _ensure_webhook_running() -> bool:
         return True
 
 
-def notify_admins(lines: list) -> None:
-    """Queue a plain-text alert to EVERY admin (best effort, non-blocking).
+def _send_telegram_message(chat_id: int, text: str) -> bool:
+    """Send a Telegram message directly via the Bot API (best effort).
+    Used by notify_user/notify_admins so announcements arrive instantly
+    without waiting for the bot's job queue to drain.
+    """
+    if not BOT_TOKEN:
+        return False
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=5,
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
 
-    `lines` is a list of message lines, joined with newlines here. The message
-    is written into the `bot_notifications` table and the bot's announcer tick
-    picks it up and sends it over Telegram — this works in BOTH polling and
-    webhook modes, even when the server and the bot run in separate processes.
+
+def notify_admins(lines: list) -> None:
+    """Queue + instantly send a plain-text alert to EVERY admin.
+
+    Tries to send directly via the Telegram Bot API first (arrives as a
+    normal push notification even when the bot's job queue is idle).
+    Also queues in the DB as a fallback so the bot's announcer can retry
+    if the direct send fails.
     """
     text = chr(10).join(str(line) for line in lines)
     for admin_id in db.get_admin_ids():
+        # queue in DB (fallback for retry)
         try:
             db.add_bot_notification(admin_id, text)
         except Exception as exc:
-            logger.error("admin notify failed: %s", exc)
+            logger.error("admin notify queue failed: %s", exc)
+        # send directly (instant push notification)
+        try:
+            _send_telegram_message(admin_id, text)
+        except Exception:
+            pass
 
 
 def notify_user(user_id: int, lines: list) -> None:
-    """Queue a Telegram alert for ONE specific chat (e.g. the admin who owns
-    the payment account a deposit was paid into, or a user whose appeal was
-    resolved). Best effort — never raises."""
+    """Queue + instantly send a Telegram alert for ONE specific chat.
+
+    Best effort — never raises. Tries direct send first for instant
+    delivery, then queues in DB as retry fallback.
+    """
     text = chr(10).join(str(line) for line in lines)
+    # queue in DB (fallback)
     try:
         db.add_bot_notification(user_id, text)
     except Exception as exc:
-        logger.error("user notify failed: %s", exc)
+        logger.error("user notify queue failed: %s", exc)
+    # send directly (instant push notification)
+    try:
+        _send_telegram_message(user_id, text)
+    except Exception:
+        pass
 
 
 def dispatch_webhook(update_dict: dict) -> bool:
