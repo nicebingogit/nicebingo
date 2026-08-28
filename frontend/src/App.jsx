@@ -88,8 +88,8 @@ export default function App() {
   const loadAnnouncements = useCallback(async () => {
     try {
       const d = await api.announcements();
-      setAnnouncements(d.announcements || []);
-    } catch { /* silent */ }
+      setAnnouncements(d?.announcements || []);
+    } catch { /* silent — endpoint may not exist yet */ }
   }, []);
 
   useEffect(() => { loadAnnouncements(); }, [loadAnnouncements]);

@@ -71,13 +71,13 @@ export default function SuperAdminPanel({ onError, onChanged }) {
   }, [onError]);
 
   const loadGameHistory = useCallback(async () => {
-    try { setGameHistory((await api.superAdmin.gameplayHistory()).history || []); }
+    try { const d = await api.superAdmin.gameplayHistory(); setGameHistory(d?.history || []); }
     catch (e) { /* silent — endpoint may not exist yet */ }
   }, []);
 
   const loadAnnouncements = useCallback(async () => {
-    try { setAnnouncements((await api.announcements()).announcements || []); }
-    catch (e) { /* silent */ }
+    try { const d = await api.announcements(); setAnnouncements(d?.announcements || []); }
+    catch (e) { /* silent — endpoint may not exist yet */ }
   }, []);
 
   const loadAll = useCallback(async () => {
@@ -128,7 +128,11 @@ export default function SuperAdminPanel({ onError, onChanged }) {
       setGamePaused(true);
       flashMsg('⏸️ Game paused for ALL players.');
       await loadGameState();
-    } catch (e) { flashMsg(`❌ ${e.message}`); }
+    } catch (e) {
+      flashMsg(e.message?.includes('404') || e.message?.includes('Not Found')
+        ? '⏸️ Pause not available yet — backend update needed.'
+        : `❌ ${e.message}`);
+    }
   };
 
   const resumeGame = async () => {
@@ -138,7 +142,11 @@ export default function SuperAdminPanel({ onError, onChanged }) {
       setGamePaused(false);
       flashMsg('▶️ Game resumed!');
       await loadGameState();
-    } catch (e) { flashMsg(`❌ ${e.message}`); }
+    } catch (e) {
+      flashMsg(e.message?.includes('404') || e.message?.includes('Not Found')
+        ? '▶️ Resume not available yet — backend update needed.'
+        : `❌ ${e.message}`);
+    }
   };
 
   // ---- ANNOUNCEMENTS ----
@@ -152,7 +160,11 @@ export default function SuperAdminPanel({ onError, onChanged }) {
       flashMsg('📢 Announcement posted to all users, admins & super admins!');
       await loadAnnouncements();
       onChanged?.();
-    } catch (e) { flashMsg(`❌ ${e.message}`); }
+    } catch (e) {
+      flashMsg(e.message?.includes('404') || e.message?.includes('Not Found')
+        ? '📢 Announcements not available yet — backend update needed.'
+        : `❌ ${e.message}`);
+    }
   };
 
   // ---- CREDIT EDITING ----

@@ -48,6 +48,16 @@ function roomParams(room) {
   return room ? { room } : {};
 }
 
+// Helper: try a request and return null if the endpoint doesn't exist yet
+async function safeRequest(path, options = {}) {
+  try {
+    return await request(path, options);
+  } catch (e) {
+    // Return null silently if the endpoint is not implemented yet (404/405/500)
+    return null;
+  }
+}
+
 export const api = {
   init: async (room) => {
     const d = await request('/api/init', { params: roomParams(room) });
@@ -143,7 +153,7 @@ export const api = {
     pauseGame: (room) => superAdminRequest('/api/superadmin/game/pause', { body: roomParams(room) }),
     resumeGame: (room) => superAdminRequest('/api/superadmin/game/resume', { body: roomParams(room) }),
     // announcements
-    announcements: () => request('/api/announcements'),
+    announcements: () => safeRequest('/api/announcements'),
     postAnnouncement: (text) => superAdminRequest('/api/superadmin/announcements', { body: { text } }),
     // gameplay history (game results log)
     gameplayHistory: () => superAdminRequest('/api/superadmin/gameplay-history', { method: 'GET' }),

@@ -128,8 +128,8 @@ export default function Settings({ user, settings, config, onChanged, onError, o
   const loadAnnouncements = useCallback(async () => {
     try {
       const d = await api.announcements();
-      setAnnouncements(d.announcements || []);
-    } catch (e) { /* silent */ }
+      setAnnouncements(d?.announcements || []);
+    } catch (e) { /* silent — endpoint may not exist yet */ }
   }, []);
 
   useEffect(() => { loadAnnouncements(); }, [loadAnnouncements]);
