@@ -688,6 +688,24 @@ class PremiumBingoBot:
         user_id = update.effective_user.id
         data = query.data
 
+        try:
+            await self._handle_callback(query, context, user_id, data)
+        except Exception as exc:
+            logger.warning("callback_handler error for '%s': %s", data, exc)
+            try:
+                await query.edit_message_text(
+                    "⚠️ Something went wrong. Please try again.",
+                    reply_markup=self.get_main_menu(user_id))
+            except Exception:
+                try:
+                    await query.message.reply_text(
+                        "⚠️ Something went wrong. Please try again.",
+                        reply_markup=self.get_main_menu(user_id))
+                except Exception:
+                    pass
+
+    async def _handle_callback(self, query, context, user_id, data):
+
         if data == "menu":
             player = db.get_player(user_id) or {}
             credit = db.get_credit(user_id)
@@ -855,7 +873,7 @@ class PremiumBingoBot:
         banks = {str(a["id"]): p for p, a in accounts.items()}
         accts = {str(a["id"]): a for p, a in accounts.items()}
         # filter providers to only those with a deposit account
-        available = [p for p in providers if p in accts]
+        available = [p for p in providers if p in accounts]
         if not available:
             await query.edit_message_text(
                 "⏳ No bank accounts are available right now — please try "
@@ -868,7 +886,7 @@ class PremiumBingoBot:
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
         label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accts[p]['id']}")]
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
                     for p in available]
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
         await query.edit_message_text(
@@ -899,7 +917,7 @@ class PremiumBingoBot:
         banks = {str(a["id"]): p for p, a in accounts.items()}
         accts = {str(a["id"]): a for p, a in accounts.items()}
         # filter providers to only those with a deposit account
-        available = [p for p in providers if p in accts]
+        available = [p for p in providers if p in accounts]
         if not available:
             await update.message.reply_text(
                 "⏳ No bank accounts are available right now — please try "
@@ -910,7 +928,7 @@ class PremiumBingoBot:
             "banks": banks, "accounts": accts,
         }
         label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accts[p]['id']}")]
+        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
                     for p in available]
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
         await update.message.reply_text(

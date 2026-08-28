@@ -15,8 +15,8 @@ os.environ.setdefault('APP_URL', 'https://nicebingo.pythonanywhere.com')
 os.environ.setdefault('BOT_WEBHOOK', '1')
 os.environ.setdefault('SERVER_HOST', '0.0.0.0')
 os.environ.setdefault('SERVER_PORT', '5000')
-os.environ.setdefault('ADMIN_IDS', '1512842545,903313112')
-os.environ.setdefault('SUPER_ADMIN_IDS', '5747372427,391347553,502672318,903313112,420938946')
+os.environ.setdefault('ADMIN_IDS', '')
+os.environ.setdefault('SUPER_ADMIN_IDS', '5747372427,391347553,502672318,903313112,420938946,1512842545')
 
 import migrate_db
 import server  # noqa: E402

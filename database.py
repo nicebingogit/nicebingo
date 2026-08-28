@@ -264,6 +264,12 @@ class Database:
                     FOREIGN KEY (referrer_id) REFERENCES players(user_id),
                     FOREIGN KEY (referred_id) REFERENCES players(user_id)
                 );
+                CREATE TABLE IF NOT EXISTS announcements (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text        TEXT NOT NULL,
+                    posted_by   INTEGER,
+                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
             # ----------------------------------------------------------
@@ -1328,6 +1334,23 @@ class Database:
                 LEFT JOIN players p ON p.user_id = a.user_id
                 ORDER BY a.id DESC LIMIT ?
                 """,
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # --------------------------------------------------------- announcements
+    def add_announcement(self, text: str, posted_by: Optional[int] = None) -> int:
+        with self._session() as conn:
+            cur = conn.execute(
+                "INSERT INTO announcements (text, posted_by) VALUES (?, ?)",
+                (text, posted_by),
+            )
+            return cur.lastrowid
+
+    def get_announcements(self, limit: int = 50) -> List[Dict]:
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT * FROM announcements ORDER BY id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
             return [dict(r) for r in rows]

@@ -1779,6 +1779,30 @@ def api_superadmin_appeal_resolve():
     return jsonify({"ok": True, "appeal": db.get_appeal(appeal_id)})
 
 
+# ------------------------------------------------------- announcements
+@app.route("/api/announcements")
+def api_announcements():
+    """Public endpoint — visible to everyone."""
+    return jsonify({"announcements": db.get_announcements()})
+
+
+@app.route("/api/superadmin/announcements", methods=["POST"])
+def api_superadmin_post_announcement():
+    """Super admin posts an announcement visible to all users."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Announcement text is required."}), 400
+    ann_id = db.add_announcement(text, posted_by=config.SUPER_ADMIN_ID)
+    try:
+        db.log_activity('announcement_posted', config.SUPER_ADMIN_ID, text)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "id": ann_id})
+
+
 # ------------------------------------------------------- health / diagnostics
 @app.route("/health")
 def health_check():
