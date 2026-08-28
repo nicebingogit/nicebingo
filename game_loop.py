@@ -90,6 +90,10 @@ class GameLoop:
             now = datetime.now()
             for room in config.ROOM_BETS:
                 state = self.db.get_game_state(room)
+                # paused rooms are frozen — the game loop does nothing until
+                # the super admin explicitly resumes
+                if state.get("paused", 0):
+                    continue
                 phase = state.get("phase")
                 if phase == "preparation":
                     # keep the room looking alive: top up bots during the

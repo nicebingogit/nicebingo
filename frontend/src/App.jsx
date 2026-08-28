@@ -436,7 +436,7 @@ export default function App() {
         </button>
       )}
 
-      {showAdmin && myUser?.is_admin && (
+      {showAdmin && (myUser?.is_admin || myUser?.is_super_admin) && (
         <AdminPanel room={room} onError={showError} onChanged={handleChanged} />
       )}
 

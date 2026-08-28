@@ -53,7 +53,7 @@ export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmi
         <button className="chip chip-btn" onClick={onToggleSettings} title="Settings & wallet">
           {currentPack.icon} ⚙️
         </button>
-        {isAdmin && (
+        {(isAdmin || isSuperAdmin) && (
           <button className={`chip chip-btn ${showAdmin ? 'active' : ''}`} onClick={onToggleAdmin}>
             🛠
           </button>
