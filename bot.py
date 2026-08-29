@@ -282,7 +282,16 @@ class PremiumBingoBot:
         raw = (update.message.text or "").strip()
         # --- 📋 Menu persistent button ---
         if raw == "📋 Menu":
-            await self.menu_command(update, context)
+            try:
+                await self.menu_command(update, context)
+            except Exception as exc:
+                logger.warning("menu_command error: %s", exc)
+                try:
+                    await update.message.reply_text(
+                        "⚠️ Something went wrong — please try /menu.",
+                        reply_markup=self.get_main_menu(user.id))
+                except Exception:
+                    pass
             return
         # --- wallet chat flow takes priority over everything ---
         if self._wallet_flows.get(user.id):
@@ -595,7 +604,7 @@ class PremiumBingoBot:
         data = query.data
 
         try:
-            await self._handle_callback(query, context, user_id, data)
+            await self._handle_callback(update, query, context, user_id, data)
         except Exception as exc:
             logger.warning("callback_handler error for '%s': %s", data, exc)
             try:
@@ -610,7 +619,7 @@ class PremiumBingoBot:
                 except Exception:
                     pass
 
-    async def _handle_callback(self, query, context, user_id, data):
+    async def _handle_callback(self, update, query, context, user_id, data):
 
         if data == "menu":
             # Redirect to the Mini App
@@ -623,7 +632,13 @@ class PremiumBingoBot:
                     "🎮 Tap the button below to open the Bingo Arena!",
                     reply_markup=self.get_main_menu(user_id))
         elif data == "menu_play":
-            await self.play_command(update, context)
+            try:
+                await self.play_command(update, context)
+            except Exception as exc:
+                logger.warning("menu_play error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "menu_deposit":
             try:
                 await self._wallet_start(update, context, "deposit")
@@ -651,19 +666,61 @@ class PremiumBingoBot:
                         "⚠️ Something went wrong — please try /withdraw instead.",
                         reply_markup=self.get_main_menu(user_id))
         elif data == "menu_appeal":
-            await self.appeal_list(update, context)
+            try:
+                await self.appeal_list(update, context)
+            except Exception as exc:
+                logger.warning("menu_appeal error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "menu_referral":
-            await self._show_referral(update, context, user_id)
+            try:
+                await self._show_referral(update, context, user_id)
+            except Exception as exc:
+                logger.warning("menu_referral error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "play":
-            await self.play_command(update, context)
+            try:
+                await self.play_command(update, context)
+            except Exception as exc:
+                logger.warning("play callback error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data in ("status", "refresh"):
-            await self.status_command(update, context)
+            try:
+                await self.status_command(update, context)
+            except Exception as exc:
+                logger.warning("status callback error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "balance":
-            await self.balance_command(update, context)
+            try:
+                await self.balance_command(update, context)
+            except Exception as exc:
+                logger.warning("balance callback error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data in ("my_cards", "show_cards"):
-            await self.my_cards_command(update, context)
+            try:
+                await self.my_cards_command(update, context)
+            except Exception as exc:
+                logger.warning("my_cards callback error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "leaderboard":
-            await self.top_command(update, context)
+            try:
+                await self.top_command(update, context)
+            except Exception as exc:
+                logger.warning("leaderboard callback error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "quick_play":
             # Direct DB — avoids HTTP self-request deadlock on PA.
             room = config.ROOM_DEFAULT
@@ -688,14 +745,32 @@ class PremiumBingoBot:
                     f"✅ Auto-selected {len(chosen)} card(s)! Balance: {credit} ETB",
                     reply_markup=self.get_main_menu(user_id))
         elif data == "help":
-            await self.help_command(update, context)
+            try:
+                await self.help_command(update, context)
+            except Exception as exc:
+                logger.warning("help callback error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "tunnel_help":
             await query.edit_message_text(HTTPS_HINT, reply_markup=self.get_main_menu(user_id),
                                           parse_mode="Markdown")
         elif data == "select":
-            await self.select_command(update, context)
+            try:
+                await self.select_command(update, context)
+            except Exception as exc:
+                logger.warning("select error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "deselect":
-            await self.deselect_command(update, context)
+            try:
+                await self.deselect_command(update, context)
+            except Exception as exc:
+                logger.warning("deselect error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data.startswith("select_"):
             card_id = data.split("_", 1)[1]
             # Direct DB — avoids HTTP self-request deadlock on PA.
@@ -748,7 +823,13 @@ class PremiumBingoBot:
                     await query.edit_message_text("❌ Card not selected.",
                                                   reply_markup=self.get_main_menu(user_id))
         elif data == "referral":
-            await self._show_referral(update, context, user_id)
+            try:
+                await self._show_referral(update, context, user_id)
+            except Exception as exc:
+                logger.warning("referral error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "referral_copy":
             try:
                 bot_username = (await context.bot.get_me()).username
@@ -768,7 +849,13 @@ class PremiumBingoBot:
                     [InlineKeyboardButton("🏠 Menu", callback_data="menu")],
                 ]))
         elif data == "referral_stats":
-            await self._show_referral(update, context, user_id)
+            try:
+                await self._show_referral(update, context, user_id)
+            except Exception as exc:
+                logger.warning("referral_stats error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data in ("wallet_deposit", "wallet_withdraw"):
             try:
                 await self._wallet_start(update, context,
@@ -784,17 +871,41 @@ class PremiumBingoBot:
                         "⚠️ Something went wrong — the game server may be offline.",
                         reply_markup=self.get_main_menu(user_id))
         elif data.startswith("wbank_"):
-            await self._wallet_bank_pick(update, context)
+            try:
+                await self._wallet_bank_pick(update, context)
+            except Exception as exc:
+                logger.warning("wbank pick error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "wallet_cancel":
             self._wallet_flows.pop(user_id, None)
             await query.edit_message_text("❌ Request cancelled.",
                                           reply_markup=self.get_main_menu(user_id))
         elif data.startswith("admin_"):
-            await self.admin_callback_handler(update, context)
+            try:
+                await self.admin_callback_handler(update, context)
+            except Exception as exc:
+                logger.warning("admin callback error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "requests":
-            await self.requests_command(update, context)
+            try:
+                await self.requests_command(update, context)
+            except Exception as exc:
+                logger.warning("requests callback error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "appeal_list":
-            await self.appeal_list(update, context)
+            try:
+                await self.appeal_list(update, context)
+            except Exception as exc:
+                logger.warning("appeal_list error: %s", exc)
+                await self._safe_edit_or_reply(query, user_id,
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user_id))
         elif data.startswith("appeal_"):
             if data == "appeal_cancel":
                 context.user_data.pop("appeal_flow", None)
