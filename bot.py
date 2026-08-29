@@ -1635,7 +1635,7 @@ class PremiumBingoBot:
                         wname = (winner or {}).get("full_name") or (winner or {}).get("username") or (
                             bot_name(state["winner_user_id"])
                             if state["winner_user_id"] < 0 else "Player")
-                        card_id = info.get('card_id', '?')
+                        card_id = info.get('card_id', '?') 
                         msg = (f"🎉 **BINGO!** 🎉 ({label})\n\n🏆 Winner: **{_md(wname)}**\n"
                                 f"🃏 Winning Card: **#{card_id}**\n"
                                 f"🎯 Pattern: **{info.get('pattern')}**\n"
