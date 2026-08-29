@@ -149,13 +149,25 @@ class PremiumBingoBot:
 
     @staticmethod
     def get_reply_keyboard(user_id: int = 0) -> ReplyKeyboardMarkup:
-        """Persistent keyboard with Menu on the left, wallet actions below."""
+        """Persistent keyboard — single Menu button at the bottom left."""
         return ReplyKeyboardMarkup(
-            [[KeyboardButton("📋 Menu"), KeyboardButton("🎮 Play")],
-             [KeyboardButton("⬇️ Deposit"), KeyboardButton("⬆️ Withdraw"), KeyboardButton("🚨 Appeal")]],
+            [[KeyboardButton("☰ Menu")]],
             resize_keyboard=True,
             one_time_keyboard=False,
         )
+
+    def get_main_menu_inline(self, user_id: int = 0) -> InlineKeyboardMarkup:
+        """Inline keyboard shown when user taps ☰ Menu — compact action buttons."""
+        rows = [
+            [InlineKeyboardButton("🎮 Play", callback_data="menu_play"),
+             InlineKeyboardButton("⬇️ Deposit", callback_data="menu_deposit"),
+             InlineKeyboardButton("⬆️ Withdraw", callback_data="menu_withdraw"),
+             InlineKeyboardButton("🚨 Appeal", callback_data="menu_appeal")],
+        ]
+        if self._webapp_ok():
+            rows.append([InlineKeyboardButton("🚀 Open Bingo Arena",
+                                              web_app={"url": _fresh_app_url()})])
+        return InlineKeyboardMarkup(rows)
 
     def get_admin_menu(self):
         """Admin panel — redirects to Mini App."""
@@ -217,7 +229,7 @@ class PremiumBingoBot:
         await self._send_welcome(update, context)
 
     async def _send_welcome(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Welcome card — opens the Mini App."""
+        """Welcome card with promo image — opens the Mini App."""
         user = update.effective_user
         player = db.get_player(user.id) or {}
         name = (player.get("full_name") or "").strip() or user.first_name
@@ -225,6 +237,18 @@ class PremiumBingoBot:
         is_admin = db.is_admin(user.id)
         is_super = user.id in config.SUPER_ADMIN_IDS
         badge = " ⭐" if is_super else (" 👑" if is_admin else "")
+        # Send promo image first
+        try:
+            promo_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1.jpg")
+            if os.path.isfile(promo_img):
+                with open(promo_img, "rb") as photo:
+                    await update.message.reply_photo(
+                        photo=photo,
+                        caption="🎉 *SPECIAL PROMOTION* 🎉\n\n🔥 Play Nice Bingo and win BIG!\n💰 Deposit now and get bonus credit!",
+                        parse_mode="Markdown",
+                    )
+        except Exception as exc:
+            logger.warning("promo image send failed: %s", exc)
         text = (
             f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -243,7 +267,7 @@ class PremiumBingoBot:
         # Show the persistent reply keyboard
         try:
             await update.message.reply_text(
-                "👇 Use the buttons below to navigate:",
+                "👇 Use the ☰ Menu button below to navigate:",
                 reply_markup=self.get_reply_keyboard(user.id),
                 parse_mode="HTML",
             )
@@ -259,7 +283,7 @@ class PremiumBingoBot:
         if raw == "🎮 Play":
             await self.play_command(update, context)
             return
-        if raw == "📋 Menu":
+        if raw in ("📋 Menu", "☰ Menu"):
             await self.menu_command(update, context)
             return
         if raw == "⬇️ Deposit":
@@ -627,6 +651,36 @@ class PremiumBingoBot:
                 await query.message.reply_text(
                     "🎮 Tap the button below to open the Bingo Arena!",
                     reply_markup=self.get_main_menu(user_id))
+        elif data == "menu_play":
+            await self.play_command(update, context)
+        elif data == "menu_deposit":
+            try:
+                await self._wallet_start(update, context, "deposit")
+            except Exception as exc:
+                logger.warning("wallet deposit from menu: %s", exc)
+                try:
+                    await query.edit_message_text(
+                        "⚠️ Something went wrong — please try /deposit instead.",
+                        reply_markup=self.get_main_menu(user_id))
+                except Exception:
+                    await query.message.reply_text(
+                        "⚠️ Something went wrong — please try /deposit instead.",
+                        reply_markup=self.get_main_menu(user_id))
+        elif data == "menu_withdraw":
+            try:
+                await self._wallet_start(update, context, "withdraw")
+            except Exception as exc:
+                logger.warning("wallet withdraw from menu: %s", exc)
+                try:
+                    await query.edit_message_text(
+                        "⚠️ Something went wrong — please try /withdraw instead.",
+                        reply_markup=self.get_main_menu(user_id))
+                except Exception:
+                    await query.message.reply_text(
+                        "⚠️ Something went wrong — please try /withdraw instead.",
+                        reply_markup=self.get_main_menu(user_id))
+        elif data == "menu_appeal":
+            await self.appeal_list(update, context)
         elif data == "play":
             await self.play_command(update, context)
         elif data in ("status", "refresh"):
@@ -821,10 +875,9 @@ class PremiumBingoBot:
         user_id = update.effective_user.id
         player = db.get_player(user_id)
         if not player or not (player.get("full_name") or "").strip():
-            await query.edit_message_text(
-                "⛔ Please send **/start** and enter your full name first.",
-                reply_markup=self.get_main_menu(user_id),
-                parse_mode="Markdown")
+            await self._safe_edit_or_reply(query, user_id,
+                "⛔ Please send /start and enter your full name first.",
+                reply_markup=self.get_main_menu(user_id))
             return
         # Bank selection comes FIRST — the user picks the bank, then the amount.
         # Read directly from DB to avoid HTTP self-request deadlock on PA.
@@ -837,7 +890,7 @@ class PremiumBingoBot:
             for a in (settings.get("payment_accounts") or []):
                 accounts.setdefault(a["provider"], a)
         if not providers and not accounts:
-            await query.edit_message_text(
+            await self._safe_edit_or_reply(query, user_id,
                 "⏳ No bank accounts are available right now — please try "
                 "again later.", reply_markup=self.get_main_menu(user_id))
             return
@@ -851,7 +904,7 @@ class PremiumBingoBot:
             # last resort: show any available accounts
             available = list(accounts.keys())
         if not available:
-            await query.edit_message_text(
+            await self._safe_edit_or_reply(query, user_id,
                 "⏳ No bank accounts are available right now — please try "
                 "again later.", reply_markup=self.get_main_menu(user_id))
             return
@@ -863,7 +916,7 @@ class PremiumBingoBot:
         keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
                     for p in available]
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
-        await query.edit_message_text(
+        await self._safe_edit_or_reply(query, user_id,
             f"💰 <b>New {label}</b>\n\n🏦 Choose the bank:" if kind == "deposit"
             else f"💰 <b>New {label}</b>\n\n🏦 Which bank should receive your money?",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
@@ -997,6 +1050,19 @@ class PremiumBingoBot:
                 and not flow.get("_done"):
             context.user_data["wallet_flow"] = flow
 
+    async def _safe_edit_or_reply(self, query, user_id: int, text: str,
+                                   reply_markup=None, parse_mode=None):
+        """Try to edit the callback message; if that fails, send a new reply."""
+        try:
+            await query.edit_message_text(
+                text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            try:
+                await query.message.reply_text(
+                    text, reply_markup=reply_markup, parse_mode=parse_mode)
+            except Exception as exc:
+                logger.warning("_safe_edit_or_reply failed: %s", exc)
+
     async def _wallet_bank_pick(self, update: Update,
                                 context: ContextTypes.DEFAULT_TYPE):
         """Handle bank selection — reads account info directly from DB
@@ -1010,21 +1076,18 @@ class PremiumBingoBot:
         parts = query.data.split("_", 1)
         acc_id_str = parts[1] if len(parts) > 1 else ""
         if not acc_id_str:
-            await query.edit_message_text("❌ Invalid selection.",
-                                          reply_markup=self.get_main_menu(user_id))
+            await self._safe_edit_or_reply(query, user_id, "❌ Invalid selection.")
             return
         try:
             acc_id = int(acc_id_str)
         except ValueError:
-            await query.edit_message_text("❌ Invalid selection.",
-                                          reply_markup=self.get_main_menu(user_id))
+            await self._safe_edit_or_reply(query, user_id, "❌ Invalid selection.")
             return
         # Read account directly from DB — no dependency on context.user_data
         acc = db.get_payment_account(acc_id)
         if not acc or not acc.get("is_active"):
-            await query.edit_message_text(
-                "❌ This account is no longer available.",
-                reply_markup=self.get_main_menu(user_id))
+            await self._safe_edit_or_reply(query, user_id,
+                "❌ This account is no longer available.")
             return
         provider = acc.get("provider", "Wallet")
         # Restore or create the flow in user_data
@@ -1036,15 +1099,15 @@ class PremiumBingoBot:
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
         if flow.get("kind") == "deposit":
-            await query.edit_message_text(
-                f"🏦 **{_html(provider)}**\n"
+            await self._safe_edit_or_reply(query, user_id,
+                f"🏦 <b>{_html(provider)}</b>\n"
                 f"Holder: {_html(acc.get('account_name', '?'))}\n"
-                f"Number: `{_html(acc.get('account_number', '?'))}`\n\n"
+                f"Number: <code>{_html(acc.get('account_number', '?'))}</code>\n\n"
                 f"Now enter the amount in {config.APP_CURRENCY} you sent:",
                 reply_markup=cancel_kb, parse_mode="HTML")
         else:
-            await query.edit_message_text(
-                f"🏦 **{_html(provider)}** selected.\n\n"
+            await self._safe_edit_or_reply(query, user_id,
+                f"🏦 <b>{_html(provider)}</b> selected.\n\n"
                 f"Enter the amount in {config.APP_CURRENCY} you want to withdraw "
                 f"(minimum {config.MIN_WITHDRAWAL}):",
                 reply_markup=cancel_kb, parse_mode="HTML")
@@ -1760,18 +1823,30 @@ class PremiumBingoBot:
 
     async def menu_command(self, update: Update,
                            context: ContextTypes.DEFAULT_TYPE):
-        """/menu — open the Mini App."""
+        """/menu or Menu — show promo image + inline action buttons."""
         uid = update.effective_user.id
         credit = db.get_credit(uid)
+        # Send promo image first
+        try:
+            promo_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1.jpg")
+            if os.path.isfile(promo_img):
+                with open(promo_img, "rb") as photo:
+                    await update.message.reply_photo(
+                        photo=photo,
+                        caption="🎉 *SPECIAL PROMOTION* 🎉\n\n🔥 Play Nice Bingo and win BIG!\n💰 Deposit now and get bonus credit!",
+                        parse_mode="Markdown",
+                    )
+        except Exception as exc:
+            logger.warning("menu promo image failed: %s", exc)
         text = (
             f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n\n"
             f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>\n\n"
-            f"Tap the button below to open the game!"
+            f"Choose an action below:"
         )
         await update.message.reply_text(
             text,
-            reply_markup=self.get_main_menu(uid),
+            reply_markup=self.get_main_menu_inline(uid),
             parse_mode="HTML")
 
     async def referral_command(self, update: Update,
