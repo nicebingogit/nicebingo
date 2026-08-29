@@ -96,7 +96,6 @@ class PremiumBingoBot:
         # its own round with its own ball order and pool)
         self._last = {room: {"phase": None, "count": -1, "round": None}
                       for room in config.ROOM_BETS}
-        self._last_promo_date = None  # tracks last daily promo date (YYYY-MM-DD)
 
     # ------------------------------------------------------------ rooms
     @staticmethod
@@ -133,97 +132,34 @@ class PremiumBingoBot:
         return _fresh_app_url().lower().startswith("https")
 
     def get_main_menu(self, user_id: int = 0):
-        """Professional bot menu with clear sections and modern layout."""
-        rows = []
-        # ── PLAY ──────────────────────────────────────────
+        """Simple menu: opens the Mini App directly."""
         if self._webapp_ok():
-            rows.append([InlineKeyboardButton("🎮  Play Bingo",
-                                              web_app={"url": _fresh_app_url()})])
-        else:
-            rows.append([InlineKeyboardButton("🔒  Mini App unavailable",
-                                              callback_data="tunnel_help")])
-        rows.append([])  # spacer
-        # ── GAME ──────────────────────────────────────────
-        rows.append([
-            InlineKeyboardButton("📊  Status", callback_data="status"),
-            InlineKeyboardButton("💰  Balance", callback_data="balance"),
+            return InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎮  Open Bingo Arena",
+                                      web_app={"url": _fresh_app_url()})],
+            ])
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔒  Mini App unavailable",
+                                  callback_data="tunnel_help")],
         ])
-        rows.append([
-            InlineKeyboardButton("🎲  My Cards", callback_data="my_cards"),
-            InlineKeyboardButton("🏆  Rankings", callback_data="leaderboard"),
-        ])
-        rows.append([])  # spacer
-        # ── WALLET ────────────────────────────────────────
-        rows.append([
-            InlineKeyboardButton("⬇️  Deposit", callback_data="wallet_deposit"),
-            InlineKeyboardButton("⬆️  Withdraw", callback_data="wallet_withdraw"),
-        ])
-        rows.append([
-            InlineKeyboardButton("📋  My Requests", callback_data="requests"),
-            InlineKeyboardButton("🚨  Appeal", callback_data="appeal_list"),
-        ])
-        rows.append([])  # spacer
-        # ── MORE ──────────────────────────────────────────
-        rows.append([
-            InlineKeyboardButton("🔗  Referral", callback_data="referral"),
-            InlineKeyboardButton("❓  Help", callback_data="help"),
-        ])
-        return InlineKeyboardMarkup(rows)
 
     def get_game_menu(self):
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 Status", callback_data="status"),
-             InlineKeyboardButton("🔄 Refresh", callback_data="refresh")],
-            [InlineKeyboardButton("➕ Select Card", callback_data="select"),
-             InlineKeyboardButton("➖ Remove Card", callback_data="deselect")],
-            [InlineKeyboardButton("🎯 Show Cards", callback_data="show_cards"),
-             InlineKeyboardButton("🏠 Menu", callback_data="menu")],
-        ])
+        """Game menu — redirects to Mini App."""
+        return self.get_main_menu()
 
     @staticmethod
     def get_reply_keyboard(user_id: int = 0) -> ReplyKeyboardMarkup:
-        """Persistent reply keyboard shown above the text input.
-
-        Two rows of quick-action emoji buttons so the user always has
-        fast access to the most common actions without scrolling through
-        the inline menu.
-        """
-        is_admin = db.is_admin(user_id)
-        is_super = user_id in config.SUPER_ADMIN_IDS
-        row1 = [
-            KeyboardButton("🎮 Play"),
-            KeyboardButton("💰 Balance"),
-            KeyboardButton("🎲 Cards"),
-        ]
-        row2 = [
-            KeyboardButton("⬇️ Deposit"),
-            KeyboardButton("⬆️ Withdraw"),
-            KeyboardButton("🚨 Appeal"),
-        ]
-        if is_admin or is_super:
-            row2.append(KeyboardButton("🔧 Admin"))
+        """Persistent keyboard with Menu on the left, wallet actions below."""
         return ReplyKeyboardMarkup(
-            [row1, row2],
+            [[KeyboardButton("📋 Menu"), KeyboardButton("🎮 Play")],
+             [KeyboardButton("⬇️ Deposit"), KeyboardButton("⬆️ Withdraw"), KeyboardButton("🚨 Appeal")]],
             resize_keyboard=True,
             one_time_keyboard=False,
         )
 
     def get_admin_menu(self):
-        """Professional admin panel with grouped actions."""
-        return InlineKeyboardMarkup([
-            # ── Round Control ──
-            [InlineKeyboardButton("▶️  Force Start", callback_data="admin_start"),
-             InlineKeyboardButton("⏭  Call Next Ball", callback_data="admin_call")],
-            [InlineKeyboardButton("🔄  Reset Round", callback_data="admin_reset")],
-            # ── Players ──
-            [InlineKeyboardButton("🤖  Add Bots", callback_data="admin_bots"),
-             InlineKeyboardButton("🔀  Toggle Bots", callback_data="admin_bots_toggle")],
-            # ── Stats ──
-            [InlineKeyboardButton("📊  Game Stats", callback_data="admin_status"),
-             InlineKeyboardButton("🔗  Referrals", callback_data="referral")],
-            # ── Back ──
-            [InlineKeyboardButton("🏠  Main Menu", callback_data="menu")],
-        ])
+        """Admin panel — redirects to Mini App."""
+        return self.get_main_menu()
 
     # --------------------------------------------------------------- commands
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -281,7 +217,7 @@ class PremiumBingoBot:
         await self._send_welcome(update, context)
 
     async def _send_welcome(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Professional welcome card — clean, modern, how-to-play guide."""
+        """Welcome card — opens the Mini App."""
         user = update.effective_user
         player = db.get_player(user.id) or {}
         name = (player.get("full_name") or "").strip() or user.first_name
@@ -293,7 +229,8 @@ class PremiumBingoBot:
             f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
             f"Welcome, <b>{_html(name)}</b>{badge}\n"
-            f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>"
+            f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>\n\n"
+            f"Tap the button below to open the game!"
         )
         try:
             await update.message.reply_text(
@@ -303,10 +240,10 @@ class PremiumBingoBot:
             )
         except Exception as exc:
             logger.warning("_send_welcome main menu failed: %s", exc)
-        # Show the persistent reply keyboard (stays above the text input)
+        # Show the persistent reply keyboard
         try:
             await update.message.reply_text(
-                "👇 <b>Quick actions</b> — tap any button below:",
+                "👇 Use the buttons below to navigate:",
                 reply_markup=self.get_reply_keyboard(user.id),
                 parse_mode="HTML",
             )
@@ -319,57 +256,38 @@ class PremiumBingoBot:
         user = update.effective_user
         raw = (update.message.text or "").strip()
         # --- reply keyboard quick actions ---
-        _rk = {
-            "🎮 Play": "play",
-            "💰 Balance": "balance",
-            "🎲 Cards": "my_cards",
-            "⬇️ Deposit": "wallet_deposit",
-            "⬆️ Withdraw": "wallet_withdraw",
-            "🚨 Appeal": "appeal_list",
-            "🔧 Admin": "admin_panel",
-            "🏠 Menu": "menu",
-            "📊 Status": "status",
-            "🏆 Leaderboard": "leaderboard",
-            "🔗 Referral": "referral",
-            "❓ Help": "help",
-        }
-        if raw in _rk:
-            cb = _rk[raw]
-            if cb == "play":
-                await self.play_command(update, context)
-            elif cb == "admin_panel":
-                await self.admin_command(update, context)
-            elif cb == "menu":
-                await self.menu_command(update, context)
-            elif cb == "balance":
-                await self.balance_command(update, context)
-            elif cb == "my_cards":
-                await self.my_cards_command(update, context)
-            elif cb == "status":
-                await self.status_command(update, context)
-            elif cb == "leaderboard":
-                await self.top_command(update, context)
-            elif cb == "referral":
-                await self._show_referral(update, context, user.id)
-            elif cb == "help":
-                await self.help_command(update, context)
-            elif cb in ("wallet_deposit", "wallet_withdraw"):
-                kind = "deposit" if cb == "wallet_deposit" else "withdraw"
-                try:
-                    await self._wallet_start_reply(update, context, kind)
-                except Exception as exc:
-                    logger.warning("wallet start from reply keyboard: %s", exc)
-                    await update.message.reply_text(
-                        "⚠️ Something went wrong — please try /" + kind + " instead.",
-                        reply_markup=self.get_main_menu(user.id))
-            elif cb == "appeal_list":
-                try:
-                    await self.appeal_list(update, context)
-                except Exception as exc:
-                    logger.warning("appeal list from reply keyboard: %s", exc)
-                    await update.message.reply_text(
-                        "⚠️ Something went wrong — please try /requests instead.",
-                        reply_markup=self.get_main_menu(user.id))
+        if raw == "🎮 Play":
+            await self.play_command(update, context)
+            return
+        if raw == "📋 Menu":
+            await self.menu_command(update, context)
+            return
+        if raw == "⬇️ Deposit":
+            try:
+                await self._wallet_start_reply(update, context, "deposit")
+            except Exception as exc:
+                logger.warning("wallet start from reply keyboard: %s", exc)
+                await update.message.reply_text(
+                    "⚠️ Something went wrong — please try /deposit instead.",
+                    reply_markup=self.get_main_menu(user.id))
+            return
+        if raw == "⬆️ Withdraw":
+            try:
+                await self._wallet_start_reply(update, context, "withdraw")
+            except Exception as exc:
+                logger.warning("wallet start from reply keyboard: %s", exc)
+                await update.message.reply_text(
+                    "⚠️ Something went wrong — please try /withdraw instead.",
+                    reply_markup=self.get_main_menu(user.id))
+            return
+        if raw == "🚨 Appeal":
+            try:
+                await self.appeal_list(update, context)
+            except Exception as exc:
+                logger.warning("appeal list from reply keyboard: %s", exc)
+                await update.message.reply_text(
+                    "⚠️ Something went wrong — please try again.",
+                    reply_markup=self.get_main_menu(user.id))
             return
         # --- wallet chat flow takes priority over everything ---
         if context.user_data.get("wallet_flow"):
@@ -452,14 +370,12 @@ class PremiumBingoBot:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🎮 OPEN BINGO ARENA",
                                       web_app={"url": _fresh_app_url()})],
-                [InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")],
             ])
             closing = ("Pick your room, select cards and play! "
                        "Works best inside Telegram on your phone or desktop.")
         else:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔒 Fix Mini App URL", callback_data="tunnel_help")],
-                [InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")],
             ])
             closing = HTTPS_HINT
         credit = db.get_credit(user.id)
@@ -617,27 +533,18 @@ class PremiumBingoBot:
             msg = query.message
         else:
             msg = update.message
-        room_names = " / ".join(config.room_label(r) for r in config.ROOM_BETS)
-        room_bets = " / ".join(f"{r} ETB" for r in config.ROOM_BETS)
         uid = update.effective_user.id
         text = (
-            f"❓  *How to Play*\n"
+            f"❓ *How to Play*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"*1.* Tap *🎮 Play Bingo* to open the full-screen arena\n"
-            f"*2.* Pick a room (*{room_names}*) — fixed bet per card "
-            f"({room_bets})\n"
-            f"*3.* During the *{config.PREPARATION_SECONDS}s countdown*, pick up to "
-            f"*{config.MAX_CARDS_PER_PLAYER}* cards\n"
-            f"*4.* A ball is called every *{config.CALL_INTERVAL_SECONDS}s* — "
-            f"numbers are marked automatically\n"
-            f"*5.* Complete a row, column, diagonal or four corners → *BINGO!*\n"
-            f"*6.* Winner takes *80%* of the prize pool — paid instantly\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"*💰 Wallet* — Deposit & Withdraw right in this chat\n"
-            f"*🔗 Referral* — Earn 5% commission on every round your friends play\n\n"
+            f"Tap *🎮 Play* to open the Bingo Arena!\n"
+            f"Everything is inside the Mini App:\n"
+            f"• Wallet (Deposit & Withdraw)\n"
+            f"• Profile settings\n"
+            f"• Referral program\n"
+            f"• Help & guide\n\n"
             f"*Commands:*\n"
-            f"`/start`  `/menu`  `/play`  `/status`  `/balance`\n"
-            f"`/deposit`  `/withdraw`  `/referral`  `/help`",
+            f"`/start`  `/menu`  `/play`  `/help`",
         )
         await msg.reply_text(
             text,
@@ -711,28 +618,15 @@ class PremiumBingoBot:
     async def _handle_callback(self, query, context, user_id, data):
 
         if data == "menu":
-            player = db.get_player(user_id) or {}
-            credit = db.get_credit(user_id)
-            name = (player.get("full_name") or "").strip() or "Player"
-            is_admin = db.is_admin(user_id)
-            is_super = user_id in config.SUPER_ADMIN_IDS
-            badge = " ⭐" if is_super else (" 👑" if is_admin else "")
-            text = (
-                f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n"
-                f"━━━━━━━━━━━━━━━━━━\n\n"
-                f"Hi, <b>{_html(name)}</b>{badge}\n"
-                f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>"
-            )
+            # Redirect to the Mini App
             try:
                 await query.edit_message_text(
-                    text,
-                    reply_markup=self.get_main_menu(user_id),
-                    parse_mode="HTML")
+                    "🎮 Tap the button below to open the Bingo Arena!",
+                    reply_markup=self.get_main_menu(user_id))
             except Exception:
                 await query.message.reply_text(
-                    text,
-                    reply_markup=self.get_main_menu(user_id),
-                    parse_mode="HTML")
+                    "🎮 Tap the button below to open the Bingo Arena!",
+                    reply_markup=self.get_main_menu(user_id))
         elif data == "play":
             await self.play_command(update, context)
         elif data in ("status", "refresh"):
@@ -1705,28 +1599,6 @@ class PremiumBingoBot:
         """
         try:
             await self._drain_notifications()
-            # send one promotional message per day to all players
-            # uses notify_user (DB queue) so it works in both polling and webhook mode
-            today = datetime.now().strftime("%Y-%m-%d")
-            if self._last_promo_date != today:
-                self._last_promo_date = today
-                players = db.get_all_player_ids()
-                if players:
-                    promo_lines = [
-                        "🎉 Daily Promo",
-                        f"Today is {datetime.now().strftime('%A, %B %d')}!",
-                        "",
-                        "🔥 Deposit today and get bonus credit!",
-                        "💰 Tap /deposit to add funds to your wallet.",
-                        "",
-                        "🎰 Open the Bingo Arena and play now!",
-                    ]
-                    promo_text = "\n".join(str(line) for line in promo_lines)
-                    for uid in players:
-                        try:
-                            db.add_bot_notification(uid, promo_text)
-                        except Exception:
-                            pass
             players = db.get_all_player_ids()
             if not players:
                 return
@@ -1888,29 +1760,19 @@ class PremiumBingoBot:
 
     async def menu_command(self, update: Update,
                            context: ContextTypes.DEFAULT_TYPE):
-        """/menu — show the main menu (works before the Mini App is opened)."""
+        """/menu — open the Mini App."""
         uid = update.effective_user.id
-        player = db.get_player(uid) or {}
-        name = (player.get("full_name") or "").strip() or "Player"
         credit = db.get_credit(uid)
-        is_admin = db.is_admin(uid)
-        is_super = uid in config.SUPER_ADMIN_IDS
-        badge = " ⭐" if is_super else (" 👑" if is_admin else "")
         text = (
             f"<b>✨ 🎰 NICE BINGO 🎰 ✨</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n\n"
-            f"Hi, <b>{_html(name)}</b>{badge}\n"
-            f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>"
+            f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>\n\n"
+            f"Tap the button below to open the game!"
         )
         await update.message.reply_text(
             text,
             reply_markup=self.get_main_menu(uid),
             parse_mode="HTML")
-        await update.message.reply_text(
-            "👇 <b>Quick actions</b> — tap any button below:",
-            reply_markup=self.get_reply_keyboard(uid),
-            parse_mode="HTML",
-        )
 
     async def referral_command(self, update: Update,
                                context: ContextTypes.DEFAULT_TYPE):
@@ -1984,6 +1846,35 @@ class PremiumBingoBot:
                 }
         except Exception:
             pass
+        # Send promotion image (1.jpg) to all players on bot start
+        try:
+            promo_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1.jpg")
+            if os.path.isfile(promo_img):
+                player_ids = db.get_all_player_ids()
+                promo_caption = (
+                    "🎉 **SPECIAL PROMOTION** 🎉\n\n"
+                    "🔥 Play Nice Bingo and win BIG!\n"
+                    "💰 Deposit now and get bonus credit!\n"
+                    "🎰 Tap /play to open the Bingo Arena!"
+                )
+                for uid in player_ids:
+                    try:
+                        with open(promo_img, "rb") as photo:
+                            await application.bot.send_photo(
+                                chat_id=uid,
+                                photo=photo,
+                                caption=promo_caption,
+                                parse_mode="Markdown",
+                            )
+                    except Forbidden:
+                        db.delete_player(uid)
+                    except Exception:
+                        pass
+                logger.info("Promotion image sent to %d players", len(player_ids))
+            else:
+                logger.warning("Promotion image not found: %s", promo_img)
+        except Exception as exc:
+            logger.warning("Promotion broadcast error: %s", exc)
         application.job_queue.run_repeating(self._announcer_tick,
                                             interval=config.ANNOUNCER_INTERVAL,
                                             first=3.0)
