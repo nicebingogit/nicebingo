@@ -22,7 +22,7 @@ from datetime import datetime
 import requests
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram import ChatMember, ReplyKeyboardMarkup, KeyboardButton
+from telegram import ChatMember
 from telegram.error import Forbidden
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ChatMemberHandler,
@@ -147,22 +147,14 @@ class PremiumBingoBot:
         """Game menu — redirects to Mini App."""
         return self.get_main_menu()
 
-    @staticmethod
-    def get_reply_keyboard(user_id: int = 0) -> ReplyKeyboardMarkup:
-        """Persistent keyboard — single Menu button at the bottom left."""
-        return ReplyKeyboardMarkup(
-            [[KeyboardButton("☰ Menu")]],
-            resize_keyboard=True,
-            one_time_keyboard=False,
-        )
-
     def get_main_menu_inline(self, user_id: int = 0) -> InlineKeyboardMarkup:
-        """Inline keyboard shown when user taps ☰ Menu — compact action buttons."""
+        """Inline keyboard with all action buttons attached to bot message."""
         rows = [
             [InlineKeyboardButton("🎮 Play", callback_data="menu_play"),
              InlineKeyboardButton("⬇️ Deposit", callback_data="menu_deposit"),
-             InlineKeyboardButton("⬆️ Withdraw", callback_data="menu_withdraw"),
-             InlineKeyboardButton("🚨 Appeal", callback_data="menu_appeal")],
+             InlineKeyboardButton("⬆️ Withdraw", callback_data="menu_withdraw")],
+            [InlineKeyboardButton("🚨 Appeal", callback_data="menu_appeal"),
+             InlineKeyboardButton("🔗 Referral", callback_data="menu_referral")],
         ]
         if self._webapp_ok():
             rows.append([InlineKeyboardButton("🚀 Open Bingo Arena",
@@ -229,7 +221,7 @@ class PremiumBingoBot:
         await self._send_welcome(update, context)
 
     async def _send_welcome(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Welcome card with promo image — opens the Mini App."""
+        """Welcome card with promo image and inline action buttons."""
         user = update.effective_user
         player = db.get_player(user.id) or {}
         name = (player.get("full_name") or "").strip() or user.first_name
@@ -254,65 +246,22 @@ class PremiumBingoBot:
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
             f"Welcome, <b>{_html(name)}</b>{badge}\n"
             f"💰 Balance: <b>{credit} {config.APP_CURRENCY}</b>\n\n"
-            f"Tap the button below to open the game!"
+            f"Choose an action below:"
         )
         try:
             await update.message.reply_text(
                 text,
-                reply_markup=self.get_main_menu(user.id),
+                reply_markup=self.get_main_menu_inline(user.id),
                 parse_mode="HTML",
             )
         except Exception as exc:
-            logger.warning("_send_welcome main menu failed: %s", exc)
-        # Show the persistent reply keyboard
-        try:
-            await update.message.reply_text(
-                "👇 Use the ☰ Menu button below to navigate:",
-                reply_markup=self.get_reply_keyboard(user.id),
-                parse_mode="HTML",
-            )
-        except Exception as exc:
-            logger.warning("_send_welcome reply keyboard failed: %s", exc)
+            logger.warning("_send_welcome inline menu failed: %s", exc)
 
     async def text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Captures the full name when the bot is waiting for it (after /start),
         or processes one step of the deposit/withdraw wallet chat flow."""
         user = update.effective_user
         raw = (update.message.text or "").strip()
-        # --- reply keyboard quick actions ---
-        if raw == "🎮 Play":
-            await self.play_command(update, context)
-            return
-        if raw in ("📋 Menu", "☰ Menu"):
-            await self.menu_command(update, context)
-            return
-        if raw == "⬇️ Deposit":
-            try:
-                await self._wallet_start_reply(update, context, "deposit")
-            except Exception as exc:
-                logger.warning("wallet start from reply keyboard: %s", exc)
-                await update.message.reply_text(
-                    "⚠️ Something went wrong — please try /deposit instead.",
-                    reply_markup=self.get_main_menu(user.id))
-            return
-        if raw == "⬆️ Withdraw":
-            try:
-                await self._wallet_start_reply(update, context, "withdraw")
-            except Exception as exc:
-                logger.warning("wallet start from reply keyboard: %s", exc)
-                await update.message.reply_text(
-                    "⚠️ Something went wrong — please try /withdraw instead.",
-                    reply_markup=self.get_main_menu(user.id))
-            return
-        if raw == "🚨 Appeal":
-            try:
-                await self.appeal_list(update, context)
-            except Exception as exc:
-                logger.warning("appeal list from reply keyboard: %s", exc)
-                await update.message.reply_text(
-                    "⚠️ Something went wrong — please try again.",
-                    reply_markup=self.get_main_menu(user.id))
-            return
         # --- wallet chat flow takes priority over everything ---
         if context.user_data.get("wallet_flow"):
             if not raw:
@@ -681,6 +630,8 @@ class PremiumBingoBot:
                         reply_markup=self.get_main_menu(user_id))
         elif data == "menu_appeal":
             await self.appeal_list(update, context)
+        elif data == "menu_referral":
+            await self._show_referral(update, context, user_id)
         elif data == "play":
             await self.play_command(update, context)
         elif data in ("status", "refresh"):
@@ -921,58 +872,6 @@ class PremiumBingoBot:
             else f"💰 <b>New {label}</b>\n\n🏦 Which bank should receive your money?",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
-    async def _wallet_start_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
-                                   kind: str):
-        """Start wallet flow from the reply keyboard — sends new messages
-        instead of editing (reply keyboard messages can't be edited)."""
-        user_id = update.effective_user.id
-        player = db.get_player(user_id)
-        if not player or not (player.get("full_name") or "").strip():
-            await update.message.reply_text(
-                "⛔ Please send /start and enter your full name first.",
-                reply_markup=self.get_main_menu(user_id))
-            return
-        # Read directly from DB — avoids HTTP self-request deadlock on PA.
-        settings = self._wallet_settings_from_db()
-        providers = settings.get("providers") or []
-        accounts = {d["provider"]: d["account"]
-                    for d in settings.get("deposit_accounts") or []}
-        # fallback: if deposit_accounts is empty, build from ALL active accounts
-        if not accounts:
-            for a in (settings.get("payment_accounts") or []):
-                accounts.setdefault(a["provider"], a)
-        if not providers and not accounts:
-            await update.message.reply_text(
-                "⏳ No bank accounts are available right now — please try "
-                "again later.", reply_markup=self.get_main_menu(user_id))
-            return
-        if not providers:
-            providers = list(accounts.keys())
-        banks = {str(a["id"]): p for p, a in accounts.items()}
-        accts = {str(a["id"]): a for p, a in accounts.items()}
-        # filter providers to only those with a deposit account
-        available = [p for p in providers if p in accounts]
-        if not available:
-            # last resort: show any available accounts
-            available = list(accounts.keys())
-        if not available:
-            await update.message.reply_text(
-                "⏳ No bank accounts are available right now — please try "
-                "again later.", reply_markup=self.get_main_menu(user_id))
-            return
-        context.user_data["wallet_flow"] = {
-            "kind": kind, "step": "bank",
-            "banks": banks, "accounts": accts,
-        }
-        label = "DEPOSIT ⬇️" if kind == "deposit" else "WITHDRAW ⬆️"
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"wbank_{accounts[p]['id']}")]
-                    for p in available]
-        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")])
-        await update.message.reply_text(
-            f"💰 <b>New {label}</b>\n\n🏦 Choose the bank:" if kind == "deposit"
-            else f"💰 <b>New {label}</b>\n\n🏦 Which bank should receive your money?",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-
     async def _wallet_flow_text(self, update: Update,
                                 context: ContextTypes.DEFAULT_TYPE, raw: str):
         """One text step of the deposit/withdraw chat flow."""
@@ -1004,6 +903,8 @@ class PremiumBingoBot:
                         reply_markup=cancel_kb)
                     return
             flow["amount"] = amount
+            # Save flow state immediately before sending reply
+            context.user_data["wallet_flow"] = flow
             # bank is already selected — move to the next step
             if kind == "deposit":
                 flow["step"] = "tx"
@@ -1024,6 +925,7 @@ class PremiumBingoBot:
                     reply_markup=cancel_kb, parse_mode="HTML")
         elif step == "tx":
             flow["tx_id"] = raw[:100]
+            context.user_data["wallet_flow"] = flow
             await self._wallet_submit(update, context, flow)
         elif step == "holder":
             if len(raw) > 60:
@@ -1032,6 +934,7 @@ class PremiumBingoBot:
                 return
             flow["account_holder"] = raw[:60]
             flow["step"] = "acct"
+            context.user_data["wallet_flow"] = flow
             await update.message.reply_text(
                 "🔢 Enter YOUR account number where the money should be sent:",
                 reply_markup=cancel_kb)
@@ -1041,14 +944,12 @@ class PremiumBingoBot:
                                                 reply_markup=cancel_kb)
                 return
             flow["account_number"] = raw[:60]
+            context.user_data["wallet_flow"] = flow
             await self._wallet_submit(update, context, flow)
         else:
             context.user_data.pop("wallet_flow", None)
             await update.message.reply_text("Session expired — start again.",
                                             reply_markup=self.get_main_menu(user_id))
-        if step in ("amount", "bank", "tx", "holder", "acct") \
-                and not flow.get("_done"):
-            context.user_data["wallet_flow"] = flow
 
     async def _safe_edit_or_reply(self, query, user_id: int, text: str,
                                    reply_markup=None, parse_mode=None):
@@ -1071,7 +972,6 @@ class PremiumBingoBot:
         query = update.callback_query
         await query.answer()
         user_id = update.effective_user.id
-        flow = context.user_data.get("wallet_flow") or {}
         # Extract the account ID from callback data (e.g. "wbank_123" -> "123")
         parts = query.data.split("_", 1)
         acc_id_str = parts[1] if len(parts) > 1 else ""
@@ -1090,15 +990,18 @@ class PremiumBingoBot:
                 "❌ This account is no longer available.")
             return
         provider = acc.get("provider", "Wallet")
-        # Restore or create the flow in user_data
-        flow.setdefault("kind", "deposit")
+        # Build the flow — always start fresh from DB data
+        flow = context.user_data.get("wallet_flow") or {}
+        flow["kind"] = flow.get("kind") or "deposit"
         flow["account_id"] = acc_id
         flow["provider"] = provider
         flow["_selected_acc"] = acc
         flow["step"] = "amount"
+        # Save flow state IMMEDIATELY — critical for webhook mode
+        context.user_data["wallet_flow"] = flow
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
-        if flow.get("kind") == "deposit":
+        if flow["kind"] == "deposit":
             await self._safe_edit_or_reply(query, user_id,
                 f"🏦 <b>{_html(provider)}</b>\n"
                 f"Holder: {_html(acc.get('account_name', '?'))}\n"
@@ -1111,7 +1014,6 @@ class PremiumBingoBot:
                 f"Enter the amount in {config.APP_CURRENCY} you want to withdraw "
                 f"(minimum {config.MIN_WITHDRAWAL}):",
                 reply_markup=cancel_kb, parse_mode="HTML")
-        context.user_data["wallet_flow"] = flow
 
     async def _wallet_submit(self, update: Update,
                              context: ContextTypes.DEFAULT_TYPE, flow: dict):
