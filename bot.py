@@ -145,7 +145,7 @@ class PremiumBingoBot:
         """Simple menu: opens the Mini App directly."""
         if self._webapp_ok():
             return InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎮  Open Bingo Arena",
+                [InlineKeyboardButton("🎮  Open Nice Bingo",
                                       web_app={"url": _fresh_app_url()})],
             ])
         return InlineKeyboardMarkup([
@@ -164,10 +164,11 @@ class PremiumBingoBot:
              InlineKeyboardButton("⬇️ Deposit", callback_data="menu_deposit"),
              InlineKeyboardButton("⬆️ Withdraw", callback_data="menu_withdraw")],
             [InlineKeyboardButton("🚨 Appeal", callback_data="menu_appeal"),
-             InlineKeyboardButton("🔗 Referral", callback_data="menu_referral")],
+             InlineKeyboardButton("🔗 Referral", callback_data="menu_referral"),
+             InlineKeyboardButton("💬 Support", url="https://t.me/nicebingosupport")],
         ]
         if self._webapp_ok():
-            rows.append([InlineKeyboardButton("🚀 Open Bingo Arena",
+            rows.append([InlineKeyboardButton("🚀 Open Nice Bingo",
                                               web_app={"url": _fresh_app_url()})])
         return InlineKeyboardMarkup(rows)
 
@@ -372,11 +373,12 @@ class PremiumBingoBot:
             chat_id = update.message.chat_id
         if self._webapp_ok():
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎮 OPEN BINGO ARENA",
+                [InlineKeyboardButton("🎮 OPEN NICE BINGO",
                                       web_app={"url": _fresh_app_url()})],
             ])
-            closing = ("Pick your room, select cards and play! "
-                       "Works best inside Telegram on your phone or desktop.")
+            closing = ("📖 How to Play Guide:\n"
+                       "• Pick your room, select cards and play!\n"
+                       "• Works best inside Telegram on your phone or desktop.")
         else:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔒 Fix Mini App URL", callback_data="tunnel_help")],
@@ -549,9 +551,7 @@ class PremiumBingoBot:
             f"• Help & guide\n\n"
             f"*Commands:*\n"
             f"`/start`  `/menu`  `/play`  `/help`\n\n"
-            f"*💬 Community & Support:*\n"
-            f"Public group: [t.me/Nice_bingos](https://t.me/Nice_bingos)\n"
-            f"Support: [t.me/B21pro](https://t.me/B21pro)",
+
         )
         await msg.reply_text(
             text,

@@ -185,7 +185,7 @@ nicebingo/
 1. Run `setup.bat` — creates a virtual environment, installs Python deps, copies `.env.example` to `.env`
 2. Edit `.env` with your `BOT_TOKEN` and `ADMIN_IDS`
 3. Run `run_all.bat` — starts server, HTTPS tunnel, and bot in three windows
-4. In Telegram: send `/start` → enter your name → `/play` → tap "Open Bingo Arena"
+4. In Telegram: send `/start` → enter your name → `/play` → tap "Open Nice Bingo"
 
 ### Manual Setup
 ```bash
@@ -528,10 +528,10 @@ A `PremiumBingoBot` class handles all bot interactions.
 
 **Responsibilities:**
 - `/start` — Registration flow (collects full name, processes referral deep-links)
-- `/play` — Sends the "Open Bingo Arena" Web App button
+- `/play` — Sends the "Open Nice Bingo" Web App button
 - `/status`, `/balance`, `/cards`, `/history`, `/top` — Game info
 - `/admin` — Admin control panel
-- `/help` — How to play guide
+- `/help` — How to play guide (support link via bot menu button)
 - Wallet chat flows (deposit/withdraw via inline conversation)
 - Appeal submission
 - **Announcer tick** — Polls `game_state` every 1.5s, sends round announcements
