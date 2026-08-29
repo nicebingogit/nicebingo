@@ -716,6 +716,12 @@ export default function Settings({ user, settings, config, onChanged, onError, o
             <li>Deleting the bot or your account deletes it here too — you can register again with new details.</li>
             <li>Having issues? Make sure you're on a recent Telegram version.</li>
           </ul>
+
+          <div className="wallet-form-title">💬 Community & Support</div>
+          <ul className="help-list">
+            <li>Join our public discussion group: <a href="https://t.me/Nice_bingos" target="_blank" rel="noopener noreferrer" style={{color: 'var(--purple)', fontWeight: 700}}>t.me/Nice_bingos</a></li>
+            <li>Need help? Contact support: <a href="https://t.me/B21pro" target="_blank" rel="noopener noreferrer" style={{color: 'var(--gold)', fontWeight: 700}}>t.me/B21pro</a></li>
+          </ul>
         </div>
       )}
     </div>

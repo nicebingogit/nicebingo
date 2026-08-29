@@ -1726,6 +1726,14 @@ def api_superadmin_activity_log():
     return jsonify({"activities": db.get_activity_log(500)})
 
 
+@app.route("/api/superadmin/gameplay-history")
+def api_superadmin_gameplay_history():
+    """Game history — only rounds with at least one human player."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    return jsonify({"history": db.get_finished_games(100)})
+
+
 @app.route("/api/superadmin/appeals/resolve", methods=["POST"])
 def api_superadmin_appeal_resolve():
     """Resolve an appeal:
@@ -1815,6 +1823,16 @@ def api_superadmin_post_announcement():
     if not text:
         return jsonify({"error": "Announcement text is required."}), 400
     ann_id = db.add_announcement(text, posted_by=config.SUPER_ADMIN_ID)
+    # Broadcast announcement to ALL players via bot notifications
+    try:
+        players = db.get_all_player_ids()
+        for uid in players:
+            try:
+                db.add_bot_notification(uid, f"📢 **ANNOUNCEMENT**\n\n{text}")
+            except Exception:
+                pass
+    except Exception:
+        pass
     try:
         db.log_activity('announcement_posted', config.SUPER_ADMIN_ID, text)
     except Exception:

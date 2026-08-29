@@ -916,6 +916,33 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def get_finished_games(self, limit: int = 50) -> List[Dict]:
+        """Return finished games with human player counts and card counts.
+
+        Only includes games that have at least one real human player
+        (user_id > 0) in the game_history table.
+        """
+        with self._session() as conn:
+            # Get all finished games
+            rows = conn.execute(
+                "SELECT g.*, "
+                "  (SELECT COUNT(DISTINCT h.user_id) FROM game_history h "
+                "   WHERE h.game_id = g.id AND h.user_id > 0) AS human_players, "
+                "  (SELECT COALESCE(SUM(1), 0) FROM game_history h "
+                "   WHERE h.game_id = g.id) AS cards_played, "
+                "  (SELECT COUNT(DISTINCT h.user_id) FROM game_history h "
+                "   WHERE h.game_id = g.id) AS total_players, "
+                "  (SELECT COUNT(*) FROM game_history h "
+                "   WHERE h.game_id = g.id) AS called_count "
+                "FROM games g "
+                "WHERE g.status = 'finished' "
+                "  AND EXISTS (SELECT 1 FROM game_history h "
+                "              WHERE h.game_id = g.id AND h.user_id > 0) "
+                "ORDER BY g.id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     # ------------------------------------------------------------------- history
     def add_history(self, game_id: Optional[int], user_id: int, card_ids: List[str],
                     total_bet: int, winnings: int, credit_after: int, status: str) -> None:

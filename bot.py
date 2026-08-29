@@ -548,7 +548,10 @@ class PremiumBingoBot:
             f"• Referral program\n"
             f"• Help & guide\n\n"
             f"*Commands:*\n"
-            f"`/start`  `/menu`  `/play`  `/help`",
+            f"`/start`  `/menu`  `/play`  `/help`\n\n"
+            f"*💬 Community & Support:*\n"
+            f"Public group: [t.me/Nice_bingos](https://t.me/Nice_bingos)\n"
+            f"Support: [t.me/B21pro](https://t.me/B21pro)",
         )
         await msg.reply_text(
             text,

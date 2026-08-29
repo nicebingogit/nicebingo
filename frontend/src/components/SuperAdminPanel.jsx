@@ -90,6 +90,9 @@ export default function SuperAdminPanel({ onError, onChanged }) {
   const [room, setRoom] = useState(10);
   const [botsEnabled, setBotsEnabled] = useState(true);
   const [botsDifficulty, setBotsDifficulty] = useState(2);
+  const [realPlayers, setRealPlayers] = useState(0);
+  const [botsPlayers, setBotsPlayers] = useState(0);
+  const [cardsInPlay, setCardsInPlay] = useState(0);
 
   const DIFFICULTY_LABELS = ['Easy', 'Normal', 'Medium', 'Hard', 'Very Hard', 'Impossible'];
   const DIFFICULTY_COLORS = ['#4caf50', '#8bc34a', '#ff9800', '#ff5722', '#e91e63', '#d50000'];
@@ -101,6 +104,9 @@ export default function SuperAdminPanel({ onError, onChanged }) {
       setGamePaused(!!d.paused);
       setBotsEnabled(!!d.bots_enabled);
       setBotsDifficulty(d.bots_difficulty ?? 2);
+      setRealPlayers(d.real_players ?? 0);
+      setBotsPlayers(d.bots_players ?? 0);
+      setCardsInPlay(d.cards_in_play ?? 0);
     } catch (e) { /* silent */ }
   }, [room]);
 
@@ -389,6 +395,13 @@ export default function SuperAdminPanel({ onError, onChanged }) {
               </span>
             </div>
 
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, fontSize: 12, fontWeight: 700 }}>
+              <span style={{ color: 'var(--green)' }}>👤 Humans: <b>{realPlayers}</b></span>
+              <span style={{ color: 'var(--muted)' }}>🤖 Bots: <b>{botsPlayers}</b></span>
+              <span style={{ color: 'var(--gold)' }}>🃏 Cards: <b>{cardsInPlay}</b></span>
+              <span style={{ color: 'var(--purple)' }}>👥 Total: <b>{realPlayers + botsPlayers}</b></span>
+            </div>
+
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
               {gamePhase === 'preparation' && !gamePaused && (
                 <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.startGame, '▶️ Round started!')}>▶️ Start</button>
@@ -418,7 +431,6 @@ export default function SuperAdminPanel({ onError, onChanged }) {
                 </button>
               )}
 
-              <button className="btn btn-ghost user-btn" onClick={() => gameControl(api.superAdmin.addBots, '🤖 Players added!')}>🤖 Add Players</button>
               <button
                 className="btn btn-ghost user-btn"
                 style={botsEnabled ? { opacity: 1, color: 'var(--gold)' } : { opacity: 0.5 }}
