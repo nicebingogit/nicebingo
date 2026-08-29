@@ -22,7 +22,7 @@ from datetime import datetime
 import requests
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram import ChatMember
+from telegram import ChatMember, ReplyKeyboardMarkup, KeyboardButton
 from telegram.error import Forbidden
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ChatMemberHandler,
@@ -96,6 +96,8 @@ class PremiumBingoBot:
         # its own round with its own ball order and pool)
         self._last = {room: {"phase": None, "count": -1, "round": None}
                       for room in config.ROOM_BETS}
+        # Persist wallet flow state across updates (survives webhook context resets)
+        self._wallet_flows: dict = {}  # user_id -> flow dict
 
     # ------------------------------------------------------------ rooms
     @staticmethod
@@ -130,6 +132,14 @@ class PremiumBingoBot:
     def _webapp_ok(self) -> bool:
         """Telegram only accepts https:// addresses on Web App buttons."""
         return _fresh_app_url().lower().startswith("https")
+
+    def get_persistent_menu(self) -> ReplyKeyboardMarkup:
+        """Persistent bottom keyboard — single 📋 Menu button."""
+        return ReplyKeyboardMarkup(
+            [[KeyboardButton("📋 Menu")]],
+            resize_keyboard=True,
+            one_time_keyboard=False,
+        )
 
     def get_main_menu(self, user_id: int = 0):
         """Simple menu: opens the Mini App directly."""
@@ -256,14 +266,26 @@ class PremiumBingoBot:
             )
         except Exception as exc:
             logger.warning("_send_welcome inline menu failed: %s", exc)
+        # Show persistent 📋 Menu button at the bottom
+        try:
+            await update.message.reply_text(
+                "👇 Use the 📋 Menu button below to navigate:",
+                reply_markup=self.get_persistent_menu(),
+            )
+        except Exception as exc:
+            logger.warning("_send_welcome persistent menu failed: %s", exc)
 
     async def text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Captures the full name when the bot is waiting for it (after /start),
         or processes one step of the deposit/withdraw wallet chat flow."""
         user = update.effective_user
         raw = (update.message.text or "").strip()
+        # --- 📋 Menu persistent button ---
+        if raw == "📋 Menu":
+            await self.menu_command(update, context)
+            return
         # --- wallet chat flow takes priority over everything ---
-        if context.user_data.get("wallet_flow"):
+        if self._wallet_flows.get(user.id):
             if not raw:
                 await update.message.reply_text("Please enter a value.")
                 return
@@ -271,13 +293,13 @@ class PremiumBingoBot:
                 await self._wallet_flow_text(update, context, raw)
             except Exception as exc:
                 logger.warning("wallet flow error: %s", exc)
-                context.user_data.pop("wallet_flow", None)
+                self._wallet_flows.pop(user.id, None)
                 await update.message.reply_text(
                     "⚠️ Something went wrong — please try again.",
                     reply_markup=self.get_main_menu(user.id))
             return
         # --- appeal chat flow ---
-        if context.user_data.get("appeal_flow"):
+        if context.user_data.get("appeal_flow") or self._wallet_flows.get(f"appeal_{user.id}"):
             if not raw:
                 await update.message.reply_text("Please enter a reason.")
                 return
@@ -764,7 +786,7 @@ class PremiumBingoBot:
         elif data.startswith("wbank_"):
             await self._wallet_bank_pick(update, context)
         elif data == "wallet_cancel":
-            context.user_data.pop("wallet_flow", None)
+            self._wallet_flows.pop(user_id, None)
             await query.edit_message_text("❌ Request cancelled.",
                                           reply_markup=self.get_main_menu(user_id))
         elif data.startswith("admin_"):
@@ -859,7 +881,7 @@ class PremiumBingoBot:
                 "⏳ No bank accounts are available right now — please try "
                 "again later.", reply_markup=self.get_main_menu(user_id))
             return
-        context.user_data["wallet_flow"] = {
+        self._wallet_flows[user_id] = {
             "kind": kind, "step": "bank",
             "banks": banks, "accounts": accts,
         }
@@ -876,7 +898,7 @@ class PremiumBingoBot:
                                 context: ContextTypes.DEFAULT_TYPE, raw: str):
         """One text step of the deposit/withdraw chat flow."""
         user_id = update.effective_user.id
-        flow = context.user_data.get("wallet_flow") or {}
+        flow = self._wallet_flows.get(user_id) or {}
         kind, step = flow.get("kind"), flow.get("step")
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
@@ -904,7 +926,7 @@ class PremiumBingoBot:
                     return
             flow["amount"] = amount
             # Save flow state immediately before sending reply
-            context.user_data["wallet_flow"] = flow
+            self._wallet_flows[user_id] = flow
             # bank is already selected — move to the next step
             if kind == "deposit":
                 flow["step"] = "tx"
@@ -925,7 +947,7 @@ class PremiumBingoBot:
                     reply_markup=cancel_kb, parse_mode="HTML")
         elif step == "tx":
             flow["tx_id"] = raw[:100]
-            context.user_data["wallet_flow"] = flow
+            self._wallet_flows[user_id] = flow
             await self._wallet_submit(update, context, flow)
         elif step == "holder":
             if len(raw) > 60:
@@ -934,7 +956,7 @@ class PremiumBingoBot:
                 return
             flow["account_holder"] = raw[:60]
             flow["step"] = "acct"
-            context.user_data["wallet_flow"] = flow
+            self._wallet_flows[user_id] = flow
             await update.message.reply_text(
                 "🔢 Enter YOUR account number where the money should be sent:",
                 reply_markup=cancel_kb)
@@ -944,10 +966,10 @@ class PremiumBingoBot:
                                                 reply_markup=cancel_kb)
                 return
             flow["account_number"] = raw[:60]
-            context.user_data["wallet_flow"] = flow
+            self._wallet_flows[user_id] = flow
             await self._wallet_submit(update, context, flow)
         else:
-            context.user_data.pop("wallet_flow", None)
+            self._wallet_flows.pop(user_id, None)
             await update.message.reply_text("Session expired — start again.",
                                             reply_markup=self.get_main_menu(user_id))
 
@@ -991,14 +1013,14 @@ class PremiumBingoBot:
             return
         provider = acc.get("provider", "Wallet")
         # Build the flow — always start fresh from DB data
-        flow = context.user_data.get("wallet_flow") or {}
+        flow = self._wallet_flows.get(user_id) or {}
         flow["kind"] = flow.get("kind") or "deposit"
         flow["account_id"] = acc_id
         flow["provider"] = provider
         flow["_selected_acc"] = acc
         flow["step"] = "amount"
         # Save flow state IMMEDIATELY — critical for webhook mode
-        context.user_data["wallet_flow"] = flow
+        self._wallet_flows[user_id] = flow
         cancel_kb = InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="wallet_cancel")]])
         if flow["kind"] == "deposit":
@@ -1033,7 +1055,7 @@ class PremiumBingoBot:
                 is_super_owner = owner_id in config.SUPER_ADMIN_IDS if owner_id else False
                 if owner_id and not is_super_owner and not db.is_admin_online(owner_id):
                     flow["_done"] = True
-                    context.user_data.pop("wallet_flow", None)
+                    self._wallet_flows.pop(user_id, None)
                     await update.message.reply_text(
                         "❌ This payment account's admin is offline. "
                         "Please try again later.",
@@ -1066,7 +1088,7 @@ class PremiumBingoBot:
             else:  # withdraw
                 if db.get_credit(user_id) < amount:
                     flow["_done"] = True
-                    context.user_data.pop("wallet_flow", None)
+                    self._wallet_flows.pop(user_id, None)
                     await update.message.reply_text(
                         "❌ Insufficient balance for this withdrawal.",
                         reply_markup=self.get_main_menu(user_id))
@@ -1076,7 +1098,7 @@ class PremiumBingoBot:
                 wd_number = (flow.get("account_number") or "").strip()
                 if not wd_name or not wd_holder or not wd_number:
                     flow["_done"] = True
-                    context.user_data.pop("wallet_flow", None)
+                    self._wallet_flows.pop(user_id, None)
                     await update.message.reply_text(
                         "❌ Incomplete withdrawal details.",
                         reply_markup=self.get_main_menu(user_id))
@@ -1120,7 +1142,7 @@ class PremiumBingoBot:
                 reply_markup=self.get_main_menu(user_id))
         finally:
             flow["_done"] = True
-            context.user_data.pop("wallet_flow", None)
+            self._wallet_flows.pop(user_id, None)
 
     # ------------------------------------------------- requests / appeals
     async def requests_command(self, update: Update,
