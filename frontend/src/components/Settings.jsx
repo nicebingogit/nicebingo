@@ -717,10 +717,9 @@ export default function Settings({ user, settings, config, onChanged, onError, o
             <li>Having issues? Make sure you're on a recent Telegram version.</li>
           </ul>
 
-          <div className="wallet-form-title">💬 Community & Support</div>
+          <div className="wallet-form-title">💬 Support</div>
           <ul className="help-list">
-            <li>Join our public discussion group: <a href="https://t.me/Nice_bingos" target="_blank" rel="noopener noreferrer" style={{color: 'var(--purple)', fontWeight: 700}}>t.me/Nice_bingos</a></li>
-            <li>Need help? Contact support: <a href="https://t.me/B21pro" target="_blank" rel="noopener noreferrer" style={{color: 'var(--gold)', fontWeight: 700}}>t.me/B21pro</a></li>
+            <li>Need help? Contact support: <a href="https://t.me/nicebingosupport" target="_blank" rel="noopener noreferrer" style={{color: 'var(--gold)', fontWeight: 700}}>t.me/nicebingosupport</a></li>
           </ul>
         </div>
       )}
