@@ -17,8 +17,7 @@ export default function SuperAdminPanel({ onError, onChanged }) {
   const [appeals, setAppeals] = useState([]);
   const [activities, setActivities] = useState([]);
   const [gameHistory, setGameHistory] = useState([]);
-  const [announcements, setAnnouncements] = useState([]);
-  const [announceText, setAnnounceText] = useState('');
+
   const [flash, setFlash] = useState('');
 
   // user detail modal (click a row) — credit editing
@@ -75,14 +74,11 @@ export default function SuperAdminPanel({ onError, onChanged }) {
     catch (e) { /* silent — endpoint may not exist yet */ }
   }, []);
 
-  const loadAnnouncements = useCallback(async () => {
-    try { const d = await api.announcements(); setAnnouncements(d?.announcements || []); }
-    catch (e) { /* silent — endpoint may not exist yet */ }
-  }, []);
+
 
   const loadAll = useCallback(async () => {
-    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities(), loadGameHistory(), loadAnnouncements()]);
-  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities, loadGameHistory, loadAnnouncements]);
+    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities(), loadGameHistory()]);
+  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities, loadGameHistory]);
 
   // game state for controls
   const [gamePhase, setGamePhase] = useState('preparation');
@@ -115,7 +111,7 @@ export default function SuperAdminPanel({ onError, onChanged }) {
   useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { const i = setInterval(loadAppeals, 10000); return () => clearInterval(i); }, [loadAppeals]);
   useEffect(() => { const i = setInterval(loadActivities, 15000); return () => clearInterval(i); }, [loadActivities]);
-  useEffect(() => { const i = setInterval(loadAnnouncements, 20000); return () => clearInterval(i); }, [loadAnnouncements]);
+
 
   const gameControl = async (fn, okMsg) => {
     playClick();
@@ -155,23 +151,7 @@ export default function SuperAdminPanel({ onError, onChanged }) {
     }
   };
 
-  // ---- ANNOUNCEMENTS ----
-  const postAnnouncement = async () => {
-    const text = announceText.trim();
-    if (!text) { flashMsg('Type an announcement first.'); return; }
-    playClick();
-    try {
-      await api.superAdmin.postAnnouncement(text);
-      setAnnounceText('');
-      flashMsg('📢 Announcement posted to all users, admins & super admins!');
-      await loadAnnouncements();
-      onChanged?.();
-    } catch (e) {
-      flashMsg(e.message?.includes('404') || e.message?.includes('Not Found')
-        ? '📢 Announcements not available yet — backend update needed.'
-        : `❌ ${e.message}`);
-    }
-  };
+
 
   // ---- CREDIT EDITING ----
   const adjustCredit = async (delta) => {
@@ -349,7 +329,6 @@ export default function SuperAdminPanel({ onError, onChanged }) {
     ['appeals', `⚖️ Appeals${pendingAppeals ? ` (${pendingAppeals})` : ''}`],
     ['activity', '📋 Activity Log'],
     ['history', '🎮 Game History'],
-    ['announce', '📢 Announcements'],
   ];
 
   return (
@@ -740,59 +719,6 @@ export default function SuperAdminPanel({ onError, onChanged }) {
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* ------------------------------------------------ ANNOUNCEMENTS */}
-      {tab === 'announce' && (
-        <div className="tx-admin">
-          <p className="reg-hint">
-            📢 Post announcements that are visible to <b>all users, admins, and super admins</b>. Use this for important updates, maintenance notices, or promotions.
-          </p>
-
-          <div className="credit-edit" style={{ marginTop: 12 }}>
-            <div className="wallet-form-title">📢 New Announcement</div>
-            <div className="wallet-form-row" style={{ flexDirection: 'column', gap: 8 }}>
-              <textarea
-                rows={3}
-                maxLength={500}
-                placeholder="Type your announcement… (visible to everyone)"
-                value={announceText}
-                onChange={(e) => setAnnounceText(e.target.value)}
-                style={{
-                  width: '100%', padding: '10px', borderRadius: 10,
-                  background: 'rgba(0,0,0,0.35)', border: '1px solid var(--border)',
-                  color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical',
-                }}
-              />
-              <button
-                className="btn btn-primary"
-                disabled={!announceText.trim()}
-                onClick={postAnnouncement}
-                style={{ alignSelf: 'flex-start' }}
-              >
-                📢 Post Announcement
-              </button>
-            </div>
-          </div>
-
-          {announcements.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <div className="wallet-form-title">📋 Recent Announcements</div>
-              {announcements.map((a) => (
-                <div key={a.id} className="tx-row approved" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-                  <div style={{ fontWeight: 800, color: 'var(--gold)', fontSize: 12 }}>📢 Announcement</div>
-                  <div style={{ fontSize: 13, color: 'var(--text)' }}>{a.text}</div>
-                  <div className="tx-meta">
-                    {a.posted_by ? <b>{a.posted_by}</b> : 'System'} · {a.created_at?.slice(0, 16)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {announcements.length === 0 && (
-            <div className="muted" style={{ marginTop: 12 }}>No announcements yet.</div>
-          )}
         </div>
       )}
 

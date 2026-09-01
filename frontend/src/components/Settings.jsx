@@ -65,8 +65,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
   const [appealTx, setAppealTx] = useState(null);
   const [appealReason, setAppealReason] = useState('');
 
-  // announcements: essential messages from the super admin
-  const [announcements, setAnnouncements] = useState([]);
+
 
   // deposit_accounts = ONE account per bank/provider — always the account of
   // the ONLINE admin with the most credit; offline admins' accounts are never
@@ -125,15 +124,7 @@ export default function Settings({ user, settings, config, onChanged, onError, o
 
   useEffect(() => { loadTxs(); loadAppeals(); }, [loadTxs, loadAppeals]);
 
-  const loadAnnouncements = useCallback(async () => {
-    try {
-      const d = await api.announcements();
-      setAnnouncements(d?.announcements || []);
-    } catch (e) { /* silent — endpoint may not exist yet */ }
-  }, []);
 
-  useEffect(() => { loadAnnouncements(); }, [loadAnnouncements]);
-  useEffect(() => { const i = setInterval(loadAnnouncements, 15000); return () => clearInterval(i); }, [loadAnnouncements]);
 
   // default the deposit picker to the first available bank
   useEffect(() => {
@@ -294,20 +285,25 @@ export default function Settings({ user, settings, config, onChanged, onError, o
       {tab === 'wallet' && (
         <div className="wallet">
 
-          {/* ---- ANNOUNCEMENTS BANNER ---- */}
-          {announcements.length > 0 && (
-            <div className="announcements-banner">
-              <div className="announcements-header">📢 Announcements</div>
-              {announcements.slice(0, 3).map((a) => (
-                <div key={a.id} className="announcement-item">
-                  <span className="announcement-text">{a.text}</span>
-                  <span className="announcement-meta">
-                    {a.posted_by ? `— ${a.posted_by}` : ''} {a.created_at?.slice(0, 10)}
-                  </span>
-                </div>
-              ))}
+          {/* ---- Registration gate: unregistered users must register first ---- */}
+          {user?.is_registered === false && (
+            <div className="eliminated-banner" style={{ marginBottom: 12 }}>
+              <div className="eliminated-title">📝 Registration Required</div>
+              <p className="muted">
+                You need to <b>register</b> before you can deposit or withdraw.
+                Please complete your registration first — this ensures your
+                transactions are linked to your identity.
+              </p>
+              <p className="reg-hint" style={{ marginTop: 8 }}>
+                Go to the bot chat and follow the registration steps, then
+                return here to access your wallet.
+              </p>
             </div>
           )}
+
+
+          {user?.is_registered !== false && (
+          <>
           <div className="wallet-balance">
             <span className="wallet-balance-label">Your balance</span>
             <span className="wallet-balance-num">
@@ -575,6 +571,8 @@ export default function Settings({ user, settings, config, onChanged, onError, o
                 );
               })}
             </div>
+          )}
+          </>
           )}
         </div>
       )}

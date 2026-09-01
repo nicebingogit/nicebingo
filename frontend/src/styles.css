@@ -209,7 +209,7 @@ body::before {
 .picker-hint { color: var(--muted); font-size: 11px; margin-top: 10px; text-align: center; }
 
 /* ---------------------------------------------------------------- playing */
-.phase-play { display: flex; flex-direction: column; gap: 2px; min-height: 0; flex: 1; max-height: calc(100vh - 70px); overflow: auto; }
+.phase-play { display: flex; flex-direction: column; gap: 2px; min-height: 0; flex: 1; max-height: calc(100vh - 70px); overflow: auto; overflow-x: hidden; }
 
 .current-call {
   display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -229,7 +229,7 @@ body::before {
 .cc-progress { color: var(--text); font-size: 14px; font-weight: 700; margin-top: 2px; }
 .cc-progress b { color: var(--gold); }/* vertical cascade: horizontal calling board on TOP, the user's cards at the
    bottom of the screen (matches the requested layout) */
-.game-layout { display: flex; flex-direction: column; gap: 2px; align-items: stretch; min-height: 0; flex: 1; overflow: visible; }
+.game-layout { display: flex; flex-direction: column; gap: 2px; align-items: stretch; min-height: 0; flex: 1; overflow: visible; max-width: 100%; }
 .game-top-row { display: flex; gap: 4px; align-items: stretch; flex-shrink: 0; max-height: 56vh; overflow-y: auto; overflow-x: hidden; }
 .game-top-row.compact-board { gap: 2px; }
 .game-top-row.compact-board .board { padding: 1px; }
@@ -1419,6 +1419,76 @@ body::before {
   .auto-play-btn { font-size: 11px; padding: 6px 12px; }
   .card-grid-picker { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 5px; }
   .game-settings-side { display: none; }
+}
+
+/* Small phones — Galaxy On7 Prime, similar ~360px-wide devices */
+@media (max-width: 380px) {
+  .app { padding: 8px 8px 48px; }
+  .brand-letter { font-size: 20px; }
+  .brand-royale { font-size: 8px; letter-spacing: 2px; }
+  .countdown-num { font-size: 26px; }
+  .hero-card { padding: 8px 10px; }
+  .chip { padding: 3px 6px; font-size: 9px; }
+  .chip-num { font-size: 11px; }
+  .card-grid-picker { grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 4px; max-height: calc(100vh - 260px); }
+  .pick-tile { padding: 10px 4px 8px; border-radius: 10px; font-size: 13px; }
+  /* Board — make it compact so it doesn't push cards off-screen */
+  .board { padding: 1px; gap: 0; }
+  .board-header { font-size: 12px; letter-spacing: 1px; padding: 0; }
+  .ball { font-size: 10px; padding: 2px 1px; }
+  .ball.on { font-size: 12px; }
+  .ball.last { font-size: 13px; }
+  .current-call { padding: 2px 5px; gap: 5px; }
+  .cc-ball { width: 24px; height: 24px; line-height: 24px; font-size: 10px; }
+  .cc-label { font-size: 8px; }
+  .cc-progress { font-size: 12px; }
+  /* Playing cards — compact cells to prevent overflow */
+  .bingo-card { padding: 2px; border-radius: 7px; }
+  .bingo-card .card-cell { font-size: 13px; padding: 1px 0; border-radius: 4px; }
+  .bingo-card .card-cell.head { font-size: 9px; }
+  .bingo-card .card-head { font-size: 8px; margin-bottom: 1px; }
+  .bingo-card .card-grid { gap: 1px; }
+  .bingo-card .card-row { gap: 1px; }
+  .bingo-card.small { padding: 2px; }
+  .bingo-card.small .card-cell { font-size: 12px; border-radius: 3px; padding: 1px 0; }
+  .bingo-card.small .card-head { font-size: 7px; }
+  .bingo-card.small .card-grid, .bingo-card.small .card-row { gap: 1px; }
+  .bingo-card.medium .card-cell { font-size: 13px; padding: 2px 0; }
+  .bingo-card.triple .card-cell { font-size: 10px; border-radius: 3px; padding: 1px 0; }
+  .bingo-card.triple .card-head { font-size: 7px; }
+  .my-cards { gap: 1px; }
+  .my-cards.card-count-2 { gap: 2px; }
+  .my-cards.card-count-2 .bingo-card { padding: 2px; }
+  .my-cards.card-count-2 .bingo-card .card-cell { font-size: 12px; }
+  .my-cards.card-count-3 { gap: 1px; }
+  .bingo-btn { font-size: 12px; padding: 6px; border-radius: 8px; }
+  .daub-hint { font-size: 9px; }
+  .claim-hint { font-size: 10px; }
+  .game-settings-side { display: none; }
+  .game-top-row { max-height: 50vh; }
+  .phase-play { max-height: calc(100vh - 60px); }
+  /* Called strip */
+  .called-strip { padding: 2px 4px; }
+  .strip-ball { min-width: 26px; padding: 3px 4px; font-size: 9px; }
+  /* Auto-play button */
+  .auto-play-btn { font-size: 10px; padding: 5px 10px; top: 8px; right: 8px; }
+  /* Settings / wallet */
+  .settings-tabs { gap: 4px; padding: 3px; }
+  .settings-tab { min-width: 70px; font-size: 10px; padding: 6px 4px; }
+  .wallet-form-row { gap: 6px; }
+  .wallet-form-row input { font-size: 12px; padding: 7px 8px; min-width: 100px; }
+  /* Panel */
+  .panel { padding: 10px; margin-bottom: 10px; border-radius: 12px; }
+  .reg-card { padding: 18px 14px; border-radius: 16px; }
+  .reg-field input { padding: 9px 10px; font-size: 14px; }
+  /* Winner modal */
+  .modal-card { padding: 20px 16px; border-radius: 16px; }
+  .prize-amount { font-size: 36px; }
+  /* Spectator */
+  .spectator-game { max-width: 260px; }
+  .spectator-banner { padding: 5px 10px; }
+  .spectator-title { font-size: 12px; }
+  .spectator-text { font-size: 10px; }
 }
 
 /* Dark mode scrollbar for card picker */

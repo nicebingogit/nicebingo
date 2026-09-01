@@ -59,8 +59,7 @@ export default function App() {
   const spectateUserIdRef = useRef(null); // pin to the same player across refreshes
   const spectateUserId = spectating?.spectate_user_id || spectateUserIdRef.current;
 
-  // Announcements: essential messages from super admin visible to everyone
-  const [announcements, setAnnouncements] = useState([]);
+
 
   const state = session?.state;
   const myUser = session?.user;
@@ -84,16 +83,7 @@ export default function App() {
     }
   }, [room]);
 
-  // Load announcements periodically
-  const loadAnnouncements = useCallback(async () => {
-    try {
-      const d = await api.announcements();
-      setAnnouncements(d?.announcements || []);
-    } catch { /* silent — endpoint may not exist yet */ }
-  }, []);
 
-  useEffect(() => { loadAnnouncements(); }, [loadAnnouncements]);
-  useEffect(() => { const i = setInterval(loadAnnouncements, 15000); return () => clearInterval(i); }, [loadAnnouncements]);
 
   // bootstrap: paint the cached state instantly (if any), then refresh live
   useEffect(() => {
@@ -455,20 +445,7 @@ export default function App() {
         />
       )}
 
-      {/* ---- ANNOUNCEMENTS BANNER (always visible) ---- */}
-      {announcements.length > 0 && !showAdmin && !showSuper && !showSettings && (
-        <div className="announcements-banner">
-          <div className="announcements-header">📢 Announcements</div>
-          {announcements.slice(0, 2).map((a) => (
-            <div key={a.id} className="announcement-item">
-              <span className="announcement-text">{a.text}</span>
-              <span className="announcement-meta">
-                {a.posted_by ? `— ${a.posted_by}` : ''} {a.created_at?.slice(0, 10)}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+
 
       {/* ---- GAME PAUSED BANNER (visible to ALL players) ---- */}
       {state?.paused && (
