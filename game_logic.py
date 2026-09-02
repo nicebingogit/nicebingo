@@ -136,6 +136,35 @@ class GameLogic:
 
         return patterns, sorted(cells)
 
+    def is_one_away(self, card_numbers: Dict, called: Set[str]) -> bool:
+        """True if the card is exactly ONE uncalled number away from completing
+        any winning pattern (row, column, diagonal, anti-diagonal, four corners).
+        The FREE cell always counts as marked.
+        """
+        # rows
+        for r in range(5):
+            hits = sum(1 for c in range(5) if self._is_hit(card_numbers, c, r, called))
+            if hits == 4:
+                return True
+        # columns
+        for c in range(5):
+            hits = sum(1 for r in range(5) if self._is_hit(card_numbers, c, r, called))
+            if hits == 4:
+                return True
+        # diagonals
+        diag_hits = sum(1 for i in range(5) if self._is_hit(card_numbers, i, i, called))
+        if diag_hits == 4:
+            return True
+        anti_hits = sum(1 for i in range(5) if self._is_hit(card_numbers, 4 - i, i, called))
+        if anti_hits == 4:
+            return True
+        # four corners (4 cells, need 3)
+        corners = [(0, 0), (4, 0), (0, 4), (4, 4)]
+        corner_hits = sum(1 for c, r in corners if self._is_hit(card_numbers, c, r, called))
+        if corner_hits == 3:
+            return True
+        return False
+
     # ------------------------------------------------------------------ winners
     def check_winner(self, room: int = 30) -> Optional[Dict]:
         """Return the first winning selection (shuffled for fairness), or None.
