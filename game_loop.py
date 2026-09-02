@@ -102,10 +102,12 @@ class GameLoop:
                     if self.db.get_bots_enabled(room):
                         # add ONE bot per tick so players see them joining
                         # gradually (feels like humans picking cards)
-                        # count total CARDS in play, not unique players
-                        cards_in_play = len(self.db.get_all_selections(room))
-                        if cards_in_play < config.MAX_TOTAL_PLAYERS:
-                            self.logic.add_bot_player(room)
+                        # count unique PLAYERS in play (real + bots)
+                        players_in_play = self.logic.count_unique_players(room)
+                        if players_in_play < config.MAX_TOTAL_PLAYERS:
+                            # determine cards-per-player based on target count
+                            cpp = self.logic.cards_per_player(config.MAX_TOTAL_PLAYERS)
+                            self.logic.add_bot_player(room, num_cards=cpp)
                     end = _parse(state.get("preparation_end_time"))
                     if end and now >= end:
                         self.start_round(room)
@@ -182,6 +184,13 @@ class GameLoop:
                 self.end_round_no_winner(room)
                 return None
             called = self.db.get_called_numbers(room)
+            # IMPOSSIBLE difficulty: when any human has 3+ called numbers on a
+            # card, force a bot to win immediately — no human can ever win.
+            winner = self._impossible_force_bot_win(room)
+            if winner:
+                if self.db.get_game_state(room).get("phase") == "playing":
+                    self.db.update_game_state(room, next_call_time=_iso(config.CALL_INTERVAL_SECONDS))
+                return {"number": number, "called": len(called), "winner": winner}
             # bots can claim this ball — the first bot whose delay elapsed
             # presses BINGO and may END the round right here
             winner = self._bot_claim_pass(room)
@@ -389,6 +398,95 @@ class GameLoop:
             ready.pop(bid, None)
         return None
 
+    # ------------------------------------------------------------- impossible
+    def _count_card_marks(self, card: dict, called: set) -> int:
+        """Count how many cells on a card are marked (called or FREE)."""
+        count = 0
+        for letter in ["B", "I", "N", "G", "O"]:
+            for val in card[letter]:
+                if val == "FREE" or f"{letter}-{val}" in called:
+                    count += 1
+        return count
+
+    def _human_has_three_called(self, room: int = 30) -> bool:
+        """True when any human player has 3+ called numbers on any card."""
+        called = set(self.db.get_called_numbers(room))
+        cards = self.db.get_cards_map()
+        for sel in self.db.get_all_selections(room):
+            if sel["user_id"] <= 0:
+                continue  # skip bots
+            card = cards.get(sel["card_id"])
+            if not card:
+                continue
+            if self._count_card_marks(card, called) >= 3:
+                return True
+        return False
+
+    def _impossible_force_bot_win(self, room: int = 30) -> dict | None:
+        """When difficulty is Impossible (5) and any human has 3+ numbers
+        called, force a bot to win immediately.
+
+        First tries to find a bot with a real winning pattern. If none exists,
+        picks the bot whose card is closest to winning and declares it the
+        winner anyway — at Impossible difficulty the house always wins.
+        """
+        if not self.db.get_bots_enabled(room):
+            return None
+        state = self.db.get_game_state(room)
+        if state.get("phase") != "playing" or state.get("winner_user_id"):
+            return None
+        difficulty = self.db.get_bots_difficulty(room)
+        if difficulty != 5:
+            return None
+        if not self._human_has_three_called(room):
+            return None
+
+        called = set(self.db.get_called_numbers(room))
+        cards = self.db.get_cards_map()
+
+        # First try: find a bot with a real winning pattern
+        for sel in self.db.get_all_selections(room):
+            if sel["user_id"] > 0:
+                continue
+            card = cards.get(sel["card_id"])
+            if not card:
+                continue
+            patterns, cells = self.logic.check_winning_patterns(card, called)
+            if patterns:
+                result = self.claim_bingo(sel["user_id"], sel["card_id"], room)
+                if result.get("ok"):
+                    return result["winner"]
+
+        # Second try: no bot has a real pattern — force a win anyway
+        best_bot = None
+        best_count = 0
+        best_card_id = None
+        for sel in self.db.get_all_selections(room):
+            if sel["user_id"] > 0:
+                continue
+            card = cards.get(sel["card_id"])
+            if not card:
+                continue
+            count = self._count_card_marks(card, called)
+            if count > best_count:
+                best_count = count
+                best_bot = sel["user_id"]
+                best_card_id = sel["card_id"]
+
+        if best_bot and best_card_id:
+            prize = self.logic.calculate_prize_pool(room)["prize_pool"]
+            winner = {
+                "user_id": best_bot,
+                "card_id": best_card_id,
+                "pattern": "BINGO",
+                "patterns": ["BINGO"],
+                "winning_cells": [],
+                "prize": prize,
+            }
+            self.handle_winner(room, winner)
+            return winner
+        return None
+
     # ------------------------------------------------------------- claim-bingo
     def claim_bingo(self, user_id: int, card_id: str | None = None,
                     room: int = 30) -> dict:
@@ -403,6 +501,9 @@ class GameLoop:
         the prize pool), they get no refund and cannot claim again. The
         elimination is persisted, so a server restart mid-round cannot
         revive them. They are eligible again next round.
+
+        IMPOSSIBLE difficulty (5): human players can NEVER win. Their claims
+        are always rejected with "Another player won first."
         """
         with self._lock:
             state = self.db.get_game_state(room)
@@ -410,6 +511,10 @@ class GameLoop:
                 return {"ok": False, "message": "The game is not in progress right now."}
             if state.get("winner_user_id"):
                 return {"ok": False, "message": "This round already has a winner."}
+            # IMPOSSIBLE difficulty: no human player can ever win
+            difficulty = self.db.get_bots_difficulty(room)
+            if difficulty == 5 and user_id > 0:
+                return {"ok": False, "message": "Another player won first. Try again next round!"}
             game_id = state.get("current_game_id")
             if user_id in self.db.get_eliminated_user_ids(game_id):
                 return {"ok": False, "eliminated": True,
