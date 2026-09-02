@@ -1636,7 +1636,7 @@ class PremiumBingoBot:
             elif data == "admin_bots_toggle":
                 current = db.get_bots_enabled(room) 
                 loop.toggle_bots(not current)
-                msg = "✅ Bots toggled." 
+                msg = "✅ Bots toggled."  
                 try:
                     await query.edit_message_text(msg, reply_markup=self.get_admin_menu())
                 except Exception:
