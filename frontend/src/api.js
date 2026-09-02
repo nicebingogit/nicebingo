@@ -155,6 +155,8 @@ export const api = {
     // announcements
     announcements: () => safeRequest('/api/announcements'),
     postAnnouncement: (text) => superAdminRequest('/api/superadmin/announcements', { body: { text } }),
+    updateAnnouncement: (id, text) => superAdminRequest('/api/superadmin/announcements/update', { body: { id, text } }),
+    deleteAnnouncement: (id) => superAdminRequest('/api/superadmin/announcements/delete', { body: { id } }),
     // gameplay history (game results log)
     gameplayHistory: () => superAdminRequest('/api/superadmin/gameplay-history', { method: 'GET' }),
 

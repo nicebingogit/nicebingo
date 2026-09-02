@@ -1815,26 +1815,89 @@ def api_announcements():
 
 @app.route("/api/superadmin/announcements", methods=["POST"])
 def api_superadmin_post_announcement():
-    """Super admin posts an announcement visible to all users."""
+    """Super admin posts an announcement visible to all users.
+
+    Broadcasts to EVERY registered player via direct Telegram Bot API
+    (high-priority, arrives even if the bot's job queue is idle).
+    """
     if _require_super_admin() is None:
         return jsonify({"error": "Unauthorized"}), 403
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     if not text:
         return jsonify({"error": "Announcement text is required."}), 400
-    ann_id = db.add_announcement(text, posted_by=config.SUPER_ADMIN_ID)
-    # Broadcast announcement to ALL players via bot notifications
+    ann_id = db.add_announcement(text, posted_by=data.get("admin_id") or config.SUPER_ADMIN_ID)
+    # Broadcast to ALL players via direct Telegram send (high priority)
     try:
+        from bot import notify_user
         players = db.get_all_player_ids()
         for uid in players:
             try:
-                db.add_bot_notification(uid, f"📢 **ANNOUNCEMENT**\n\n{text}")
+                notify_user(uid, [f"📢 ANNOUNCEMENT\n\n{text}"])
             except Exception:
                 pass
     except Exception:
         pass
     try:
-        db.log_activity('announcement_posted', config.SUPER_ADMIN_ID, text)
+        db.log_activity('announcement_posted', data.get('admin_id') or config.SUPER_ADMIN_ID, text)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "id": ann_id, "announcement": db.get_announcement(ann_id)})
+
+
+@app.route("/api/superadmin/announcements/update", methods=["POST"])
+def api_superadmin_update_announcement():
+    """Super admin edits an existing announcement and re-broadcasts the update."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        ann_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "id required"}), 400
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Announcement text is required."}), 400
+    existing = db.get_announcement(ann_id)
+    if not existing:
+        return jsonify({"error": "Announcement not found."}), 404
+    updated = db.update_announcement(ann_id, text)
+    # Re-broadcast the updated announcement to all players
+    try:
+        from bot import notify_user
+        players = db.get_all_player_ids()
+        for uid in players:
+            try:
+                notify_user(uid, [f"📢 ANNOUNCEMENT (UPDATED)\n\n{text}"])
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        db.log_activity('announcement_updated', data.get('admin_id') or config.SUPER_ADMIN_ID,
+                        f'Announcement #{ann_id} updated')
+    except Exception:
+        pass
+    return jsonify({"ok": True, "announcement": updated})
+
+
+@app.route("/api/superadmin/announcements/delete", methods=["POST"])
+def api_superadmin_delete_announcement():
+    """Super admin deletes an announcement."""
+    if _require_super_admin() is None:
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        ann_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "id required"}), 400
+    existing = db.get_announcement(ann_id)
+    if not existing:
+        return jsonify({"error": "Announcement not found."}), 404
+    db.delete_announcement(ann_id)
+    try:
+        db.log_activity('announcement_deleted', data.get('admin_id') or config.SUPER_ADMIN_ID,
+                        f'Announcement #{ann_id} deleted: {(existing.get("text") or "")[:80]}')
     except Exception:
         pass
     return jsonify({"ok": True, "id": ann_id})

@@ -1374,6 +1374,13 @@ class Database:
             )
             return cur.lastrowid
 
+    def get_announcement(self, announcement_id: int) -> Optional[Dict]:
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT * FROM announcements WHERE id = ?", (announcement_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
     def get_announcements(self, limit: int = 50) -> List[Dict]:
         with self._session() as conn:
             rows = conn.execute(
@@ -1381,6 +1388,26 @@ class Database:
                 (limit,),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def update_announcement(self, announcement_id: int, text: str) -> Optional[Dict]:
+        """Update an announcement's text. Returns the updated row."""
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE announcements SET text = ? WHERE id = ?",
+                (text, announcement_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM announcements WHERE id = ?", (announcement_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def delete_announcement(self, announcement_id: int) -> bool:
+        """Delete an announcement. Returns True if a row was deleted."""
+        with self._session() as conn:
+            cur = conn.execute(
+                "DELETE FROM announcements WHERE id = ?", (announcement_id,)
+            )
+            return cur.rowcount > 0
 
     # --------------------------------------------------------- referral system
     def create_referral(self, referrer_id: int, referred_id: int) -> Optional[int]:

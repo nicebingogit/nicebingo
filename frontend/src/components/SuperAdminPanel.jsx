@@ -17,6 +17,9 @@ export default function SuperAdminPanel({ onError, onChanged }) {
   const [appeals, setAppeals] = useState([]);
   const [activities, setActivities] = useState([]);
   const [gameHistory, setGameHistory] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [annText, setAnnText] = useState('');
+  const [editingAnn, setEditingAnn] = useState(null);
 
   const [flash, setFlash] = useState('');
 
@@ -74,11 +77,16 @@ export default function SuperAdminPanel({ onError, onChanged }) {
     catch (e) { /* silent — endpoint may not exist yet */ }
   }, []);
 
+  const loadAnnouncements = useCallback(async () => {
+    try { const d = await api.superAdmin.announcements(); setAnnouncements(d?.announcements || []); }
+    catch (e) { /* silent */ }
+  }, []);
+
 
 
   const loadAll = useCallback(async () => {
-    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities(), loadGameHistory()]);
-  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities, loadGameHistory]);
+    await Promise.all([loadUsers(), loadTxs(), loadAccounts(), loadAppeals(), loadActivities(), loadGameHistory(), loadAnnouncements()]);
+  }, [loadUsers, loadTxs, loadAccounts, loadAppeals, loadActivities, loadGameHistory, loadAnnouncements]);
 
   // game state for controls
   const [gamePhase, setGamePhase] = useState('preparation');
@@ -111,6 +119,7 @@ export default function SuperAdminPanel({ onError, onChanged }) {
   useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { const i = setInterval(loadAppeals, 10000); return () => clearInterval(i); }, [loadAppeals]);
   useEffect(() => { const i = setInterval(loadActivities, 15000); return () => clearInterval(i); }, [loadActivities]);
+  useEffect(() => { const i = setInterval(loadAnnouncements, 15000); return () => clearInterval(i); }, [loadAnnouncements]);
 
 
   const gameControl = async (fn, okMsg) => {
@@ -327,6 +336,7 @@ export default function SuperAdminPanel({ onError, onChanged }) {
     ['transactions', '🧾 All Logs'],
     ['accounts', '💳 Accounts'],
     ['appeals', `⚖️ Appeals${pendingAppeals ? ` (${pendingAppeals})` : ''}`],
+    ['announcements', `📢 Announcements`],
     ['activity', '📋 Activity Log'],
     ['history', '🎮 Game History'],
   ];
@@ -662,6 +672,110 @@ export default function SuperAdminPanel({ onError, onChanged }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ------------------------------------------------ ANNOUNCEMENTS */}
+      {tab === 'announcements' && (
+        <div className="tx-admin">
+          <p className="reg-hint">
+            📢 <b>Announcements</b> are sent to ALL users as Telegram messages (high priority — delivered even if the bot queue is idle). Users who muted the bot will still see these if they haven't blocked it.
+          </p>
+
+          {/* Create / Edit form */}
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+            <div className="wallet-form-title">
+              {editingAnn ? '✏️ Edit Announcement' : '📢 New Announcement'}
+            </div>
+            <textarea
+              rows={3}
+              maxLength={2000}
+              placeholder="Type your announcement here..."
+              value={annText}
+              onChange={(e) => setAnnText(e.target.value)}
+              style={{
+                width: '100%', padding: '8px 10px', borderRadius: 8,
+                background: 'var(--panel-solid)', color: 'var(--text)',
+                border: '1px solid var(--border)', fontSize: 13,
+                fontFamily: 'inherit', resize: 'vertical', marginTop: 8,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+              <button
+                className="btn btn-ghost user-btn"
+                disabled={!annText.trim()}
+                onClick={async () => {
+                  playClick();
+                  try {
+                    if (editingAnn) {
+                      await api.superAdmin.updateAnnouncement(editingAnn, annText.trim());
+                      flashMsg('✅ Announcement updated and re-sent to all users.');
+                    } else {
+                      await api.superAdmin.postAnnouncement(annText.trim());
+                      flashMsg('✅ Announcement sent to all users!');
+                    }
+                    setAnnText('');
+                    setEditingAnn(null);
+                    await loadAnnouncements();
+                  } catch (err) {
+                    flashMsg(`❌ ${err.message}`);
+                  }
+                }}
+              >
+                {editingAnn ? '💾 Save & Re-send' : '📢 Send to All Users'}
+              </button>
+              {editingAnn && (
+                <button
+                  className="btn btn-ghost user-btn"
+                  onClick={() => { playClick(); setEditingAnn(null); setAnnText(''); }}
+                >
+                  ✕ Cancel
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Announcement list */}
+          <div style={{ marginTop: 16 }}>
+            <div className="wallet-form-title" style={{ marginBottom: 8 }}>📜 Past Announcements</div>
+            {announcements.length === 0 && <div className="muted">No announcements yet.</div>}
+            {announcements.map((a) => (
+              <div key={a.id} className="tx-row" style={{ fontSize: 12 }}>
+                <div className="tx-main" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                  <div style={{ fontWeight: 800, color: 'var(--gold)', wordBreak: 'break-word' }}>
+                    #{a.id} — {a.text}
+                  </div>
+                  <div className="tx-meta">
+                    Posted by #{a.posted_by || '?'} · {a.created_at?.slice(0, 16)}
+                  </div>
+                </div>
+                <div className="tx-actions" style={{ gap: 4 }}>
+                  <button
+                    className="btn btn-ghost user-btn"
+                    onClick={() => { playClick(); setEditingAnn(a.id); setAnnText(a.text); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    className="btn btn-ghost user-btn danger"
+                    onClick={async () => {
+                      playClick();
+                      if (!confirm(`Delete announcement #${a.id}?`)) return;
+                      try {
+                        await api.superAdmin.deleteAnnouncement(a.id);
+                        flashMsg('🗑️ Announcement deleted.');
+                        await loadAnnouncements();
+                      } catch (err) {
+                        flashMsg(`❌ ${err.message}`);
+                      }
+                    }}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
