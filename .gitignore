@@ -1,0 +1,41 @@
+# Python virtual environments
+venv/
+.venv/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Tunnel/runtime files
+tunnel_url.txt
+
+# Frontend dependencies (the built app in frontend/dist IS committed)
+frontend/node_modules/
+
+# Local tooling / packaging junk
+tools/
+seller_dist/
+seller_build/
+seller_package/
+seller_spec/
+get-pip.py
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
