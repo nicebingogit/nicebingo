@@ -46,6 +46,10 @@ class GameLoop:
         # it "notices" after a short random delay (1-4 balls) and claims, so
         # other players genuinely win rounds. shape: {room: {bot_id: call_index}}
         self._bot_claim_at: dict[int, dict[int, int]] = {}
+        # per-room random BOT-PLAYER target chosen once per game (18-140).
+        # held in memory only (no DB migration needed) — reset_round() drops it
+        # so the NEXT game picks a fresh random count.
+        self._bot_targets: dict[int, int] = {}
 
     # ------------------------------------------------------------------ boot
     def start(self) -> None:
@@ -98,14 +102,9 @@ class GameLoop:
                 if phase == "preparation":
                     # keep the room looking alive: top up bots during the
                     # countdown too, so the player sees other players BEFORE
-                    # the round starts (idempotent — stops at the cap)
-                    if self.db.get_bots_enabled(room):
-                        # add ONE bot per tick so players see them joining
-                        # gradually (feels like humans picking cards)
-                        # count total CARDS in play, not unique players
-                        cards_in_play = len(self.db.get_all_selections(room))
-                        if cards_in_play < config.MAX_TOTAL_PLAYERS:
-                            self.logic.add_bot_player(room)
+                    # the round starts. Bots join gradually (random chunks each
+                    # tick) toward the round's random 18-140 target.
+                    self._add_prep_bots(room, state)
                     end = _parse(state.get("preparation_end_time"))
                     if end and now >= end:
                         self.start_round(room)
@@ -128,7 +127,10 @@ class GameLoop:
 
             bots_enabled = self.db.get_bots_enabled(room)
             if bots_enabled:
-                self.logic.ensure_minimum_players(room)
+                # this round's random bot-player count (18-140); gradual ticks
+                # already filled most of it, so top up to the exact target here
+                target = self._bot_target(room)
+                self.logic.ensure_minimum_players(room, target=target)
                 # persist bot accounts (negative ids) for the /api/admin/bots view
                 for sel in self.db.get_all_selections(room):
                     if sel["user_id"] < 0:
@@ -176,6 +178,16 @@ class GameLoop:
             state = self.db.get_game_state(room)
             if state.get("phase") != "playing":
                 return None
+            # IMPOSSIBLE (difficulty 5): the next ball is never allowed to
+            # complete a HUMAN pattern — if it would, reorder the ball machine
+            # so the next ball completes a bot card instead (bots claim
+            # instantly on this difficulty and win first).
+            if self.db.get_bots_difficulty(room) == 5:
+                order = self._impossible_guard(room)
+                if order is None:
+                    return None  # round already ended winless — nothing to call
+                if order != self.db.get_ball_order(room):
+                    self.db.set_ball_order(room, order)
             number = self.logic.call_next_number(room)
             if number is None:
                 # all 75 balls have been called -> round ends without winner
@@ -306,6 +318,8 @@ class GameLoop:
         """ended -> fresh preparation phase."""
         with self._lock:
             self._bot_claim_at[room] = {}
+            # next game gets a fresh random bot-player count (18-140)
+            self._bot_targets.pop(room, None)
             self.db.clear_selections(room)
             self.db.clear_called_numbers(room)
             self.db.clear_eliminations()
@@ -389,6 +403,197 @@ class GameLoop:
             ready.pop(bid, None)
         return None
 
+    # ------------------------------------------------------------- bot filling
+    def _bot_target(self, room: int = 30) -> int:
+        """The random bot-player target (18-140) for this room's current game.
+
+        Picked once per game and kept for the whole round so the gradual prep
+        fill and the start_round top-up agree on the same final count.
+        reset_round() removes it, so every new game gets a fresh random count.
+        """
+        target = self._bot_targets.get(room)
+        if target is None:
+            target = self.logic.pick_bot_target()
+            self._bot_targets[room] = target
+            logger.info("%s: this round's bot target = %s",
+                        config.room_label(room), target)
+        return target
+
+    def _add_prep_bots(self, room: int = 30, state: dict | None = None) -> int:
+        """During preparation, join bots gradually toward the round's random
+        18-140 target instead of dumping them all at once.
+
+        The number added per tick is derived from how far the countdown has
+        progressed (even spread), capped so joins feel natural. The exact final
+        top-up still happens in start_round().
+        """
+        if not self.db.get_bots_enabled(room):
+            return 0
+        target = self._bot_target(room)
+        current = self.logic.bot_player_count(room)
+        if current >= target:
+            return 0
+        state = state or self.db.get_game_state(room)
+        end = _parse(state.get("preparation_end_time"))
+        if end is None:
+            return 0
+        total = max(1, int(config.PREPARATION_SECONDS))
+        secs_left = max(0.0, (end - datetime.now()).total_seconds())
+        elapsed = max(0.0, total - secs_left)
+        expected = int(round(target * elapsed / total))
+        to_add = max(0, min(8, expected - current))
+        if to_add == 0:
+            return 0
+        cards_per_bot = self.logic.bot_cards_for_count(target)
+        added = 0
+        for _ in range(to_add):
+            if self.logic.add_bot_player(room, cards_per_bot):
+                added += 1
+        return added
+
+    # ------------------------------------------------- Difficulty 5 (Impossible)
+    # Humans can NEVER win on Impossible: before each ball is called, if that
+    # ball would complete a human's pattern, the ball machine is reordered so
+    # the next ball completes a BOT card instead. Impossible bots claim
+    # instantly (delay 0-0) through the regular _bot_claim_pass and win.
+    def _human_completing_ball(self, room: int = 30, called: set | None = None) -> str | None:
+        """Return the next ball if drawing it would complete a HUMAN pattern
+        (or if a human already holds a complete pattern)."""
+        order = self.db.get_ball_order(room) or []
+        if not order:
+            return None
+        next_ball = order[0]
+        if called is None:
+            called = set(self.db.get_called_numbers(room))
+        for sel in self.db.get_all_selections(room):
+            if sel["user_id"] < 0:
+                continue  # humans only
+            card = self.db.get_card(sel["card_id"])
+            if not card:
+                continue
+            if self.logic.check_winning_patterns(card, called)[0]:
+                return next_ball  # human already complete
+            if self.logic.check_winning_patterns(card, called | {next_ball})[0]:
+                return next_ball
+        return None
+
+    def _bot_completing_ball(self, room: int = 30, called: set | None = None) -> str | None:
+        """Return a remaining ball that would complete a BOT card, if any.
+        With bots enabled this is guaranteed to exist whenever it's needed.
+        """
+        order = self.db.get_ball_order(room) or []
+        if not order:
+            return None
+        if called is None:
+            called = set(self.db.get_called_numbers(room))
+        bots = []
+        cards = self.db.get_cards_map()
+        for sel in self.db.get_all_selections(room):
+            if sel["user_id"] > 0:
+                continue  # bots only
+            card = cards.get(sel["card_id"])
+            if not card:
+                continue
+            if self.logic.check_winning_patterns(card, called)[0]:
+                return order[0]  # a bot already wins — keep the natural order
+            bots.append(card)
+        if not bots:
+            return None
+        for b in order:
+            union = called | {b}
+            for card in bots:
+                if self.logic.check_winning_patterns(card, union)[0]:
+                    return b
+        return None
+
+    def _impossible_guard(self, room: int = 30) -> list | None:
+        """Difficulty-5 pre-call guard: never let the next ball complete a
+        human card. Returns the (possibly reordered) remaining ball order, or
+        None when the round was ended without a winner (nothing left to call).
+        """
+        order = self.db.get_ball_order(room) or []
+        if not order:
+            return None
+        called = set(self.db.get_called_numbers(room))
+        if not self.db.get_bots_enabled(room):
+            # bots disabled -> hand the win to NOBODY; block every human
+            # completing ball, ending the round winless if none remain safe
+            if self._human_completing_ball(room, called) is not None:
+                ordered = [b for b in order
+                           if not self._human_would_win(room, called, b)]
+                if ordered:
+                    return ordered
+                self.end_round_no_winner(room)
+                return None
+            return order
+        # bots enabled -> hand the win to a BOT instead of the human
+        if self._human_completing_ball(room, called) is not None:
+            bot_ball = self._bot_completing_ball(room, called)
+            if bot_ball is None:
+                # no bot can complete -> nobody may win
+                self.end_round_no_winner(room)
+                return None
+            if bot_ball != order[0]:
+                # bring the bot-completing ball forward: the very next call
+                # completes that bot, which claims instantly and wins
+                return [bot_ball] + [b for b in order if b != bot_ball]
+        return order
+
+    def _human_would_win(self, room: int = 30, called: set | None = None,
+                         ball: str | None = None) -> bool:
+        """True if a human card has a complete pattern with `called` plus
+        `ball` (or with `called` alone when ball is None)."""
+        if called is None:
+            called = set(self.db.get_called_numbers(room))
+        union = called if ball is None else called | {ball}
+        for sel in self.db.get_all_selections(room):
+            if sel["user_id"] < 0:
+                continue
+            card = self.db.get_card(sel["card_id"])
+            if card and self.logic.check_winning_patterns(card, union)[0]:
+                return True
+        return False
+
+    def _bot_winning_card(self, room: int = 30, called: set | None = None) -> dict | None:
+        """Return a bot selection whose card has a complete pattern, or None."""
+        if called is None:
+            called = set(self.db.get_called_numbers(room))
+        cards = self.db.get_cards_map()
+        for sel in self.db.get_all_selections(room):
+            if sel["user_id"] > 0:
+                continue  # bots only
+            card = cards.get(sel["card_id"])
+            if card and self.logic.check_winning_patterns(card, called)[0]:
+                return sel
+        return None
+
+    def _bot_win_claim(self, room: int = 30, sel: dict | None = None) -> dict | None:
+        """Declare a ready bot the round winner (used by the Impossible
+        backstop when a human tries to claim). Returns the winner dict."""
+        if sel is None:
+            sel = self._bot_winning_card(room)
+        if sel is None:
+            return None
+        called = set(self.db.get_called_numbers(room))
+        cards = self.db.get_cards_map()
+        card = cards.get(sel["card_id"])
+        if not card:
+            return None
+        patterns, cells = self.logic.check_winning_patterns(card, called)
+        if not patterns:
+            return None
+        prize = self.logic.calculate_prize_pool(room)["prize_pool"]
+        winner = {
+            "user_id": sel["user_id"],
+            "card_id": sel["card_id"],
+            "pattern": patterns[0],
+            "patterns": patterns,
+            "winning_cells": cells,
+            "prize": prize,
+        }
+        self.handle_winner(room, winner)
+        return winner
+
     # ------------------------------------------------------------- claim-bingo
     def claim_bingo(self, user_id: int, card_id: str | None = None,
                     room: int = 30) -> dict:
@@ -420,6 +625,19 @@ class GameLoop:
             if not selections:
                 return {"ok": False, "message": "You have no cards in this round."}
             called = set(self.db.get_called_numbers(room))
+            # IMPOSSIBLE backstop — a HUMAN can never win on difficulty 5. Even
+            # if a human holds a valid pattern right now, the win goes to any
+            # ready bot card, otherwise the round ends without a winner.
+            if self.db.get_bots_difficulty(room) == 5 and user_id > 0:
+                bot_sel = self._bot_winning_card(room, called)
+                if bot_sel is not None:
+                    winner = self._bot_win_claim(room, bot_sel)
+                    self._bot_claim_at[room].pop(bot_sel["user_id"], None)
+                    if winner:
+                        return {"ok": True, "winner": winner, "human": False}
+                self.end_round_no_winner(room)
+                return {"ok": False, "message":
+                        "Bots are on Impossible difficulty — humans cannot win this round."}
             for sel in selections:
                 card_numbers = self.db.get_card(sel["card_id"])
                 if not card_numbers:
@@ -460,7 +678,9 @@ class GameLoop:
 
     def add_bots(self, room: int = 30) -> dict:
         with self._lock:
-            added = self.logic.ensure_minimum_players(room)
+            # consistent with this round's random target when a game is in play
+            added = self.logic.ensure_minimum_players(room,
+                                                      target=self._bot_target(room))
             for sel in self.db.get_all_selections(room):
                 if sel["user_id"] < 0:
                     name = bot_name(sel["user_id"])

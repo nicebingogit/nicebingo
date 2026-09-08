@@ -200,13 +200,31 @@ class GameLogic:
 
     # -------------------------------------------------------------------- bots
 
-    def add_bot_player(self, room: int = 30) -> Optional[Dict]:
-        """Create one bot player with 2-3 cards.
+    def bot_cards_for_count(self, bot_count: int) -> int:
+        """Cards per bot based on the FINAL bot-player count for the game."""
+        for lower, cards in config.BOT_CARDS_BY_COUNT:
+            if bot_count >= lower:
+                return cards
+        return 1
 
-        Difficulty only controls how FAST bots claim (see game_loop._bot_claim_pass),
-        not how many cards they get. Each bot gets 2-3 random cards so that the
-        total card count (and thus the prize pool) is significantly higher than
-        the player count — making the room feel full and the stakes real.
+    def pick_bot_target(self) -> int:
+        """A random bot-player count (18-140) for one game."""
+        return random.randint(config.BOT_MIN_PLAYERS, config.BOT_MAX_PLAYERS)
+
+    def bot_player_count(self, room: int = 30) -> int:
+        """Number of bot players that currently hold cards in the room.
+        Bots hold several cards each, so DISTINCT negative user ids are
+        counted, not selection rows."""
+        return len({s["user_id"] for s in self.db.get_all_selections(room)
+                    if s["user_id"] < 0})
+
+    def add_bot_player(self, room: int = 30,
+                       cards_per_bot: int | None = None) -> Optional[Dict]:
+        """Create one bot player.
+
+        cards_per_bot: how many cards this bot gets. When None the historical
+        2-3 random cards are used (backward compatible default). New games pass
+        the value derived from the final bot count (bot_cards_for_count).
         """
         all_cards = self.db.get_all_cards()
         taken = {s["card_id"] for s in self.db.get_all_selections(room)}
@@ -224,7 +242,10 @@ class GameLogic:
             return None
 
         self.db.create_player(bot_id, bot_name(bot_id), credit=0)
-        num_cards = random.randint(2, 3)
+        if cards_per_bot is None:
+            num_cards = random.randint(2, 3)
+        else:
+            num_cards = max(1, int(cards_per_bot))
         num_cards = min(num_cards, len(available))
         chosen = random.sample(available, num_cards)
         for card in chosen:
@@ -232,35 +253,27 @@ class GameLogic:
         return {"bot_id": bot_id, "cards": num_cards}
 
     def ensure_minimum_players(self, room: int = 30,
-                                   min_total: int | None = None,
-                                   max_total: int | None = None) -> int:
-        """Add bots until a random target of total CARDS (not players) between
-        min_total and max_total is reached. Returns how many bots were added.
+                               target: int | None = None) -> int:
+        """Fill the room until it holds `target` BOT PLAYERS.
 
-        The target is randomized each round so the room feels dynamic —
-        sometimes packed, sometimes smaller. Each bot gets 2-3 cards, so
-        the total card count (and prize pool) is significantly larger than
-        the player count, even when real players only pick 1 card each.
+        When `target` is omitted a random target between config.BOT_MIN_PLAYERS
+        and config.BOT_MAX_PLAYERS (18-140) is picked. Every bot gets the number
+        of cards implied by the target (see bot_cards_for_count), so card
+        allocation always follows the FINAL bot-player count:
+          80-140 players -> 1 card each
+          40-79  players -> 2 cards each
+          18-39  players -> 3 cards each
+        Existing humans and their cards are never touched. Returns how many
+        bots were added by this call.
         """
-        if min_total is None:
-            min_total = config.MIN_TOTAL_PLAYERS
-        if max_total is None:
-            max_total = config.MAX_TOTAL_PLAYERS
-        target = random.randint(min_total, max_total)
-        # always fill to at least the target — if real cards already exceed
-        # the random pick, use the actual count + a small cushion so bots
-        # still join (players like seeing opponents enter the room).
-        target = max(target, len(self.db.get_all_selections(room)) + random.randint(2, 5))
-        target = min(target, max_total)
-        # count total CARDS in play — each bot adds 2-3 cards, so card count
-        # grows faster than player count.
-        cards_in_play = len(self.db.get_all_selections(room))
+        if target is None:
+            target = self.pick_bot_target()
+        cards_per_bot = self.bot_cards_for_count(target)
         added = 0
-        while cards_in_play < target:
-            bot = self.add_bot_player(room)
+        while self.bot_player_count(room) < target:
+            bot = self.add_bot_player(room, cards_per_bot)
             if not bot:
-                break
-            cards_in_play += bot["cards"]  # bot adds 2-3 cards
+                break  # card pool exhausted — never loop forever
             added += 1
         return added
 

@@ -145,6 +145,16 @@ TOTAL_NUMBERS = 75                                          # a bingo set
 # ---------------------------------------------------------------------------
 MIN_TOTAL_PLAYERS = _int("MIN_TOTAL_PLAYERS", 18)   # minimum total players (real + bots) per room
 MAX_TOTAL_PLAYERS = _int("MAX_TOTAL_PLAYERS", 90)   # maximum total players (real + bots) per room
+# Random BOT PLAYER count picked per game (per room per round). These are pure
+# constants (not env-driven) so the deployed environment can never distort the
+# required 18-140 range.
+BOT_MIN_PLAYERS = 18      # lowest number of bot players a game can fill to
+BOT_MAX_PLAYERS = 140     # highest number of bot players a game can fill to
+# Cards each bot gets depends on the FINAL bot-player count:
+#   80-140 players -> 1 card each
+#   40-79  players -> 2 cards each
+#   18-39  players -> 3 cards each
+BOT_CARDS_BY_COUNT = ((80, 1), (40, 2), (18, 3))
 NUM_CARDS = _int("NUM_CARDS", 400)                  # pre-generated card pool
 
 # ---------------------------------------------------------------------------
