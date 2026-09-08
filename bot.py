@@ -18,6 +18,7 @@ import os
 import threading
 import urllib.parse
 from datetime import datetime
+from telegram.request import HTTPXRequest
 
 import requests
 from dotenv import load_dotenv
@@ -1736,7 +1737,7 @@ class PremiumBingoBot:
                         wname = (winner or {}).get("full_name") or (winner or {}).get("username") or (
                             bot_name(state["winner_user_id"])
                             if state["winner_user_id"] < 0 else "Player")
-                        card_id = info.get('card_id', '?') 
+                        card_id = info.get('card_id', '?')
                         msg = (f"🎉 **BINGO!** 🎉 ({label})\n\n🏆 Winner: **{_md(wname)}**\n"
                                 f"🃏 Winning Card: **#{card_id}**\n"
                                 f"🎯 Pattern: **{info.get('pattern')}**\n"
@@ -1821,7 +1822,22 @@ class PremiumBingoBot:
         """Create the PTB Application with every handler wired (not started)."""
         if not BOT_TOKEN:
             raise SystemExit("BOT_TOKEN is missing — check your .env file.")
-        self.application = Application.builder().token(BOT_TOKEN).build()
+
+        request = HTTPXRequest(
+            proxy="http://proxy.server:3128",
+            connect_timeout=20,
+            read_timeout=20,
+            write_timeout=20,
+            pool_timeout=20,
+        )
+
+        self.application = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .request(request)
+            .build()
+        )
+
         self.application.post_init = self._on_start
         self.setup_handlers()
         return self.application
@@ -2114,7 +2130,7 @@ def _ensure_webhook_running() -> bool:
     globals (still None/False) while the master's thread sets them. We
     detect this by comparing PIDs and force-restart in the worker.
     """
-    global _webhook_pid
+    global _webhook_pid, _webhook_loop, _webhook_app, _webhook_thread, _webhook_registered
     current_pid = os.getpid()
     forked = (current_pid != _webhook_pid)
     if forked:
