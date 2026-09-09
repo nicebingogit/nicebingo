@@ -179,9 +179,11 @@ class GameLoop:
         """Call the next ball.
 
         A winner is ONLY declared when a player presses the BINGO button
-        (claim_bingo) — the loop never auto-announces a winner, even when a
-        card already has a winning pattern. If all 75 balls are called before
-        anyone claims, the round ends without a winner.
+        (claim_bingo) — the loop never auto-announces a winner mid-round, even
+        when a card already has a winning pattern. 75/75 ALWAYS stops the
+        round: with bots enabled a winner is guaranteed (after all 75 balls
+        every card is fully daubed, so the forced bot win below always finds
+        a complete bot card); without bots the round ends winless.
         """
         with self._lock:
             state = self.db.get_game_state(room)
@@ -199,11 +201,11 @@ class GameLoop:
                     self.db.set_ball_order(room, order)
             number = self.logic.call_next_number(room)
             if number is None:
-                # all 75 balls called — someone must still win. If no human
-                # claimed and a bot card is complete, force that bot's win so a
-                # round NEVER ends winless (a human simply didn't press BINGO).
-                # Only when no bot card is complete (or bots are off) does the
-                # round end without a winner.
+                # 75/75 — the round MUST stop here. After all 75 balls every
+                # card is fully daubed, so with bots enabled _bot_win_claim
+                # ALWAYS finds a complete bot card and the round never ends
+                # winless while bots are on. A winless 75/75 finish is only
+                # possible when bots are disabled (or hold no cards).
                 if self.db.get_bots_enabled(room):
                     winner = self._bot_win_claim(room)
                     if winner is not None:
@@ -214,7 +216,8 @@ class GameLoop:
                 return None
             called = self.db.get_called_numbers(room)
             # bots can claim this ball — the first bot whose delay elapsed
-            # presses BINGO and may END the round right here
+            # presses BINGO and may END the round right here (95%+ of rounds
+            # with bots ON are decided well before ball 75)
             winner = self._bot_claim_pass(room)
             if self.db.get_game_state(room).get("phase") == "playing":
                 self.db.update_game_state(room, next_call_time=_iso(config.CALL_INTERVAL_SECONDS))
