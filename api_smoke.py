@@ -600,9 +600,12 @@ def main():
     for _ in range(5):
         post("/api/admin/force-call", {"admin_id": ADMIN, "room": 30})
     code, state = get("/api/game-state", query_string={"user_id": TEST_USER, "room": 30})
+    # the 5th row ball (which would complete the human) is DEFERRED — it is
+    # never called, so no human winner can ever be produced
     step(15, "Impossible: human's completing ball is blocked — no human winner",
-         state["phase"] == "ended"
-         and (state.get("winner") is None or state["winner"]["user_id"] < 0))
+         state.get("winner") is None
+         and row8[4] not in state["called_numbers"]
+         and state["phase"] in ("playing", "ended"))
     # the claim backstop: a human pressing BINGO on Impossible never wins
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
     post("/api/select-card",
@@ -614,6 +617,29 @@ def main():
     code, data = post("/api/claim-bingo", {"user_id": TEST_USER, "card_id": "9"})
     step(15, "Impossible: human BINGO claim refused — humans can never win",
          not (data.get("winner") and data["winner"]["user_id"] > 0))
+
+    # -------- 15c. someone ALWAYS wins: if all 75 balls are called and no
+    # human claimed, a ready bot is FORCED to win — a round never ends
+    # winless. Easy (0) makes bots never claim on their own, so this win can
+    # only come from the forced 75th-ball path.
+    loop.set_bots_difficulty(0)
+    post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
+    post("/api/admin/force-start", {"admin_id": ADMIN, "room": 30})
+    forced = None
+    for _ in range(80):
+        code, data = post("/api/admin/force-call", {"admin_id": ADMIN, "room": 30})
+        if not data.get("ok"):
+            break
+        if data.get("winner"):
+            forced = data["winner"]
+            break
+    code, state = get("/api/game-state", query_string={"user_id": TEST_USER, "room": 30})
+    step(15, "75th ball: a ready BOT is forced to win (rounds never end winless)",
+         state["phase"] == "ended" and bool(state.get("winner"))
+         and state["winner"]["user_id"] < 0)
+    step(15, "Forced win is announced through the normal winner flow",
+         forced is not None and forced["user_id"] < 0
+         and bool(forced.get("prize")))
 
     # ------------------- 16. super admin console + admin-credit/online model
     # the super admin sees EVERY account (admins AND users) with credits

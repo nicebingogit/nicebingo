@@ -35,7 +35,7 @@
 Nice Bingo is a real-time multiplayer Bingo game built as a **Telegram Mini App**. The Telegram bot serves as a launcher — tapping "Play" opens a full-screen interactive Bingo arena inside Telegram (or any browser). Players buy cards, watch balls being called, mark numbers, and claim BINGO when they complete a winning pattern. The winner takes 80% of the prize pool instantly.
 
 ### Key Features
-- **Multi-room system**: Players choose between rooms with fixed bets (default: 10 / 20 / 30 ETB per card)
+- **Single room (By 10)**: the game runs exactly ONE room — 10 ETB per card. `ROOM_BETS` in `.env` can change it (e.g. `ROOM_BETS=50`), but the production default is a single “By 10” room
 - **Real-time gameplay**: Balls called every 4 seconds via a server-side game loop
 - **Bot players**: AI players fill every room to 18-140 players (count chosen by how many **humans** are playing — see [Bot System](#12-bot-system-ai-players)). Bots look exactly like real players (Ethiopian male names, negative IDs) and are completely invisible to humans.
 - **Auto-play mode**: Players can toggle auto-daub and auto-claim
@@ -247,7 +247,7 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 | `APP_URL` | `http://localhost:5000` | Public URL for the Mini App |
 | `DB_PATH` | `bingo_bot.db` | SQLite database file path |
 | `APP_CURRENCY` | `ETB` | Currency symbol |
-| `ROOM_BETS` | `10,20,30` | Room bet amounts (comma-separated) |
+| `ROOM_BETS` | `10` | Single room's fixed bet per card (comma-separated if you ever run multiple) |
 | `MAX_CARDS_PER_PLAYER` | `3` | Max cards per player per round |
 | `NEW_PLAYER_CREDIT` | `50` | Welcome bonus |
 | `MIN_WITHDRAWAL` | `100` | Minimum withdrawal amount |
@@ -291,7 +291,7 @@ CREATE TABLE players (
 #### `game_state` (one row per room)
 ```sql
 CREATE TABLE game_state (
-    room INTEGER PRIMARY KEY,            -- Room bet amount (10/20/30)
+    room INTEGER PRIMARY KEY,            -- Room bet amount (10 by default)
     phase TEXT DEFAULT 'preparation',     -- preparation | playing | ended
     preparation_end_time TEXT,           -- ISO timestamp
     current_call TEXT,                   -- Current ball (e.g., "B-7")
@@ -577,6 +577,7 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 **`call_step()` method:**
 - Pops the next ball from the persisted order
 - Runs `_bot_claim_pass()` — bots may auto-claim BINGO
+- **Forced bot win at the 75th ball**: if all 75 balls are called and no human claimed, a ready bot is declared the winner (`_bot_win_claim`) — a round NEVER ends winless while a bot card is complete. Only with bots off / no complete bot card does it end without a winner
 - Schedules the next ball call
 
 **`claim_bingo()` method:**
@@ -665,7 +666,7 @@ The root component that manages:
 
 ### 10.2 `Header.jsx` — Top Bar
 
-Shows brand name, room selector dropdown, credit chip, pool chip, settings button, admin/super-admin toggle buttons, and connection status dot.
+Shows brand name, the room chip (a selector when multiple rooms exist, otherwise a static “Room 10” label), credit chip, pool chip, settings button, admin/super-admin toggle buttons, and connection status dot.
 
 ### 10.3 `CardPicker.jsx` — Card Selection (Preparation Phase)
 
@@ -740,7 +741,7 @@ Synthesized via Web Audio API (no external files). Four packs:
 ### Preparation Phase
 1. Timer starts at 40 seconds
 2. Players select up to 3 cards from a pool of 400
-3. Each card costs the room's fixed bet (10/20/30 ETB)
+3. Each card costs the single room's fixed bet (10 ETB by default)
 4. Bots gradually join (up to 8 per tick), each taking the plan's card count
 5. When timer hits 0, `start_round()` rebuilds the plan from the final human
    count and tops up to the chosen option (80-140 / 40-79 / 18-39 bots)
@@ -752,6 +753,7 @@ Synthesized via Web Audio API (no external files). Four packs:
 4. Auto-play mode daubs and claims automatically
 5. When a player completes a winning pattern, they press BINGO
 6. Server verifies the card — valid claim pays the prize, false claim eliminates
+7. **Someone always wins**: if all 75 balls are called before anyone claims, a ready bot is forced to win; on **Impossible** difficulty the ball machine is reordered so a bot completes and claims before a human ever can
 
 ### Winning Patterns
 - **Row**: All 5 numbers in any horizontal row
@@ -823,7 +825,7 @@ Bots press BINGO like humans — only when a card actually has a complete patter
 **Difficulty levels (0-5). Default = 5 (Impossible):**
 | Level | Name | Delay Range | Behavior |
 |-------|------|-------------|----------|
-| 0 | Easy | Never | Bots never claim — humans always win |
+| 0 | Easy | Never | Bots never claim on their own — humans win whenever they claim; only if a round reaches the 75th ball with NO human claim does a ready bot get forced the win (rounds never end winless) |
 | 1 | Normal | 5-8 balls | Very slow, rarely win |
 | 2 | Medium | 3-5 balls | Balanced, human-like delay |
 | 3 | Hard | 1-2 balls | Fast, often beats humans |
@@ -873,13 +875,16 @@ The delay is the number of balls to wait AFTER the pattern is completed before c
 
 ### Running the smoke tests
 ```bash
-# .env only stores APP_URL here, so pass the test identities + rooms explicitly:
+# .env only stores APP_URL here, so pass the test identities + rooms explicitly.
+# (The test suite deliberately exercises 3 rooms (30/50/100) to cover the
+# multi-room code paths; PRODUCTION runs a single “By 10” room.)
 ADMIN_IDS=1 SUPER_ADMIN_IDS=2 ROOM_BETS=30,50,100 venv\Scripts\python.exe smoke_test.py
 # or, for the API-only suite:  venv\Scripts\python.exe api_smoke.py
 ```
 The suite plays full rounds offline (registration, card sales, gradual bot fill,
-bot wins, **Impossible: a human can never win**, exact 80% payout, false-BINGO
-elimination, admin/super-admin controls) and renders sample cards.
+bot wins, **Impossible: a human can never win**, forced bot win at the 75th
+ball, exact 80% payout, false-BINGO elimination, admin/super-admin controls)
+and renders sample cards.
 
 ---
 

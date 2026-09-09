@@ -107,11 +107,12 @@ DB_PATH = os.getenv("DB_PATH", "bingo_bot.db")
 # ---------------------------------------------------------------------------
 APP_CURRENCY = os.getenv("APP_CURRENCY", "ETB").strip()  # wallet currency symbol
 # Rooms are separated by a FIXED bet per card: each room runs its own round
-# with its own ball order, selections and prize pool. Players pick a room via
-# a listbox in the Mini App; the bet input is gone.
-ROOM_BETS = [int(x.strip()) for x in os.getenv("ROOM_BETS", "10,20,30").split(",") if x.strip()]
+# with its own ball order, selections and prize pool. The production game runs
+# exactly ONE room — "Room by 10" (10 ETB per card). Set ROOM_BETS in .env to
+# change it, e.g. ROOM_BETS=50 for a single 50 ETB room.
+ROOM_BETS = [int(x.strip()) for x in os.getenv("ROOM_BETS", "10").split(",") if x.strip()]
 if not ROOM_BETS:
-    ROOM_BETS = [10, 20, 30]
+    ROOM_BETS = [10]
 ROOM_DEFAULT = ROOM_BETS[0]                         # room used when none is specified
 BET_PER_CARD = ROOM_DEFAULT                         # legacy alias: default room bet
 BET_MIN_CARD = ROOM_DEFAULT                         # legacy alias: bet is fixed per room

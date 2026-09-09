@@ -199,7 +199,17 @@ class GameLoop:
                     self.db.set_ball_order(room, order)
             number = self.logic.call_next_number(room)
             if number is None:
-                # all 75 balls have been called -> round ends without winner
+                # all 75 balls called — someone must still win. If no human
+                # claimed and a bot card is complete, force that bot's win so a
+                # round NEVER ends winless (a human simply didn't press BINGO).
+                # Only when no bot card is complete (or bots are off) does the
+                # round end without a winner.
+                if self.db.get_bots_enabled(room):
+                    winner = self._bot_win_claim(room)
+                    if winner is not None:
+                        return {"number": None,
+                                "called": len(self.db.get_called_numbers(room)),
+                                "winner": winner}
                 self.end_round_no_winner(room)
                 return None
             called = self.db.get_called_numbers(room)
@@ -541,7 +551,15 @@ class GameLoop:
         if self._human_completing_ball(room, called) is not None:
             bot_ball = self._bot_completing_ball(room, called)
             if bot_ball is None:
-                # no bot can complete -> nobody may win
+                # no single remaining ball completes a bot card yet: DEFER every
+                # human-completing ball to the end and keep calling safe balls
+                # until a bot card completes (then the guard hands it the win).
+                # The round ends winless only when EVERY remaining ball would
+                # complete a human — nobody can win then.
+                safe = [b for b in order
+                        if not self._human_would_win(room, called, b)]
+                if safe:
+                    return safe + [b for b in order if b not in safe]
                 self.end_round_no_winner(room)
                 return None
             if bot_ball != order[0]:

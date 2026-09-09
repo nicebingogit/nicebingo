@@ -60,8 +60,9 @@ routes, depending on whether you can provide a card:
 | ⏱️ **60 s countdown** | Preparation countdown, then the round auto-starts |
 | 🔢 **Auto-calling** | A ball every **4 seconds**, driven by a server-side APScheduler loop |
 | 💰 **Global win pool** | Pool = sum of **all** purchased cards (bots included); winner takes **80 %**, credited instantly |
-| 🃏 **Up to 4 cards** | Bet per card, **min 2 ETB, default 30 ETB** (per-card bet editor in the app) |
-| 🤖 **Smart bot fill** | Every room is filled with 18-140 invisible bots (chosen by the **number of humans** playing: fewer humans → more bots). Bots carry 1-3 real cards with a random 5-15-card deduction per round, feed the pool, and are invisible to players — only admins can toggle them |
+| 🃏 **Up to 4 cards** | One room — **fixed 10 ETB per card** in the single “By 10” room (per-card bet editor in the app) |
+| 🤖 **Smart bot fill** | The single room is filled with 18-140 invisible bots (chosen by the **number of humans** playing: fewer humans → more bots). Bots carry 1-3 real cards with a random 5-15-card deduction per round, feed the pool, and are invisible to players — only the super admin sees them |
+| 🏆 **Someone always wins** | A round never ends winless: if all 75 balls are called and no human claimed BINGO, a ready bot takes the win. On **Impossible** difficulty a human can never win — the ball machine is reordered so a bot completes first |
 | 🔁 **Auto-reset** | New 60 s round automatically after a winner or the 75th ball |
 | 🔔 **Real-time sync** | The app polls the local API every 2.5 s — called numbers, sold cards, phase, pool |
 | 🔊 **Sound effects** | Synthesized via Web Audio (no files needed) with Classic / Retro / Digital / Mute packs |
@@ -119,8 +120,7 @@ Window 3 (bot):     Telegram bot polling (starts as soon as the URL is ready)
 2. Tap **🎮 OPEN BINGO ARENA** — the full-screen Mini App opens inside Telegram.
 3. **First time:** enter your **full name** and tap **📱 Share** — Telegram
    shares your phone number automatically (your wallet account).
-4. During the 60 s countdown pick up to **4 cards** (set your bet per card,
-   2–999 ETB) or hit **⚡ Quick Play**.
+4. During the 60 s countdown pick up to **4 cards** (fixed **10 ETB** per card in the single room) or hit **⚡ Quick Play**.
 4. Balls are called every 4 seconds — find each number on your card and
    **tap it to mark it** (paper-bingo style). Complete a **row, column,
    diagonal or four corners** and press **🔔 BINGO!** (the server verifies your
@@ -204,7 +204,7 @@ ADMIN_IDS=your-telegram-id-here        # find yours via @userinfobot
 # SERVER_HOST=127.0.0.1
 # SERVER_PORT=5000
 # APP_URL=http://localhost:5000        # run_tunnel.bat sets your https URL automatically
-# ROOM_BETS=30,50,100                 # rooms = FIXED bet per card (comma separated)
+# ROOM_BETS=10                        # ONE room, FIXED bet per card (default: a single “By 10” room)
 # MAX_CARDS_PER_PLAYER=4               # max cards per player per round
 # NEW_PLAYER_CREDIT=1000               # welcome coins
 # PRIZE_PERCENT=0.8                    # winner's share of the pool
@@ -287,7 +287,8 @@ super-admin controls — and renders sample card images into `sample_cards/`.
 A green `SMOKE TEST PASSED` means the core is healthy.
 
 > If your `.env` has no `ADMIN_IDS` (e.g. only `APP_URL`), pass the test
-> identities and rooms explicitly:
+> identities and rooms explicitly (the suite exercises 3 rooms 30/50/100 to
+> cover multi-room code paths; **production runs the single “By 10” room**):
 > `ADMIN_IDS=1 SUPER_ADMIN_IDS=2 ROOM_BETS=30,50,100 venv\Scripts\python.exe smoke_test.py`
 
 ---

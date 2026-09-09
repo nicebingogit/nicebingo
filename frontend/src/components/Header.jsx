@@ -23,18 +23,22 @@ export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmi
       </div>
 
       <div className="chips">
-        <div className="chip chip-room" title="Your room — each room has its own fixed bet">
+        <div className="chip chip-room" title="Your room — fixed bet per card">
           <span className="chip-icon">🚪</span>
-          <select
-            className="header-room-select"
-            value={room}
-            onChange={(e) => onRoomChange?.(Number(e.target.value))}
-            title="Choose your room"
-          >
-            {(rooms || []).map((r) => (
-              <option key={r} value={r}>Room {r}</option>
-            ))}
-          </select>
+          {(rooms || []).length > 1 ? (
+            <select
+              className="header-room-select"
+              value={room}
+              onChange={(e) => onRoomChange?.(Number(e.target.value))}
+              title="Choose your room"
+            >
+              {(rooms || []).map((r) => (
+                <option key={r} value={r}>Room {r}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="chip-num">Room {(rooms && rooms[0]) || room}</span>
+          )}
         </div>
         <div className="chip chip-credit" title="Your balance">
           <span className="chip-icon">💰</span>
