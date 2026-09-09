@@ -62,6 +62,7 @@ routes, depending on whether you can provide a card:
 | 💰 **Global win pool** | Pool = sum of **all** purchased cards (bots included); winner takes **80 %**, credited instantly |
 | 🃏 **Up to 4 cards** | One room — **fixed 10 ETB per card** in the single “By 10” room (per-card bet editor in the app) |
 | 🤖 **Smart bot fill** | The single room is filled with 18-140 invisible bots (chosen by the **number of humans** playing: fewer humans → more bots). Bots carry 1-3 real cards with a random 5-15-card deduction per round, feed the pool, and are invisible to players — only the super admin sees them |
+| ➕ **Manual bot fill** | The super admin panel's Game Controls has an **Add Bots** button (plus bot on/off and difficulty 0-5) — it instantly tops the room up to the current bot plan |
 | 🏆 **Someone always wins** | The game always stops at 75/75 balls — the loop checks the empty ball machine FIRST, so it can never hang in `playing`. With bots enabled a round NEVER ends winless — after all 75 balls every card is fully daubed, so a ready bot is always found and takes the win. On **Impossible** difficulty a human can never win — the ball machine is reordered so a bot completes first |
 | 🔁 **Auto-reset** | New 60 s round automatically after a winner or the 75th ball |
 | 🔔 **Real-time sync** | The app polls the local API every 2.5 s — called numbers, sold cards, phase, pool |

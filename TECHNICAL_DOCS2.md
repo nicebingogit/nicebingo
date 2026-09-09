@@ -143,7 +143,7 @@ nicebingo/
 │   │       ├── CalledBoard.jsx      # Ball calling board (B/I/N/G/O columns)
 │   │       ├── CardPicker.jsx       # Card selection grid (preparation phase)
 │   │       ├── AdminPanel.jsx       # Admin controls (inline in Mini App)
-│   │       ├── SuperAdminPanel.jsx  # Super admin controls
+│   │       ├── SuperAdminPanel.jsx  # Super admin controls (game controls incl. Add Bots, bot toggle & difficulty)
 │   │       ├── Settings.jsx         # Settings panel (wallet, profile, help)
 │   │       ├── Registration.jsx     # First-time registration screen
 │   │       ├── WinnerModal.jsx      # Winner celebration modal (confetti)
@@ -693,6 +693,12 @@ Renders a 5×5 Bingo card with:
 
 Full-screen modal with:
 - Confetti animation (CSS-based)
+- NOTE: the super admin panel's Game Controls include an explicit **Add Bots**
+  button (`POST /api/superadmin/game/add-bots`) that immediately fills the room
+  with bot players up to the current plan target (chosen by human count:
+  1 human -> 80-140 bots x1 card, 2-5 -> 40-79 x2, 6+ -> 18-39 x3, minus a
+  random 5-15 card deduction). Bots also join automatically during every
+  preparation countdown, so every game has players regardless of this button.
 - Winner name and prize amount
 - Winning card with pattern highlighted
 - "Next round" countdown
@@ -957,6 +963,10 @@ and renders sample cards.
 | GET | `/api/superadmin/activity` | Activity log |
 | GET | `/api/superadmin/appeals` | Wallet appeals |
 | POST | `/api/superadmin/appeals/review` | Resolve appeal |
+| POST | `/api/superadmin/game/add-bots` | Manually fill room with bots (up to current plan target) |
+| POST | `/api/superadmin/game/bots-toggle` | Enable/disable bots |
+| POST | `/api/superadmin/game/bots-difficulty` | Set bot difficulty 0-5 (5=Impossible) |
+| POST | `/api/superadmin/game/start` / `stop` / `pause` / `resume` | Game phase controls |
 
 ---
 

@@ -141,6 +141,18 @@ export default function SuperAdminPanel({ onError, onChanged }) {
     }
   };
 
+  // ---- ADD BOTS (manual top-up to the current plan target) ----
+  const addBotsNow = async () => {
+    playClick();
+    try {
+      const res = await api.superAdmin.addBots(room);
+      flashMsg(res?.ok
+        ? `🤖 Bots added (+${res.added ?? 0}) — room now has ${res.total ?? '?'} bot players.`
+        : `❌ ${res?.error || 'Could not add bots.'}`);
+      await loadGameState();
+    } catch (e) { flashMsg(`❌ ${e.message}`); }
+  };
+
   const resumeGame = async () => {
     playClick();
     try {
@@ -441,10 +453,21 @@ export default function SuperAdminPanel({ onError, onChanged }) {
                     await api.superAdmin.toggleBots(newEnabled);
                     setBotsEnabled(newEnabled);
                     flashMsg(newEnabled ? '🤖 Bots enabled.' : '🤖 Bots disabled.');
+                    if (newEnabled) await loadGameState();
                   } catch (e) { flashMsg(`❌ ${e.message}`); }
                 }}
               >
                 {botsEnabled ? '🟢 Disable Bots' : '🔴 Enable Bots'}
+              </button>
+
+              <button
+                className="btn btn-ghost user-btn"
+                style={{ color: 'var(--purple)', border: '1px solid rgba(217,92,255,0.4)' }}
+                onClick={addBotsNow}
+                disabled={!botsEnabled}
+                title="Fill this room with bot players up to the current plan (based on human count)"
+              >
+                ➕ Add Bots
               </button>
             </div>
 
