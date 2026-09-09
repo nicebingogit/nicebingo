@@ -262,7 +262,7 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 | `NUM_CARDS` | `400` | Pre-generated card pool size |
 | `ANNOUNCE_NUMBERS` | `False` | Announce every ball in chat |
 | `ANNOUNCE_ROUNDS` | `True` | Announce round start/winner in chat |
-| `ADMIN_APPROVAL_RATE` | `0.9` | Share of deposit deducted from admin |
+| `ADMIN_APPROVAL_RATE` | `0.9` | Legacy (unused) — admin credit is unified with player credit; kept for compatibility |
 | `ADMIN_ONLINE_MINUTES` | `5` | How long admin stays "online" |
 | `REFERRAL_COMMISSION_RATE` | `0.05` | 5% commission rate |
 
@@ -859,17 +859,27 @@ The delay is the number of balls to wait AFTER the pattern is completed before c
 5. Admin reviews → sends money to the user's account → Approve
 6. On approval: user's credit is decreased by the withdrawal amount
 
-### Admin Credit System
-- Admins use their **own player credit** (no separate admin balance)
-- When a deposit is approved, the user gets the full amount
-- The admin's credit is reduced by `ADMIN_APPROVAL_RATE` (90% of the deposit)
-- When a withdrawal is approved, the admin's credit is increased by the same rate
+### Admin Credit System (unified model)
+- Every account — admin or user — has **ONE credit balance** (the `players.credit` field; the legacy `players.admin_credit` column is unused by the live flow)
+- The super admin sells / buys back credit to admins via `POST /api/superadmin/credit` with `target=admin` — it writes the same unified balance
+- Approving a **deposit** credits the user the full amount; approving a **withdrawal** debits the user the full amount
+- The reviewing/owner admin's own balance is **never touched** — there is no separate admin_credit float. `ADMIN_APPROVAL_RATE` is retained in `config.py` for compatibility but is no longer applied anywhere
 
 ### Payment Account Management
 - Admins add payment accounts (bank name, account holder, account number)
-- Only **online** admins' accounts are shown to users for deposits
-- Super admin accounts are always available as fallback
+- The deposit picker shows **one account per bank/provider**: always the **online** admin with the most credit; if no admin is online for a provider, the **super admin's** account is the fallback; as a last resort an **offline** admin's account is shown clearly flagged `admin_online: false` so users always have somewhere to pay
+- A deposit into an **offline** admin's account is rejected (`400 offline`)
 - Admin is "online" while actively using the app (within `ADMIN_ONLINE_MINUTES`)
+
+### Running the smoke tests
+```bash
+# .env only stores APP_URL here, so pass the test identities + rooms explicitly:
+ADMIN_IDS=1 SUPER_ADMIN_IDS=2 ROOM_BETS=30,50,100 venv\Scripts\python.exe smoke_test.py
+# or, for the API-only suite:  venv\Scripts\python.exe api_smoke.py
+```
+The suite plays full rounds offline (registration, card sales, gradual bot fill,
+bot wins, **Impossible: a human can never win**, exact 80% payout, false-BINGO
+elimination, admin/super-admin controls) and renders sample cards.
 
 ---
 

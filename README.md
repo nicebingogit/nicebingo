@@ -281,9 +281,14 @@ venv\Scripts\python.exe smoke_test.py
 ```
 
 This plays full rounds offline through the real Flask API — registration,
-card sales, bots, winner detection, exact 80 % payout, claim-bingo, admin
-controls — and renders sample card images into `sample_cards/`. A green
-`SMOKE TEST PASSED` means the core is healthy.
+card sales, gradual bot fill, bot wins, **Impossible difficulty (humans can
+never win)**, winner detection, exact 80 % payout, claim-bingo, admin and
+super-admin controls — and renders sample card images into `sample_cards/`.
+A green `SMOKE TEST PASSED` means the core is healthy.
+
+> If your `.env` has no `ADMIN_IDS` (e.g. only `APP_URL`), pass the test
+> identities and rooms explicitly:
+> `ADMIN_IDS=1 SUPER_ADMIN_IDS=2 ROOM_BETS=30,50,100 venv\Scripts\python.exe smoke_test.py`
 
 ---
 

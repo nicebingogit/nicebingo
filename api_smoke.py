@@ -46,6 +46,11 @@ SUPER = config.SUPER_ADMIN_ID
 client = server.app.test_client()
 db, loop = server.db, server.loop  # loop.scheduler is NOT started in tests
 server.seed_cards()  # main() does this in production; do it here for the test client
+# The DB default is difficulty 5 (Impossible). The standard-bingo steps below
+# (winner-only-on-claim, payouts, false-BINGO) must run the NORMAL algorithm,
+# so switch to 0 (Easy — bots never claim, no Impossible guard) until the
+# dedicated bot-claim / Impossible sections at the end.
+loop.set_bots_difficulty(0)
 
 
 def get(path, **kw):
@@ -131,6 +136,7 @@ def main():
     class _FakeCtx:
         def __init__(self):
             self.user_data = {}
+            self.args = None  # bot handlers read context.args (referral deep-links)
 
     bot_obj = bot_module.PremiumBingoBot()
 
@@ -330,15 +336,15 @@ def main():
     step(9, "Historical transaction keeps the original account snapshot",
          db.get_transaction(tx_id)["account_number"] == "0911226071")
 
-    # ---- admin-credit model: the super admin sells credit to admins, and
-    # approving a deposit deducts ADMIN_APPROVAL_RATE (90%) of the amount from
-    # the ACCOUNT-OWNER admin's credit (the admin who owns the account the
-    # user paid into). Without credit the deposit cannot be approved.
+    # ---- unified-credit model: every account (admin or user) has ONE credit
+    # field; the super admin sells credit to admins via the same endpoint, and
+    # approving a deposit/withdraw only moves the USER's balance (the owner
+    # admin's own credit is never touched — no separate admin_credit float).
     code, data = post("/api/superadmin/credit",
                       {"admin_id": SUPER, "user_id": ADMIN,
                        "amount": 10000, "target": "admin"})
-    step(9, "Super admin sells 10000 admin credit to an admin",
-         code == 200 and data["admin_credit"] == 10000)
+    step(9, "Super admin sells 10000 credit to an admin",
+         code == 200 and data["credit"] == 10000)
     code, data = get("/api/game-state", query_string={"user_id": TEST_USER})
     dep_accs = data["settings"].get("deposit_accounts", [])
     # the account was edited to 9999999999 AFTER the deposit — the picker shows
@@ -350,14 +356,13 @@ def main():
              for d in dep_accs))
 
     bal_before = db.get_credit(TEST_USER)
-    admin_credit_before = db.get_admin_credit(ADMIN)
+    admin_credit_before = db.get_credit(ADMIN)
     code, data = post("/api/admin/transactions/review",
                       {"admin_id": ADMIN, "id": tx_id, "action": "approve"})
-    expected_deduction = int(200 * config.ADMIN_APPROVAL_RATE)
     step(9, f"Admin approves deposit -> +200 ETB (balance {data['transaction']['credit']})",
          code == 200 and db.get_credit(TEST_USER) == bal_before + 200)
-    step(9, f"Approving deducts {expected_deduction} ETB from the owner admin's credit",
-         db.get_admin_credit(ADMIN) == admin_credit_before - expected_deduction)
+    step(9, "Approving a deposit does NOT touch the admin's own credit (unified model)",
+         db.get_credit(ADMIN) == admin_credit_before)
 
     code, data = post("/api/transactions",
                       {"user_id": TEST_USER, "type": "withdraw", "amount": 100})
@@ -373,14 +378,13 @@ def main():
          and data["transaction"]["account_number"] == "+251922334455")
     tx_id2 = data["id"]
     bal_before = db.get_credit(TEST_USER)
-    admin_credit_before = db.get_admin_credit(ADMIN)
+    admin_credit_before = db.get_credit(ADMIN)
     code, data = post("/api/admin/transactions/review",
                       {"admin_id": ADMIN, "id": tx_id2, "action": "approve"})
-    expected_back = int(100 * config.ADMIN_APPROVAL_RATE)
     step(9, f"Admin approves withdraw -> -100 ETB (balance {data['transaction']['credit']})",
          code == 200 and db.get_credit(TEST_USER) == bal_before - 100)
-    step(9, f"Approving the withdraw credits {expected_back} ETB back to the admin",
-         db.get_admin_credit(ADMIN) == admin_credit_before + expected_back)
+    step(9, "Approving a withdraw does NOT touch the admin's own credit (unified model)",
+         db.get_credit(ADMIN) == admin_credit_before)
 
     code, data = get("/api/admin/transactions", query_string={"admin_id": ADMIN})
     step(9, "Admin wallet panel shows user name + phone + account + tx number",
@@ -486,15 +490,14 @@ def main():
          TEST_USER not in db.get_eliminated_user_ids(new_game))
 
     # ------------------------------ 12. announcements never show a round number
-    captured = []
-
-    async def fake_broadcast(player_ids, message):
-        captured.append(message)
-
-    bot_obj.broadcast = fake_broadcast
-    bot_obj._last = {30: {"phase": "ended", "count": 0, "round": 41},
-                     50: {"phase": "ended", "count": 0, "round": 0},
-                     100: {"phase": "ended", "count": 0, "round": 0}}
+    # the announcer queues messages into bot_notifications (the bot's drain
+    # sends them over Telegram) — capture the queue, not a broadcast stub
+    for r in config.ROOM_BETS:
+        st = db.get_game_state(r)
+        bot_obj._last[r] = {"phase": st["phase"],
+                            "count": len(db.get_called_numbers(r)),
+                            "round": st.get("round_number")}
+    bot_obj._last[30] = {"phase": "ended", "count": 0, "round": 41}
     db.clear_selections()
     db.update_game_state(30, phase="playing", round_number=42)
     old_r, old_n = config.ANNOUNCE_ROUNDS, config.ANNOUNCE_NUMBERS
@@ -506,9 +509,11 @@ def main():
     asyncio.run(_tick())
     config.ANNOUNCE_ROUNDS, config.ANNOUNCE_NUMBERS = old_r, old_n
 
-    playing_msgs = [m for m in captured if "started" in m.lower()]
+    queued = [n["text"] for n in db.get_unsent_bot_notifications()]
+    playing_msgs = [m for m in queued if "started" in m.lower()]
+    # one row per recipient, so compare distinct messages
     step(12, "Round announcement uses a simple message (no round number)",
-         len(playing_msgs) == 1
+         len(set(playing_msgs)) == 1
          and "A new Bingo round has started" in playing_msgs[0]
          and "42" not in playing_msgs[0])
     step(12, "Winner/display name uses the stored full name",
@@ -535,12 +540,15 @@ def main():
 
     # --------------------- 15. bots press BINGO — other players can win too
     # bots hold cards by default and claim like humans (with a short random
-    # delay), so a bot genuinely wins rounds — the player is never alone
+    # delay), so a bot genuinely wins rounds — the player is never alone.
+    # Bot fill works on EVERY difficulty: switch to the default Impossible (5)
+    # here — bots still join and claim instantly, exactly like a full room.
     from game_logic import bot_name, BOT_MALE_FIRST_NAMES
     sample = [bot_name(-(1000 + i)) for i in range(30)]
     step(15, "All bot names are human MALE names (first + surname)",
          all(n.split()[0] in BOT_MALE_FIRST_NAMES for n in sample)
          and len(sample[0].split()) == 2)
+    loop.set_bots_difficulty(5)
 
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
     code, data = post("/api/admin/force-start", {"admin_id": ADMIN, "room": 30})
@@ -572,6 +580,40 @@ def main():
          and "B" in state["winner"]["card"]["numbers"])
     step(15, "Bot winner gets a human male display name",
          bool(state["winner"]["name"].strip()))
+
+    # -------- 15b. IMPOSSIBLE (5): a human can NEVER win, even mid-round
+    # when their card would complete on the next ball. The pre-call guard
+    # reorders/ends the round instead of completing a human pattern, and the
+    # claim_bingo backstop refuses a direct human claim, so the win never
+    # lands on a human.
+    post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
+    code, data = post("/api/select-card",
+                      {"user_id": TEST_USER, "card_id": "8", "bet_amount": 30})
+    step(15, "Impossible test: human picks a card", code == 200)
+    post("/api/admin/force-start", {"admin_id": ADMIN, "room": 30})
+    for sel in db.get_all_selections(30):
+        if sel["user_id"] < 0:
+            db.deselect_card(sel["user_id"], sel["card_id"])
+    card8 = db.get_card("8")
+    row8 = [f"{c}-{card8[c][0]}" for c in COLUMNS]
+    db.set_ball_order(30, row8 + [n for n in loop.logic.new_ball_order() if n not in row8])
+    for _ in range(5):
+        post("/api/admin/force-call", {"admin_id": ADMIN, "room": 30})
+    code, state = get("/api/game-state", query_string={"user_id": TEST_USER, "room": 30})
+    step(15, "Impossible: human's completing ball is blocked — no human winner",
+         state["phase"] == "ended"
+         and (state.get("winner") is None or state["winner"]["user_id"] < 0))
+    # the claim backstop: a human pressing BINGO on Impossible never wins
+    post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
+    post("/api/select-card",
+          {"user_id": TEST_USER, "card_id": "9", "bet_amount": 30})
+    post("/api/admin/force-start", {"admin_id": ADMIN, "room": 30})
+    for sel in db.get_all_selections(30):
+        if sel["user_id"] < 0:
+            db.deselect_card(sel["user_id"], sel["card_id"])
+    code, data = post("/api/claim-bingo", {"user_id": TEST_USER, "card_id": "9"})
+    step(15, "Impossible: human BINGO claim refused — humans can never win",
+         not (data.get("winner") and data["winner"]["user_id"] > 0))
 
     # ------------------- 16. super admin console + admin-credit/online model
     # the super admin sees EVERY account (admins AND users) with credits
@@ -611,8 +653,8 @@ def main():
     step(16, "Deposit into an OFFLINE admin's account is rejected",
          code == 400 and "offline" in (data.get("error") or "").lower())
     code, data = get("/api/game-state", query_string={"user_id": TEST_USER})
-    step(16, "Offline admins' accounts disappear from the deposit picker",
-         not any(d["provider"] == "TeleBirr"
+    step(16, "Offline admins' accounts are flagged OFFLINE in the deposit picker",
+         not any(d["provider"] == "TeleBirr" and d["account"]["admin_online"]
                  for d in data["settings"].get("deposit_accounts", [])))
     db.touch_admin(ADMIN)  # bring the admin back online
 
@@ -638,15 +680,15 @@ def main():
     step(16, "Super admin sees all appeals",
          code == 200 and any(a["id"] == appeal_id for a in data["appeals"]))
     bal_before = db.get_credit(TEST_USER)
-    admin_credit_before = db.get_admin_credit(ADMIN)
+    admin_credit_before = db.get_credit(ADMIN)
     code, data = post("/api/superadmin/appeals/resolve",
                       {"admin_id": SUPER, "id": appeal_id, "action": "approve",
                        "resolution": "Verified the transfer"})
     step(16, "Super admin approves the appeal -> user credited",
          code == 200 and data["appeal"]["status"] == "approved"
          and db.get_credit(TEST_USER) == bal_before + 50)
-    step(16, "Appeal approval also charges the owner admin's credit",
-         db.get_admin_credit(ADMIN) == admin_credit_before - int(50 * config.ADMIN_APPROVAL_RATE))
+    step(16, "Appeal approval does NOT touch the owner admin's credit (unified model)",
+         db.get_credit(ADMIN) == admin_credit_before)
 
     # super admin sees the whole transaction log
     code, data = get("/api/superadmin/transactions", query_string={"admin_id": SUPER})
