@@ -1,6 +1,10 @@
 # Nice Bingo — Technical Documentation
 
 > Complete technical reference for recreating, modifying, or deploying the Nice Bingo system from scratch.
+>
+> **⚠️ This documentation must be updated with every change to the codebase.** When you modify behavior,
+> configuration, schema, or APIs, update the relevant sections here (and in `README.md`) in the **same change**.
+> An out-of-date document is worse than no document.
 
 ---
 
@@ -33,7 +37,7 @@ Nice Bingo is a real-time multiplayer Bingo game built as a **Telegram Mini App*
 ### Key Features
 - **Multi-room system**: Players choose between rooms with fixed bets (default: 10 / 20 / 30 ETB per card)
 - **Real-time gameplay**: Balls called every 4 seconds via a server-side game loop
-- **Bot players**: AI players fill rooms to 18-90 total cards, each holding 2-3 cards
+- **Bot players**: AI players fill every room to 18-140 players (count chosen by how many **humans** are playing — see [Bot System](#12-bot-system-ai-players)). Bots look exactly like real players (Ethiopian male names, negative IDs) and are completely invisible to humans.
 - **Auto-play mode**: Players can toggle auto-daub and auto-claim
 - **Wallet system**: Deposit/withdraw via bank accounts (TeleBirr, CBE, CBB, etc.)
 - **Referral program**: 5% commission on referred players' bets
@@ -253,8 +257,8 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 | `CALL_INTERVAL_SECONDS` | `4` | Seconds between ball calls |
 | `POST_GAME_RESET_SECONDS` | `15` | Winner screen duration |
 | `TICK_INTERVAL` | `1` | Game loop tick interval (seconds) |
-| `MIN_TOTAL_PLAYERS` | `18` | Minimum total cards in play |
-| `MAX_TOTAL_PLAYERS` | `90` | Maximum total cards in play |
+| `MIN_TOTAL_PLAYERS` | `18` | Informational — lowest total players (real + bots) in play |
+| `MAX_TOTAL_PLAYERS` | `140` | Informational — highest total players (real + bots) in play |
 | `NUM_CARDS` | `400` | Pre-generated card pool size |
 | `ANNOUNCE_NUMBERS` | `False` | Announce every ball in chat |
 | `ANNOUNCE_ROUNDS` | `True` | Announce round start/winner in chat |
@@ -299,7 +303,7 @@ CREATE TABLE game_state (
     round_number INTEGER DEFAULT 0,
     current_game_id INTEGER,
     bots_enabled INTEGER DEFAULT 1,
-    bots_difficulty INTEGER DEFAULT 2,  -- 0=Easy, 5=Impossible
+    bots_difficulty INTEGER DEFAULT 5,  -- 0=Easy, 5=Impossible (default)
     next_call_time TEXT,                -- ISO timestamp for next ball call
     reset_time TEXT,                    -- ISO timestamp for round reset
     paused INTEGER DEFAULT 0,
@@ -559,12 +563,13 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 ```
 
 **`tick()` method (every 1 second):**
-- **Preparation phase**: Adds bots gradually (1 per tick) if cards < MAX_TOTAL_PLAYERS
+- **Preparation phase**: Adds up to 8 bots/tick gradually toward the current plan (chosen by human count)
 - **Playing phase**: Calls next ball when `next_call_time` arrives
 - **Ended phase**: Resets round when `reset_time` arrives
 
 **`start_round()` method:**
-- Calls `ensure_minimum_players()` to fill the room with bots
+- Rebuilds the bot plan from the **final human count** and tops up the room slot-by-slot (each bot gets the plan's card count)
+- Persists bot accounts (negative IDs) for the super-admin `/api/admin/bots` view
 - Creates a new `games` row
 - Sets ball order (shuffled 75 balls)
 - Transitions to "playing" phase
@@ -608,8 +613,8 @@ Pure game logic, no I/O.
 - Returns: `total_bets`, `prize_pool` (80%), `house_fee` (20%), `real_players` count
 
 **Bot system:**
-- `add_bot_player()` — Creates a bot with a human name, gives it 2-3 random cards
-- `ensure_minimum_players()` — Fills the room to a random target of 18-90 total cards
+- `add_bot_player()` — Creates a bot with a human name + the plan's card count (1-3 cards)
+- `ensure_minimum_players()` — Fills the room to a plan chosen by the human count (see Bot System)
 - `player_breakdown()` — Returns counts of real vs bot players
 
 **Bot naming:**
@@ -736,8 +741,9 @@ Synthesized via Web Audio API (no external files). Four packs:
 1. Timer starts at 40 seconds
 2. Players select up to 3 cards from a pool of 400
 3. Each card costs the room's fixed bet (10/20/30 ETB)
-4. Bots gradually join (1 per tick), each taking 2-3 cards
-5. When timer hits 0, `ensure_minimum_players()` fills to 18-90 total cards
+4. Bots gradually join (up to 8 per tick), each taking the plan's card count
+5. When timer hits 0, `start_round()` rebuilds the plan from the final human
+   count and tops up to the chosen option (80-140 / 40-79 / 18-39 bots)
 
 ### Playing Phase
 1. Balls are called every 4 seconds from a shuffled pool of 75
@@ -775,28 +781,59 @@ Bot bets contribute to the pool just like real bets, making the prize larger.
 
 ### How Bots Work
 - Bots are identified by **negative user IDs** (e.g., -12345)
-- Each bot gets a **human-like Ethiopian name** (deterministic from ID)
-- Each bot picks **2-3 random cards** from the available pool
+- Each bot gets a **human-like Ethiopian male name** (deterministic from ID) — e.g. "Abel Girma"
+- Each bot picks **1-3 cards** from the pool, per the round's card plan
 - Bot bets feed the prize pool (controlled by `BOTS_CONTRIBUTE_TO_POOL`)
+- Bots are ordinary `players` rows to every player in the room — only the
+  super admin can see them (via `/api/admin/bots` and the `bots` table)
 
 ### Bot Filling Logic
-1. During preparation, one bot is added per tick (every 1 second)
-2. The tick checks if `cards_in_play < MAX_TOTAL_PLAYERS` (90)
-3. When the round starts, `ensure_minimum_players()` fills to a random target of 18-90 cards
-4. The target is always at least `current_cards + 2-5`, so bots always join
+1. During preparation, bots join gradually (up to 8 per tick) toward the
+   current plan — the room always looks alive before the round starts
+2. The plan is recomputed from the **current human-player count** every call,
+   so the fill follows how many real players are in the room that round
+3. When the round starts, `_bot_plan()` rebuilds the plan with the **final**
+   human count and `start_round()` tops up the room slot-by-slot
+4. Every round randomly deducts **5-15 cards** from the total bot-card count
+   (option's cards × bots, minus the deduction). Each bot keeps at least 1 card
+5. Bots work on **every difficulty level** — they are added to fill the room
+   regardless of the difficulty setting
+
+**Bot count is chosen by the number of HUMAN players** (`pick_bot_target()`):
+
+| Option | Human players | Bots added | Cards per bot |
+|--------|---------------|------------|---------------|
+| 1 | `0-1` | 80-140 | 1 |
+| 2 | `2-5` (e.g. 2 players → 40-79) | 40-79 | 2 |
+| 3 | `6+` | 18-39 | 3 |
+
+Card plan example (Option 2, the famous case): 42 bots × 2 cards = 84, minus a
+random 5-15 deduction (say 9) → the game starts with **75** bot cards: 33 bots
+with 2 and 9 bots with 1. Option 1 (1 card each) cannot be reduced below 1 card
+per bot, so no deduction applies there.
+
+> Bots are completely **invisible to humans** — they are stored as ordinary
+> players (negative IDs) with Ethiopian male names, and their bets feed the
+> prize pool. Only the **super admin** sees them via `/api/admin/bots` and the
+> `bots` table.
 
 ### Bot Claim System
 Bots press BINGO like humans — only when a card actually has a complete pattern.
 
-**Difficulty levels (0-5):**
+**Difficulty levels (0-5). Default = 5 (Impossible):**
 | Level | Name | Delay Range | Behavior |
 |-------|------|-------------|----------|
 | 0 | Easy | Never | Bots never claim — humans always win |
 | 1 | Normal | 5-8 balls | Very slow, rarely win |
-| 2 | Medium | 3-5 balls | Default, human-like delay |
+| 2 | Medium | 3-5 balls | Balanced, human-like delay |
 | 3 | Hard | 1-2 balls | Fast, often beats humans |
 | 4 | Very Hard | 0-1 balls | Near-instant |
-| 5 | Impossible | 0 balls | Instant — impossible to beat |
+| 5 | **Impossible** | 0 balls | Instant — **default**, humans can never win |
+
+**Impossible (5) is the default** and its mechanics are **strictly isolated**:
+only difficulty 5 reorders the ball machine and blocks human wins (`_impossible_guard`
+in `call_step` + the `claim_bingo` backstop). All other levels keep the standard
+bingo timing and logic — nothing from Impossible leaks into them.
 
 The delay is the number of balls to wait AFTER the pattern is completed before claiming. This gives other players a chance to claim first.
 
@@ -953,7 +990,7 @@ python bot.py     # Terminal 2
 | Bot replies Unauthorized to `/admin` | ID not in ADMIN_IDS | Check with @userinfobot, add to .env |
 | Game stuck / no countdown | Stale game state | Run `python migrate_db.py` |
 | Port 5000 already in use | Another process on port | Close it or set `SERVER_PORT` in .env |
-| Cards show equal to players | Bot cards = 1 per bot | Already fixed: bots now pick 2-3 cards each |
+| Cards show equal to players | Bot cards = 1 per bot | Already fixed: bots now hold cards from the round's plan (1-3 per bot) |
 | Notifications not arriving | Webhook mode + job queue | Server drains `bot_notifications` table on each request |
 
 ### Logs

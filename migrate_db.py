@@ -70,6 +70,19 @@ def main() -> None:
         else:
             print(f"[3/3] {config.room_label(room)} already in preparation — leaving it as-is")
 
+    # 4) one-time: the default bot difficulty is now 5 (Impossible). Databases
+    # created before this change hold the OLD default (2 = Medium) in every
+    # room. That is indistinguishable from an explicit Medium choice, so the
+    # migration runs exactly ONCE — afterwards the admin's difficulty selection
+    # is never overridden again.
+    flag = "bots_default_difficulty_5_applied"
+    if db.get_setting(flag) is None:
+        changed = db.upgrade_bots_difficulty_to_impossible()
+        db.set_setting(flag, "1")
+        print(f"[4/4] Default difficulty → 5 (Impossible) updated {changed} room(s)")
+    else:
+        print("[4/4] Default difficulty already migrated — leaving it as-is")
+
     print("─" * 56)
     print("✅ Migration complete.")
 

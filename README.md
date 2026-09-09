@@ -27,6 +27,10 @@ Everything (game state, database, logic) lives wherever you run it. The **same
 bot token and admin ids** from your existing `.env` are used — nothing changes
 on the Telegram side.
 
+> **📝 Documentation rule:** these docs (and `TECHNICAL_DOCS2.md`) **must be
+> updated with every change** to the codebase — behavior, config, schema or
+> APIs — in the same change. An out-of-date document is worse than no document.
+
 ---
 
 ## ☁️ Run 24/7 in the cloud (free)
@@ -57,7 +61,7 @@ routes, depending on whether you can provide a card:
 | 🔢 **Auto-calling** | A ball every **4 seconds**, driven by a server-side APScheduler loop |
 | 💰 **Global win pool** | Pool = sum of **all** purchased cards (bots included); winner takes **80 %**, credited instantly |
 | 🃏 **Up to 4 cards** | Bet per card, **min 2 ETB, default 30 ETB** (per-card bet editor in the app) |
-| 🤖 **18 bot players** | Auto-fill the room, toggleable by admins, bets feed the pool |
+| 🤖 **Smart bot fill** | Every room is filled with 18-140 invisible bots (chosen by the **number of humans** playing: fewer humans → more bots). Bots carry 1-3 real cards with a random 5-15-card deduction per round, feed the pool, and are invisible to players — only admins can toggle them |
 | 🔁 **Auto-reset** | New 60 s round automatically after a winner or the 75th ball |
 | 🔔 **Real-time sync** | The app polls the local API every 2.5 s — called numbers, sold cards, phase, pool |
 | 🔊 **Sound effects** | Synthesized via Web Audio (no files needed) with Classic / Retro / Digital / Mute packs |
@@ -207,7 +211,7 @@ ADMIN_IDS=your-telegram-id-here        # find yours via @userinfobot
 # PREPARATION_SECONDS=60               # countdown between rounds
 # CALL_INTERVAL_SECONDS=4              # seconds between balls
 # POST_GAME_RESET_SECONDS=15           # winner screen length
-# MAX_TOTAL_PLAYERS=18                 # real players + bots
+# MAX_TOTAL_PLAYERS=18                 # informational — bot count follows human count (config.BOT_OPTIONS)
 # NUM_CARDS=400                        # card pool size
 # ANNOUNCE_NUMBERS=True                # also announce every ball in chat
 ```

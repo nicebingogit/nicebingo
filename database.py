@@ -318,7 +318,7 @@ class Database:
             self._ensure_column(conn, "game_state", "next_call_time", "TEXT")
             self._ensure_column(conn, "game_state", "reset_time", "TEXT")
             self._ensure_column(conn, "game_state", "paused", "INTEGER DEFAULT 0")
-            self._ensure_column(conn, "game_state", "bots_difficulty", "INTEGER DEFAULT 2")
+            self._ensure_column(conn, "game_state", "bots_difficulty", "INTEGER DEFAULT 5")
             # rooms: existing rows join the default room (30) until a player
             # picks a room from the listbox
             self._ensure_column(conn, "card_selections", "room", "INTEGER NOT NULL DEFAULT 30")
@@ -741,8 +741,8 @@ class Database:
                 )
 
     def get_bots_difficulty(self, room: int = 30) -> int:
-        """Bot difficulty level (0=easy ... 5=impossible). Default 2=medium."""
-        return int(self.get_game_state(room).get("bots_difficulty", 2))
+        """Bot difficulty level (0=easy ... 5=impossible). Default 5=impossible."""
+        return int(self.get_game_state(room).get("bots_difficulty", 5))
 
     def set_bots_difficulty(self, level: int) -> None:
         """Set bot difficulty for EVERY room (0-5)."""
@@ -753,6 +753,18 @@ class Database:
                     "UPDATE game_state SET bots_difficulty = ? WHERE room = ?",
                     (level, room),
                 )
+
+    def upgrade_bots_difficulty_to_impossible(self) -> int:
+        """One-time migration: rooms still on the OLD default difficulty (2 =
+        Medium) move to the new default 5 (Impossible). Returns the number of
+        rooms updated. Guarded by a settings flag in migrate_db so it never
+        overrides a later explicit admin choice."""
+        with self._session() as conn:
+            cur = conn.execute(
+                "UPDATE game_state SET bots_difficulty = 5 "
+                "WHERE bots_difficulty = 2"
+            )
+            return cur.rowcount
 
     # --------------------------------------------------------------------- bots
     def record_bot(self, user_id: int, username: str, cards: int) -> None:

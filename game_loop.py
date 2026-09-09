@@ -13,6 +13,7 @@ import logging
 import random
 import threading
 from datetime import datetime, timedelta
+from typing import Tuple
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -46,10 +47,11 @@ class GameLoop:
         # it "notices" after a short random delay (1-4 balls) and claims, so
         # other players genuinely win rounds. shape: {room: {bot_id: call_index}}
         self._bot_claim_at: dict[int, dict[int, int]] = {}
-        # per-room random BOT-PLAYER target chosen once per game (18-140).
-        # held in memory only (no DB migration needed) — reset_round() drops it
-        # so the NEXT game picks a fresh random count.
-        self._bot_targets: dict[int, int] = {}
+        # NO cached bot target: the plan is recomputed every time from the
+        # CURRENT human-player count (fewer humans -> more bots, 80-140; more
+        # humans -> fewer bots, 18-39) plus a per-bot card plan with a random
+        # 5-15 card deduction. Prep ticks fill toward a provisional plan and
+        # start_round() rebuilds it with the final human count and tops up.
 
     # ------------------------------------------------------------------ boot
     def start(self) -> None:
@@ -103,7 +105,7 @@ class GameLoop:
                     # keep the room looking alive: top up bots during the
                     # countdown too, so the player sees other players BEFORE
                     # the round starts. Bots join gradually (random chunks each
-                    # tick) toward the round's random 18-140 target.
+                    # tick) toward the current plan (chosen by human count).
                     self._add_prep_bots(room, state)
                     end = _parse(state.get("preparation_end_time"))
                     if end and now >= end:
@@ -127,10 +129,17 @@ class GameLoop:
 
             bots_enabled = self.db.get_bots_enabled(room)
             if bots_enabled:
-                # this round's random bot-player count (18-140); gradual ticks
-                # already filled most of it, so top up to the exact target here
-                target = self._bot_target(room)
-                self.logic.ensure_minimum_players(room, target=target)
+                # final bot plan, based on the CURRENT human count: gradual
+                # prep ticks already filled some of it, so top up the rest
+                # slot-by-slot with the plan's per-bot card counts
+                target, cards_each, plan = self._bot_plan(room)
+                current = self.logic.bot_player_count(room)
+                for slot in range(current, target):
+                    cards = plan[slot] if slot < len(plan) else cards_each
+                    if not self.logic.add_bot_player(room, cards):
+                        break
+                logger.info("%s: round starts with %s bot players · %s cards each",
+                            config.room_label(room), target, cards_each)
                 # persist bot accounts (negative ids) for the /api/admin/bots view
                 for sel in self.db.get_all_selections(room):
                     if sel["user_id"] < 0:
@@ -318,8 +327,8 @@ class GameLoop:
         """ended -> fresh preparation phase."""
         with self._lock:
             self._bot_claim_at[room] = {}
-            # next game gets a fresh random bot-player count (18-140)
-            self._bot_targets.pop(room, None)
+            # bot plan is recomputed from the current human count every tick —
+            # nothing to drop between rounds
             self.db.clear_selections(room)
             self.db.clear_called_numbers(room)
             self.db.clear_eliminations()
@@ -404,32 +413,33 @@ class GameLoop:
         return None
 
     # ------------------------------------------------------------- bot filling
-    def _bot_target(self, room: int = 30) -> int:
-        """The random bot-player target (18-140) for this room's current game.
+    def _bot_plan(self, room: int = 30) -> Tuple[int, int, list]:
+        """Build this instant's bot-fill plan for the room.
 
-        Picked once per game and kept for the whole round so the gradual prep
-        fill and the start_round top-up agree on the same final count.
-        reset_round() removes it, so every new game gets a fresh random count.
+        Returns (target, cards_each, per_bot_card_counts). Recomputed every
+        call so it always follows the CURRENT human count — fewer humans get
+        the fullest option (80-140 bots), more humans get a lighter fill
+        (18-39 bots). Prep ticks fill toward a provisional plan; start_round()
+        rebuilds it with the final human count and tops up slot-by-slot.
         """
-        target = self._bot_targets.get(room)
-        if target is None:
-            target = self.logic.pick_bot_target()
-            self._bot_targets[room] = target
-            logger.info("%s: this round's bot target = %s",
-                        config.room_label(room), target)
-        return target
+        humans = self.logic.human_player_count(room)
+        target = self.logic.pick_bot_target(humans)
+        cards_each = self.logic.bot_cards_for_count(target)
+        plan = self.logic.bot_card_plan(target, cards_each)
+        return target, cards_each, plan
 
     def _add_prep_bots(self, room: int = 30, state: dict | None = None) -> int:
-        """During preparation, join bots gradually toward the round's random
-        18-140 target instead of dumping them all at once.
+        """During preparation, join bots gradually toward the current plan's
+        target instead of dumping them all at once.
 
         The number added per tick is derived from how far the countdown has
-        progressed (even spread), capped so joins feel natural. The exact final
-        top-up still happens in start_round().
+        progressed (even spread), capped so joins feel natural. Card counts
+        come from the plan's per-bot slots. The final top-up still happens in
+        start_round().
         """
         if not self.db.get_bots_enabled(room):
             return 0
-        target = self._bot_target(room)
+        target, cards_each, plan = self._bot_plan(room)
         current = self.logic.bot_player_count(room)
         if current >= target:
             return 0
@@ -444,10 +454,11 @@ class GameLoop:
         to_add = max(0, min(8, expected - current))
         if to_add == 0:
             return 0
-        cards_per_bot = self.logic.bot_cards_for_count(target)
         added = 0
         for _ in range(to_add):
-            if self.logic.add_bot_player(room, cards_per_bot):
+            slot = current + added
+            cards = plan[slot] if slot < len(plan) else cards_each
+            if self.logic.add_bot_player(room, cards):
                 added += 1
         return added
 
@@ -678,9 +689,9 @@ class GameLoop:
 
     def add_bots(self, room: int = 30) -> dict:
         with self._lock:
-            # consistent with this round's random target when a game is in play
-            added = self.logic.ensure_minimum_players(room,
-                                                      target=self._bot_target(room))
+            # consistent with the current human count's plan when a game is in play
+            target, _cards_each, _plan = self._bot_plan(room)
+            added = self.logic.ensure_minimum_players(room, target=target)
             for sel in self.db.get_all_selections(room):
                 if sel["user_id"] < 0:
                     name = bot_name(sel["user_id"])

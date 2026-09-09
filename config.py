@@ -143,17 +143,29 @@ TOTAL_NUMBERS = 75                                          # a bingo set
 # ---------------------------------------------------------------------------
 # Players / bots
 # ---------------------------------------------------------------------------
-MIN_TOTAL_PLAYERS = _int("MIN_TOTAL_PLAYERS", 18)   # minimum total players (real + bots) per room
-MAX_TOTAL_PLAYERS = _int("MAX_TOTAL_PLAYERS", 90)   # maximum total players (real + bots) per room
-# Random BOT PLAYER count picked per game (per room per round). These are pure
-# constants (not env-driven) so the deployed environment can never distort the
-# required 18-140 range.
-BOT_MIN_PLAYERS = 18      # lowest number of bot players a game can fill to
-BOT_MAX_PLAYERS = 140     # highest number of bot players a game can fill to
-# Cards each bot gets depends on the FINAL bot-player count:
-#   80-140 players -> 1 card each
-#   40-79  players -> 2 cards each
-#   18-39  players -> 3 cards each
+# Legacy total-player aliases (informational only — the live fill logic below
+# sums real + bot players per room, so these just describe the overall range).
+MIN_TOTAL_PLAYERS = _int("MIN_TOTAL_PLAYERS", 18)   # minimum total players (real + bots)
+MAX_TOTAL_PLAYERS = _int("MAX_TOTAL_PLAYERS", 140)  # maximum total players (real + bots)
+# How many bot players a game gets is chosen by the NUMBER OF HUMAN players in
+# the room, then randomized inside that option's range:
+#   humans <= 1        -> Option 1: 80-140 bots, 1 card each
+#   2 <= humans <= 5   -> Option 2: 40-79  bots, 2 cards each   (e.g. 2 humans)
+#   humans >= 6        -> Option 3: 18-39  bots, 3 cards each
+# Each tuple: (max_humans, min_bots, max_bots, cards_each). max_humans None
+# means the option catches every larger human count. Pure constants (not
+# env-driven) so a deployed environment can never distort the required ranges.
+BOT_OPTIONS = (
+    (1, 80, 140, 1),
+    (5, 40, 79, 2),
+    (None, 18, 39, 3),
+)
+# Every game randomly deducts 5-15 cards from the total bot-card count: most
+# bots keep the option's cards, a few keep one less. A bot never holds fewer
+# than 1 card, so a 1-card option cannot be reduced below 1 per bot.
+BOT_CARD_DEDUCTION = (5, 15)
+# Cards each bot gets depends on the FINAL bot-player count (matches the option
+# ranges above — used to derive cards_each from a chosen count).
 BOT_CARDS_BY_COUNT = ((80, 1), (40, 2), (18, 3))
 NUM_CARDS = _int("NUM_CARDS", 400)                  # pre-generated card pool
 

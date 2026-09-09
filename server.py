@@ -318,7 +318,7 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
         "bots_players": logic.player_breakdown(room)["bots"],
         "cards_in_play": len(db.get_all_selections(room)),
         "bots_enabled": bool(state.get("bots_enabled", 1)),
-        "bots_difficulty": int(state.get("bots_difficulty", 2)),
+        "bots_difficulty": int(state.get("bots_difficulty", 5)),
         "paused": bool(state.get("paused", 0)),
         "winner": winner,
         "settings": _settings_payload(),

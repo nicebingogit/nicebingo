@@ -89,7 +89,7 @@ export default function SuperAdminPanel({ onError, onChanged }) {
   const [gamePaused, setGamePaused] = useState(false);
   const [room, setRoom] = useState(10);
   const [botsEnabled, setBotsEnabled] = useState(true);
-  const [botsDifficulty, setBotsDifficulty] = useState(2);
+  const [botsDifficulty, setBotsDifficulty] = useState(5);
   const [realPlayers, setRealPlayers] = useState(0);
   const [botsPlayers, setBotsPlayers] = useState(0);
   const [cardsInPlay, setCardsInPlay] = useState(0);
@@ -103,7 +103,7 @@ export default function SuperAdminPanel({ onError, onChanged }) {
       setGamePhase(d.phase || 'preparation');
       setGamePaused(!!d.paused);
       setBotsEnabled(!!d.bots_enabled);
-      setBotsDifficulty(d.bots_difficulty ?? 2);
+      setBotsDifficulty(d.bots_difficulty ?? 5);
       setRealPlayers(d.real_players ?? 0);
       setBotsPlayers(d.bots_players ?? 0);
       setCardsInPlay(d.cards_in_play ?? 0);
@@ -485,10 +485,10 @@ export default function SuperAdminPanel({ onError, onChanged }) {
               <p className="reg-hint" style={{ marginTop: 4, marginBottom: 0 }}>
                 {botsDifficulty === 0 && '🟢 Powerless — bots almost never win'}
                 {botsDifficulty === 1 && '🟢 Slow claim — bots rarely beat humans'}
-                {botsDifficulty === 2 && '🟡 Default — balanced difficulty'}
+                {botsDifficulty === 2 && '🟡 Balanced difficulty'}
                 {botsDifficulty === 3 && '🟠 Fast claim — bots often win'}
                 {botsDifficulty === 4 && '🔴 Near-instant — very powerful bots'}
-                {botsDifficulty === 5 && '🔴 Instant claim — impossible to beat!'}
+                {botsDifficulty === 5 && '🔴 Instant claim — impossible to beat! (default)'}
               </p>
             </div>
             <p className="reg-hint" style={{ marginTop: 8 }}>
