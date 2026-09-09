@@ -112,8 +112,8 @@ The bot's URL still says `localhost` until you do step 8 — that's expected.
 1. Open the `https://…code.run` URL in a browser → the arena loads.
 2. In Telegram, send the bot `/play` → tap **🎮 OPEN BINGO ARENA** → the
    Mini App opens (now on the cloud URL).
-3. `/status` should answer. Play a round — bots fill the room, rounds run
-   automatically, winners get paid. 🎉
+3. `/status` should answer. Play a round — bots (players with Ethiopian
+   names) fill the room, rounds run automatically, winners get paid. 🎉
 
 ---
 

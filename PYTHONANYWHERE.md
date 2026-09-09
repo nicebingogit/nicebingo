@@ -126,7 +126,8 @@ Game loop started · rooms=[30, 50, 100]
    `"bot.thread_alive":true`, and `"bot.webhook_registered":true`.
 3. In Telegram send the bot `/play` → tap **🎮 OPEN BINGO ARENA** → the Mini
    App opens on the cloud URL.
-4. `/status` answers; rounds run automatically; bots fill the room. Your PC
+4. `/status` answers; rounds run automatically; bots join every round (even
+   with **0 humans** the room still fills with players and plays). Your PC
    can stay off. 🎉
 
 ---

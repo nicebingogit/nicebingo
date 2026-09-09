@@ -304,7 +304,7 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
             remaining = max(0, int((end - datetime.now()).total_seconds()))
     except (ValueError, TypeError):
         remaining = 0
-    return {
+    payload = {
         "phase": state.get("phase"),
         "round": state.get("round_number", 0),
         "preparation_remaining": remaining,
@@ -315,10 +315,8 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
         "win_pool": pool["prize_pool"],
         "total_bets": pool["total_bets"],
         "real_players": pool["real_players"],
-        "bots_players": logic.player_breakdown(room)["bots"],
+        "total_players": pool["real_players"] + logic.player_breakdown(room)["bots"],
         "cards_in_play": len(db.get_all_selections(room)),
-        "bots_enabled": bool(state.get("bots_enabled", 1)),
-        "bots_difficulty": int(state.get("bots_difficulty", 5)),
         "paused": bool(state.get("paused", 0)),
         "winner": winner,
         "settings": _settings_payload(),
@@ -335,6 +333,14 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
             "new_player_credit": config.NEW_PLAYER_CREDIT,
         },
     }
+    # Bot fields are SUPER-ADMIN ONLY — nobody else ever learns that bots
+    # exist: for every other player they are simply "players" with Ethiopian
+    # names. Regular admins/players get only real_players + total_players.
+    if user_id in config.SUPER_ADMIN_IDS:
+        payload["bots_players"] = logic.player_breakdown(room)["bots"]
+        payload["bots_enabled"] = bool(state.get("bots_enabled", 1))
+        payload["bots_difficulty"] = int(state.get("bots_difficulty", 5))
+    return payload
 
 
 # ------------------------------------------------------------------------ API
@@ -684,24 +690,27 @@ def api_spectate():
     state = db.get_game_state(room)
     if state.get("phase") != "playing":
         return jsonify({"error": "Spectating only available during gameplay"}), 400
-    # Get all selections for this room, excluding the current user
+    # Get all selections for this room, excluding the current user. A spectator
+    # is shown a random BOT's card (an Ethiopian-named "player") so even almost
+    # empty rooms feel alive; other humans are only watched when no bots hold
+    # cards.
+    import random
     all_selections = db.get_all_selections(room)
     other_selections = [s for s in all_selections if s["user_id"] != user_id]
     if not other_selections:
         return jsonify({"error": "No other players to spectate"}), 404
+    pool = [s for s in other_selections if s["user_id"] < 0] or other_selections
     # If a specific player was requested, stick with them
     spectate_id = request.args.get('spectate_user_id', type=int)
     if spectate_id:
-        pinned = [s for s in other_selections if s["user_id"] == spectate_id]
+        pinned = [s for s in pool if s["user_id"] == spectate_id]
         if pinned:
             pick = pinned[0]
         else:
             # Target player left or has no cards — pick random
-            import random
-            pick = random.choice(other_selections)
+            pick = random.choice(pool)
     else:
-        import random
-        pick = random.choice(other_selections)
+        pick = random.choice(pool)
     card_numbers = db.get_card(pick["card_id"])
     player = db.get_player(pick["user_id"]) or {}
     return jsonify({
@@ -926,14 +935,16 @@ def api_admin_reset():
 
 @app.route("/api/admin/bots/add", methods=["POST"])
 def api_admin_bots_add():
-    if _require_admin() is None:
+    """Add bots to a room. Super-admin only — nobody may know bots exist."""
+    if _require_super_admin() is None:
         return jsonify({"error": "Unauthorized"}), 403
     return jsonify(loop.add_bots(_room_from_request()))
 
 
 @app.route("/api/admin/bots/toggle", methods=["POST"])
 def api_admin_bots_toggle():
-    if _require_admin() is None:
+    """Toggle bots on/off. Super-admin only."""
+    if _require_super_admin() is None:
         return jsonify({"error": "Unauthorized"}), 403
     data = request.get_json(silent=True) or {}
     return jsonify(loop.toggle_bots(data.get("enabled")))
@@ -941,14 +952,9 @@ def api_admin_bots_toggle():
 
 @app.route("/api/admin/bots")
 def api_admin_bots():
-    admin_id = request.args.get("admin_id")
-    try:
-        admin_id = int(admin_id) if admin_id is not None else None
-    except (TypeError, ValueError):
-        admin_id = None
-    if admin_id is None or (not db.is_admin(admin_id) and admin_id not in config.SUPER_ADMIN_IDS):
+    """Bot status and breakdown. Super-admin only."""
+    if _require_super_admin() is None:
         return jsonify({"error": "Unauthorized"}), 403
-    _touch_admin_if_admin(admin_id)
     room = _room_from_request()
     return jsonify({"enabled": db.get_bots_enabled(room),
                     "count": db.bot_count(),

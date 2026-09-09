@@ -253,6 +253,7 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 | `MIN_WITHDRAWAL` | `100` | Minimum withdrawal amount |
 | `PRIZE_PERCENT` | `0.8` | Winner's share (80%) |
 | `BOTS_CONTRIBUTE_TO_POOL` | `True` | Bot bets feed the prize pool |
+| `BOT_GUARANTEED_WIN_AFTER` | `64` | With bots on, if nobody has won after this many called balls the next call is arranged so a bot card completes and wins (rounds never drag to 75) |
 | `PREPARATION_SECONDS` | `40` | Countdown between rounds |
 | `CALL_INTERVAL_SECONDS` | `4` | Seconds between ball calls |
 | `POST_GAME_RESET_SECONDS` | `15` | Winner screen duration |
@@ -577,13 +578,21 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 **`call_step()` method:**
 - Pops the next ball from the persisted order
 - Runs `_bot_claim_pass()` — bots may auto-claim BINGO
-- **75/75 ALWAYS stops the round**: `call_step` checks the EMPTY BALL MACHINE FIRST — before any difficulty guard — so once every ball is called the round unconditionally ends (forced bot win with bots on; winless without). No room can ever call past ball 75 or hang in `playing`. After all 75 balls every card is fully daubed, so with bots enabled `_bot_win_claim` ALWAYS finds complete bot cards and the round never ends winless while bots are on
+- **Guaranteed winner**: once `BOT_GUARANTEED_WIN_AFTER` (64) balls have been
+  called with no winner, `_force_bot_win()` reorders the machine so the next
+  call completes a bot card and that player claims — a round with bots on
+  NEVER drags to 75 balls
+- **75/75 ALWAYS stops the round**: `call_step` checks the EMPTY BALL MACHINE FIRST — before any difficulty guard — so once every ball is called the round unconditionally ends (forced bot win with bots on; winless without). No room can ever call past ball 75 or hang in `playing`
 - Schedules the next ball call
 
 **`claim_bingo()` method:**
 - Verifies the player's card actually has a winning pattern
 - If valid: pays the prize, ends the round
 - If invalid: eliminates the player for this round (false BINGO)
+- **Impossible (5)**: a human can never win — the win is handed to a bot
+  player instead; the claim is NEVER refused with a "you can't win" warning
+  and bots are never mentioned (the winner is simply a player with an
+  Ethiopian name)
 
 **`handle_winner()` method:**
 - Credits the prize to the winner
@@ -789,11 +798,17 @@ Bot bets contribute to the pool just like real bets, making the prize larger.
 
 ### How Bots Work
 - Bots are identified by **negative user IDs** (e.g., -12345)
-- Each bot gets a **human-like Ethiopian male name** (deterministic from ID) — e.g. "Abel Girma"
+- Each bot gets a **human-like Ethiopian male name** (deterministic from ID) — e.g. "Girum Bekele", "Kirubel Worku", "Ermias Girma"
 - Each bot picks **1-3 cards** from the pool, per the round's card plan
 - Bot bets feed the prize pool (controlled by `BOTS_CONTRIBUTE_TO_POOL`)
 - Bots are ordinary `players` rows to every player in the room — only the
-  super admin can see them (via `/api/admin/bots` and the `bots` table)
+  super admin can see them (`/api/admin/bots*` is super-admin only, and the
+  game-state payload hides `bots_players`/`bots_enabled`/`bots_difficulty`
+  from everyone except the super admin)
+- **Every round includes bots — even a room with 0 humans still fills and
+  plays a full round** (Option 1 below covers `0-1` humans)
+- **Spectating**: a player with no card watches a random bot's card daub live
+  (`/api/spectate` prefers bots) with that player's Ethiopian name shown
 
 ### Bot Filling Logic
 1. During preparation, bots join gradually (up to 8 per tick) toward the
@@ -831,7 +846,7 @@ Bots press BINGO like humans — only when a card actually has a complete patter
 **Difficulty levels (0-5). Default = 5 (Impossible):**
 | Level | Name | Delay Range | Behavior |
 |-------|------|-------------|----------|
-| 0 | Easy | Never | Bots never claim on their own — humans win whenever they claim; only if a round reaches the 75th ball with NO human claim does a ready bot get forced the win (rounds never end winless) |
+| 0 | Easy | Never | Bots never claim on their own — humans win whenever they claim; if nobody won by ball `BOT_GUARANTEED_WIN_AFTER` (64) a ready bot is forced the win (rounds never end winless) |
 | 1 | Normal | 5-8 balls | Very slow, rarely win |
 | 2 | Medium | 3-5 balls | Balanced, human-like delay |
 | 3 | Hard | 1-2 balls | Fast, often beats humans |
@@ -840,8 +855,11 @@ Bots press BINGO like humans — only when a card actually has a complete patter
 
 **Impossible (5) is the default** and its mechanics are **strictly isolated**:
 only difficulty 5 reorders the ball machine and blocks human wins (`_impossible_guard`
-in `call_step` + the `claim_bingo` backstop). All other levels keep the standard
-bingo timing and logic — nothing from Impossible leaks into them.
+in `call_step`). A human's claim is never refused with a warning — the ball that
+would complete a human's card is simply never drawn, and if a human ever holds a
+ready pattern the win is handed to a bot player (via `_force_bot_win`) so the
+claim silently "lands" on a player with an Ethiopian name instead. The round also
+never ends winless.
 
 The delay is the number of balls to wait AFTER the pattern is completed before claiming. This gives other players a chance to claim first.
 
@@ -941,9 +959,9 @@ and renders sample cards.
 | POST | `/api/admin/force-start` | Force start a round |
 | POST | `/api/admin/force-call` | Force call next ball |
 | POST | `/api/admin/reset` | Reset current round |
-| POST | `/api/admin/bots/add` | Add bots to a room |
-| POST | `/api/admin/bots/toggle` | Toggle bots on/off |
-| GET | `/api/admin/bots` | Bot status and breakdown |
+| POST | `/api/admin/bots/add` | Add bots to a room — **super admin only** |
+| POST | `/api/admin/bots/toggle` | Toggle bots on/off — **super admin only** |
+| GET | `/api/admin/bots` | Bot status and breakdown — **super admin only** |
 | GET | `/api/admin/stats` | Game statistics |
 | GET | `/api/admin/users` | All users with details |
 | POST | `/api/admin/users/delete` | Delete a user |

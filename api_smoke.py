@@ -273,11 +273,12 @@ def main():
          and data["winner"]["prize"] == int(60 * config.PRIZE_PERCENT))
 
     # ---------------------------------------------------------------- 8. admin
-    code, data = post("/api/admin/bots/toggle", {"admin_id": ADMIN, "enabled": False})
+    # bot endpoints are SUPER-ADMIN ONLY (nobody else may know bots exist)
+    code, data = post("/api/admin/bots/toggle", {"admin_id": SUPER, "enabled": False})
     step(8, "Bots toggled OFF", code == 200 and data["enabled"] is False)
-    code, data = get("/api/admin/bots", query_string={"admin_id": ADMIN})
+    code, data = get("/api/admin/bots", query_string={"admin_id": SUPER})
     step(8, "Bots status endpoint", data["enabled"] is False)
-    code, data = post("/api/admin/bots/toggle", {"admin_id": ADMIN, "enabled": True})
+    code, data = post("/api/admin/bots/toggle", {"admin_id": SUPER, "enabled": True})
     step(8, "Bots toggled back ON", data["enabled"] is True)
 
     admin_before = db.get_credit(ADMIN)
@@ -583,9 +584,9 @@ def main():
 
     # -------- 15b. IMPOSSIBLE (5): a human can NEVER win, even mid-round
     # when their card would complete on the next ball. The pre-call guard
-    # reorders/ends the round instead of completing a human pattern, and the
-    # claim_bingo backstop refuses a direct human claim, so the win never
-    # lands on a human.
+    # reorders the order so the human's completing ball is never drawn, and
+    # claim_bingo hands any win to a bot player instead — a human claim is
+    # NEVER refused with a warning; it just never lands on the human.
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
     code, data = post("/api/select-card",
                       {"user_id": TEST_USER, "card_id": "8", "bet_amount": 30})
@@ -615,13 +616,13 @@ def main():
         if sel["user_id"] < 0:
             db.deselect_card(sel["user_id"], sel["card_id"])
     code, data = post("/api/claim-bingo", {"user_id": TEST_USER, "card_id": "9"})
-    step(15, "Impossible: human BINGO claim refused — humans can never win",
+    step(15, "Impossible: a human can never win — the claim never lands on a human",
          not (data.get("winner") and data["winner"]["user_id"] > 0))
 
-    # -------- 15c. someone ALWAYS wins: if all 75 balls are called and no
-    # human claimed, a ready bot is FORCED to win — a round never ends
-    # winless. Easy (0) makes bots never claim on their own, so this win can
-    # only come from the forced 75th-ball path.
+    # -------- 15c. someone ALWAYS wins: if no one claimed by ball
+    # BOT_GUARANTEED_WIN_AFTER, a ready bot is FORCED to win — a round with
+    # bots never drags to 75. Easy (0) makes bots never claim on their own,
+    # so this win can only come from the forced guaranteed-win path.
     loop.set_bots_difficulty(0)
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
     post("/api/admin/force-start", {"admin_id": ADMIN, "room": 30})
@@ -634,7 +635,7 @@ def main():
             forced = data["winner"]
             break
     code, state = get("/api/game-state", query_string={"user_id": TEST_USER, "room": 30})
-    step(15, "75th ball: a ready BOT is forced to win (rounds never end winless)",
+    step(15, "Guaranteed win: a ready BOT is forced to win before ball 75",
          state["phase"] == "ended" and bool(state.get("winner"))
          and state["winner"]["user_id"] < 0)
     step(15, "Forced win is announced through the normal winner flow",

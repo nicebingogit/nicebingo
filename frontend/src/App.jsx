@@ -421,7 +421,7 @@ export default function App() {
         onToggleSettings={() => setShowSettings((s) => !s)}
         connected={!error}
         phase={state?.phase}
-        realPlayers={(state?.real_players ?? 0) + (state?.bots_players ?? 0)}
+        realPlayers={(state?.total_players ?? state?.real_players ?? 0)}
         cardsInPlay={state?.cards_in_play ?? 0}
       />
 
@@ -487,7 +487,7 @@ export default function App() {
                 <div className="hero-title">Next round · Preparation</div>
                 {/* the winning amount stays hidden until the round starts */}
                 <div className="hero-sub">
-                  {state.real_players + (state.bots_players || 0)} players · {state.cards_in_play} cards
+                  {state.total_players ?? state.real_players ?? 0} players · {state.cards_in_play} cards
                 </div>
               </div>
               <div className="countdown">

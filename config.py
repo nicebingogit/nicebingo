@@ -168,6 +168,10 @@ BOT_CARD_DEDUCTION = (5, 15)
 # Cards each bot gets depends on the FINAL bot-player count (matches the option
 # ranges above — used to derive cards_each from a chosen count).
 BOT_CARDS_BY_COUNT = ((80, 1), (40, 2), (18, 3))
+# With bots enabled a round ALWAYS produces a winner: if no player (human or
+# bot) has claimed after this many called balls, the next call is arranged to
+# complete a bot card and that "player" wins — the round never drags to 75.
+BOT_GUARANTEED_WIN_AFTER = _int("BOT_GUARANTEED_WIN_AFTER", 64)
 NUM_CARDS = _int("NUM_CARDS", 400)                  # pre-generated card pool
 
 # ---------------------------------------------------------------------------

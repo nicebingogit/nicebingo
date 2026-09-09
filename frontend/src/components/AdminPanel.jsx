@@ -14,7 +14,6 @@ const PROVIDER_SUGGESTIONS_DEFAULT = ['TeleBirr', 'CBE', 'CBB', 'Bank', 'Other']
 export default function AdminPanel({ room, onError, onChanged }) {
   const [tab, setTab] = useState('users');
   const [stats, setStats] = useState(null);
-  const [bots, setBots] = useState(null);
   const [users, setUsers] = useState([]);
   const [txs, setTxs] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -36,9 +35,8 @@ export default function AdminPanel({ room, onError, onChanged }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [s, b] = await Promise.all([api.admin.stats(), api.admin.bots()]);
+      const s = await api.admin.stats();
       setStats(s.stats);
-      setBots(b);
     } catch (e) {
       onError?.(e.message);
     }

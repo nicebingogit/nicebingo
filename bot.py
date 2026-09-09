@@ -414,7 +414,7 @@ class PremiumBingoBot:
             bar = "█" * int(progress / config.TOTAL_NUMBERS * 20) + \
                   "░" * (20 - int(progress / config.TOTAL_NUMBERS * 20))
             text += f"\n**{config.room_label(room)}** · {state['phase'].upper()} · " \
-                    f"players **{pool['real_players']}**\n"
+                    f"players **{pool['real_players'] + logic.player_breakdown(room)['bots']}**\n"
             if progress:
                 text += f"🔢 Called: {bar} {progress}/{config.TOTAL_NUMBERS}\n"
             if state["phase"] == "preparation" and state.get("preparation_end_time"):
@@ -1724,7 +1724,7 @@ class PremiumBingoBot:
                     pool = logic.calculate_prize_pool(room)
                     msg = (f"🎰 **{label}**: A new Bingo round has started!\n\n"
                             f"💰 Prize pool: **{pool['prize_pool']} ETB**\n"
-                            f"👥 Players: **{pool['real_players']}**\n\nGood luck! 🍀")
+                            f"👥 Players: **{pool['real_players'] + logic.player_breakdown(room)['bots']}**\n\nGood luck! 🍀")
                     for uid in players:
                         try:
                             db.add_bot_notification(uid, msg)
