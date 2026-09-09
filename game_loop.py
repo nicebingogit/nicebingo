@@ -189,10 +189,27 @@ class GameLoop:
             state = self.db.get_game_state(room)
             if state.get("phase") != "playing":
                 return None
+            # 75/75 FIRST — the round MUST stop once every ball has been
+            # called, BEFORE any difficulty guard can look at the (now empty)
+            # ball machine. After all 75 balls every card is fully daubed, so
+            # with bots enabled _bot_win_claim ALWAYS finds a complete bot
+            # card and the round never ends winless while bots are on. A
+            # winless 75/75 finish is only possible when bots are disabled
+            # (or hold no cards).
+            if not self.db.get_ball_order(room):
+                if self.db.get_bots_enabled(room):
+                    winner = self._bot_win_claim(room)
+                    if winner is not None:
+                        return {"number": None,
+                                "called": len(self.db.get_called_numbers(room)),
+                                "winner": winner}
+                self.end_round_no_winner(room)
+                return None
             # IMPOSSIBLE (difficulty 5): the next ball is never allowed to
             # complete a HUMAN pattern — if it would, reorder the ball machine
             # so the next ball completes a bot card instead (bots claim
-            # instantly on this difficulty and win first).
+            # instantly on this difficulty and win first). Runs only while
+            # balls remain (checked above).
             if self.db.get_bots_difficulty(room) == 5:
                 order = self._impossible_guard(room)
                 if order is None:
@@ -201,11 +218,8 @@ class GameLoop:
                     self.db.set_ball_order(room, order)
             number = self.logic.call_next_number(room)
             if number is None:
-                # 75/75 — the round MUST stop here. After all 75 balls every
-                # card is fully daubed, so with bots enabled _bot_win_claim
-                # ALWAYS finds a complete bot card and the round never ends
-                # winless while bots are on. A winless 75/75 finish is only
-                # possible when bots are disabled (or hold no cards).
+                # Defensive duplicate of the 75/75 stop above — the machine
+                # emptied between the order check and the pop.
                 if self.db.get_bots_enabled(room):
                     winner = self._bot_win_claim(room)
                     if winner is not None:

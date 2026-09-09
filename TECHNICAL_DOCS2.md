@@ -577,7 +577,7 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 **`call_step()` method:**
 - Pops the next ball from the persisted order
 - Runs `_bot_claim_pass()` — bots may auto-claim BINGO
-- **75/75 ALWAYS stops the round**: `call_next_number()` returning None ends the loop unconditionally — no room can ever call past ball 75. After all 75 balls every card is fully daubed, so with bots enabled `_bot_win_claim` ALWAYS finds complete bot cards and the round never ends winless while bots are on; without bots the round ends winless
+- **75/75 ALWAYS stops the round**: `call_step` checks the EMPTY BALL MACHINE FIRST — before any difficulty guard — so once every ball is called the round unconditionally ends (forced bot win with bots on; winless without). No room can ever call past ball 75 or hang in `playing`. After all 75 balls every card is fully daubed, so with bots enabled `_bot_win_claim` ALWAYS finds complete bot cards and the round never ends winless while bots are on
 - Schedules the next ball call
 
 **`claim_bingo()` method:**
@@ -753,7 +753,7 @@ Synthesized via Web Audio API (no external files). Four packs:
 4. Auto-play mode daubs and claims automatically
 5. When a player completes a winning pattern, they press BINGO
 6. Server verifies the card — valid claim pays the prize, false claim eliminates
-7. **75/75 always stops the game — and someone always wins with bots on**: the ball loop unconditionally ends at ball 75. After all 75 balls every card is fully daubed, so a ready bot is always found and forced to win (`_bot_win_claim`) — a round never ends winless while bots are enabled. On **Impossible** difficulty the ball machine is additionally reordered so a bot completes and claims before a human ever can
+7. **75/75 always stops the game — and someone always wins with bots on**: the ball loop checks the empty ball machine FIRST (before the Impossible guard) and unconditionally ends the round at ball 75. After all 75 balls every card is fully daubed, so a ready bot is always found and forced to win (`_bot_win_claim`) — a round never ends winless or hangs while bots are enabled. On **Impossible** difficulty the ball machine is additionally reordered so a bot completes and claims before a human ever can
 
 ### Winning Patterns
 - **Row**: All 5 numbers in any horizontal row
@@ -1006,7 +1006,7 @@ python bot.py     # Terminal 2
 | Game stuck / no countdown | Stale game state | Run `python migrate_db.py` |
 | Port 5000 already in use | Another process on port | Close it or set `SERVER_PORT` in .env |
 | Cards show equal to players | Bot cards = 1 per bot | Already fixed: bots now hold cards from the round's plan (1-3 per bot) |
-| Players and cards both show **0** everywhere | Corrupted DB — e.g. `malformed database schema (announcements) - invalid rootpage` makes EVERY query fail, so all counts collapse to 0 | Repair: open the file read-only with `PRAGMA writable_schema=ON`, set the broken table's `rootpage=0` in `sqlite_master`, `DROP`/`CREATE` the table, then `VACUUM` (a backup of the corrupted file is kept as `bingo_bot.db.corrupt.bak`). Always back up the file first |
+| Players and cards both show **0** everywhere | Corrupted DB — e.g. `malformed database schema (announcements) - invalid rootpage` makes EVERY query fail, so all counts collapse to 0 | AUTO-FIXED since this release: `Database._repair_schema()` detects the broken schema at startup, backs the file up as `<name>.corrupt.bak`, drops the invalid `sqlite_master` rows, rebuilds the file via the sqlite backup API and recreates the lost table. No manual action needed — just restart the server |
 | Notifications not arriving | Webhook mode + job queue | Server drains `bot_notifications` table on each request |
 
 ### Logs

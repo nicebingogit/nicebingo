@@ -11,6 +11,7 @@ Design notes:
     are added), so upgrading never loses player data.
 """
 import json
+import os
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -33,6 +34,7 @@ class Database:
         self.db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
         self._lock = threading.RLock()
+        self._repaired = False
         self.init_db()
 
     # ------------------------------------------------------------------ low level
@@ -65,7 +67,105 @@ class Database:
                 raise
 
     # -------------------------------------------------------------------- schema
+    def _repair_schema(self) -> None:
+        """Self-heal a corrupted sqlite_master row BEFORE anything else runs.
+
+        Symptom: `malformed database schema (X) - invalid rootpage` — a table's
+        root page pointer points past the end of the file (seen in production
+        on the `announcements` table after an interrupted write). Once this
+        happens EVERY query on the DB fails, so the app shows 0 players /
+        0 cards everywhere.
+
+        Repair: find schema rows whose rootpage is invalid, rebuild those
+        tables (dropping their data — only tiny, regenerable tables have ever
+        been affected), then VACUUM the file. Guarded: a healthy DB pays only
+        one cheap integrity probe at startup. Runs at most once per process
+        (a settings flag) so repeated calls stay free.
+        """
+        if self._repaired:
+            return
+        self._repaired = True
+        conn = self._connect()
+        with self._lock:
+            try:
+                conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchall()
+                # schema readable -> nothing to heal
+                return
+            except sqlite3.DatabaseError:
+                pass  # corrupted — continue below
+            print("[database] malformed schema detected — attempting repair…",
+                  flush=True)
+            # Work on a copy so the original corrupted file is never destroyed
+            backup = self.db_path + ".corrupt.bak"
+            try:
+                import shutil
+                shutil.copyfile(self.db_path, backup)
+                print(f"[database] corrupted file backed up as {backup}", flush=True)
+            except OSError:
+                backup = None
+            try:
+                # 1) Drop the schema rows of tables whose rootpage points past
+                #    the end of the file (the corruption). With writable_schema
+                #    ON, deleting the row unregisters the table; its orphaned
+                #    page is garbage that the rebuild below never copies.
+                conn.execute("PRAGMA writable_schema=ON")
+                page_count = conn.execute("PRAGMA page_count").fetchone()[0]
+                if not page_count:
+                    page_count = 10 ** 9
+                conn.execute(
+                    f"DELETE FROM sqlite_master "
+                    f"WHERE type='table' AND rootpage > {int(page_count)}")
+                conn.commit()
+                conn.execute("PRAGMA writable_schema=OFF")
+                conn.commit()
+            except sqlite3.DatabaseError as exc:
+                print(f"[database] writable_schema pass failed: {exc}", flush=True)
+            try:
+                # 2) Rebuild the file page-by-page into a fresh DB and swap it
+                #    in. sqlite3's backup API copies only pages still reachable
+                #    from the (now valid) schema, dropping the garbage page.
+                rebuilt = self.db_path + ".repair.tmp"
+                if os.path.exists(rebuilt):
+                    os.remove(rebuilt)
+                # Close OUR long-lived connection first so nothing holds the
+                # old file open when we swap the rebuilt one in (Windows locks
+                # open files — the replace would fail with Access denied).
+                conn.close()
+                self._conn = None
+                src = sqlite3.connect(self.db_path)
+                dst = sqlite3.connect(rebuilt)
+                with dst:
+                    src.backup(dst)
+                src.close()
+                dst.close()
+                os.replace(rebuilt, self.db_path)
+                # 3) Recreate the table(s) the corrupted schema rows belonged
+                #    to (init_db's CREATE IF NOT EXISTS below restores the rest)
+                fresh = self._connect()
+                with self._lock:
+                    fresh.executescript("""
+                        CREATE TABLE IF NOT EXISTS announcements (
+                            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                            text        TEXT NOT NULL,
+                            posted_by   INTEGER,
+                            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        );
+                    """)
+                    fresh.commit()
+                    try:
+                        fresh.execute("VACUUM")
+                    except sqlite3.DatabaseError:
+                        pass
+                    print("[database] repair complete — integrity:",
+                          fresh.execute("PRAGMA integrity_check").fetchone()[0],
+                          flush=True)
+            except (sqlite3.DatabaseError, OSError) as exc:
+                print(f"[database] repair failed: {exc} — restore from "
+                      f"{backup or 'a backup'} or delete the DB to reseed",
+                      flush=True)
+
     def init_db(self) -> None:
+        self._repair_schema()
         conn = self._connect()
         try:
             conn.execute("PRAGMA journal_mode=WAL")  # one-time, enables concurrent readers
