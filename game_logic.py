@@ -291,13 +291,13 @@ class GameLogic:
             return None
 
         bot_id = None
-        for _ in range(100):
-            candidate = -random.randint(1000, 999_999)
+        for _ in range(200):
+            candidate = -random.randint(1_000_000, 999_999_999)
             if not self.db.get_player(candidate):
                 bot_id = candidate
                 break
         if bot_id is None:
-            logger.warning("add_bot_player(room=%d): bot_id exhausted after 100 tries, "
+            logger.warning("add_bot_player(room=%d): bot_id exhausted after 200 tries, "
                            "available=%d", room, len(available))
             return None
 

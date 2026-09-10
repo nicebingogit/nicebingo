@@ -85,6 +85,28 @@ def main() -> None:
     else:
         print("[4/4] Default difficulty already migrated — leaving it as-is")
 
+    # 5) purge stale bot players (negative user_ids) that no longer hold any
+    #    card selections.  Over many rounds the players table accumulates
+    #    hundreds of thousands of bot rows which exhaust the random bot_id
+    #    range (-1M to -999M).  Keeping only bots with active selections
+    #    frees IDs for future rounds.
+    with db._session() as conn:
+        before = conn.execute(
+            "SELECT COUNT(*) FROM players WHERE user_id < 0"
+        ).fetchone()[0]
+        conn.execute(
+            "DELETE FROM players WHERE user_id < 0 "
+            "AND user_id NOT IN (SELECT DISTINCT user_id FROM card_selections "
+            "WHERE user_id < 0)"
+        )
+        after = conn.execute(
+            "SELECT COUNT(*) FROM players WHERE user_id < 0"
+        ).fetchone()[0]
+    if before != after:
+        print(f"[5/5] Purged {before - after} stale bot players ({before} → {after})")
+    else:
+        print(f"[5/5] No stale bots to purge ({before} active)")
+
     print("─" * 56)
     print("✅ Migration complete.")
 
