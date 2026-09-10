@@ -906,8 +906,9 @@ ADMIN_IDS=1 SUPER_ADMIN_IDS=2 ROOM_BETS=30,50,100 venv\Scripts\python.exe smoke_
 # or, for the API-only suite:  venv\Scripts\python.exe api_smoke.py
 ```
 The suite plays full rounds offline (registration, card sales, gradual bot fill,
-bot wins, **Impossible: a human can never win**, forced bot win at the 75th
-ball, exact 80% payout, false-BINGO elimination, admin/super-admin controls)
+bot wins, **Impossible: a human can never win**, forced bot win before the 75th
+ball (`BOT_GUARANTEED_WIN_AFTER`), exact 80% payout, false-BINGO elimination,
+admin/super-admin controls)
 and renders sample cards.
 
 ---
