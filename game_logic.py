@@ -2,11 +2,14 @@
 Pure game rules: the ball machine, pattern detection, winner lookup,
 bot players and the prize pool.
 """
+import logging
 import random
 from typing import Dict, List, Optional, Set, Tuple
 
 import config
 from database import Database
+
+logger = logging.getLogger("game_logic")
 
 COLUMNS = ["B", "I", "N", "G", "O"]
 RANGES = {"B": (1, 15), "I": (16, 30), "N": (31, 45), "G": (46, 60), "O": (61, 75)}
@@ -283,6 +286,8 @@ class GameLogic:
         taken = {s["card_id"] for s in self.db.get_all_selections(room)}
         available = [c for c in all_cards if c["id"] not in taken]
         if not available:
+            logger.warning("add_bot_player(room=%d): available=0, all_cards=%d, taken=%d",
+                           room, len(all_cards), len(taken))
             return None
 
         bot_id = None
@@ -292,6 +297,8 @@ class GameLogic:
                 bot_id = candidate
                 break
         if bot_id is None:
+            logger.warning("add_bot_player(room=%d): bot_id exhausted after 100 tries, "
+                           "available=%d", room, len(available))
             return None
 
         self.db.create_player(bot_id, bot_name(bot_id), credit=0)

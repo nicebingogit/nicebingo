@@ -49,11 +49,13 @@ def main() -> None:
     after = db.count_cards()
     print(f"[2/3] Cards seeded  {before} → {after} in pool (target {config.NUM_CARDS})")
 
-    # 3) make sure EVERY room sits in a fresh preparation phase
+    # 3) make sure EVERY room sits in a fresh preparation phase and
+    #    old card selections are cleared so bot-fill doesn't see stale data
     now = datetime.now()
     for room in config.ROOM_BETS:
         state = db.get_game_state(room)
         if state.get("phase") != "preparation" or not state.get("preparation_end_time"):
+            db.clear_selections(room)
             db.update_game_state(
                 room,
                 phase="preparation",
@@ -66,7 +68,7 @@ def main() -> None:
                 next_call_time=None,
                 reset_time=None,
             )
-            print(f"[3/3] {config.room_label(room)} reset → preparation phase")
+            print(f"[3/3] {config.room_label(room)} reset → preparation (selections cleared)")
         else:
             print(f"[3/3] {config.room_label(room)} already in preparation — leaving it as-is")
 

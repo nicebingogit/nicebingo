@@ -373,10 +373,10 @@ The **Super Admin Panel** has:
 ### PythonAnywhere
 
 1. **WSGI entry point**: `wsgi.py` runs `migrate_db.main()` → `server.loop.start()` → bot webhook
-2. **Card seeding**: `migrate_db.main()` seeds 400 cards from `cards_data.py`
+2. **Card seeding + cleanup**: `migrate_db.main()` seeds 400 cards and clears stale `card_selections` when resetting rooms
 3. **Bot filling**: `GameLoop.start()` fills every room with bots immediately
 4. **Post-boot fill**: Retries every 5 seconds for rooms with 0 bots
-5. **Database corruption**: `_repair_schema()` auto-heals corrupted DB; `_create_tables_individually()` as fallback
+5. **Database corruption**: `_repair_schema()` auto-heals corrupted DB (with double-probe to avoid false positives); `_create_tables_individually()` as fallback
 
 ### After `git pull`
 

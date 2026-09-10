@@ -92,7 +92,16 @@ class Database:
                 # schema readable -> nothing to heal
                 return
             except sqlite3.DatabaseError:
-                pass  # corrupted — continue below
+                pass  # possibly corrupted — retry once before committing to repair
+            # Second probe: a transient lock can mimic corruption.  If the
+            # second read succeeds the schema is healthy and we bail out.
+            try:
+                import time
+                time.sleep(0.05)
+                conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()
+                return
+            except sqlite3.DatabaseError:
+                pass  # confirmed corruption — continue with repair
             print("[database] malformed schema detected — attempting repair…",
                   flush=True)
             # Work on a copy so the original corrupted file is never destroyed
