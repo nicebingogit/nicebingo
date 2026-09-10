@@ -138,15 +138,14 @@ class GameLoop:
             if state.get("phase") != "preparation":
                 return False
 
-            bots_enabled = self.db.get_bots_enabled(room)
-            if bots_enabled:
-                # final bot plan, based on the CURRENT human count: prep ticks
-                # seeded part of it, so top the rest up slot-by-slot right now —
-                # a round NEVER starts with 0 players.
-                target, cards_each, plan = self._bot_plan(room)
-                self._ensure_bot_players(room)
-                logger.info("%s: round starts with %s bot players · %s cards each",
-                            config.room_label(room), target, cards_each)
+            # final bot plan, based on the CURRENT human count: prep ticks
+            # seeded part of it, so top the rest up slot-by-slot right now —
+            # a round NEVER starts with 0 players. Bot presence is guaranteed
+            # even when the super-admin toggle is off (it only silences claims).
+            target, cards_each, plan = self._bot_plan(room)
+            self._ensure_bot_players(room)
+            logger.info("%s: round starts with %s bot players · %s cards each",
+                        config.room_label(room), target, cards_each)
             # fresh round -> fresh bot-claim schedule
             self._bot_claim_at[room] = {}
 
@@ -182,9 +181,10 @@ class GameLoop:
         A winner is ONLY declared when a player presses the BINGO button
         (claim_bingo) — the loop never auto-announces a winner mid-round, even
         when a card already has a winning pattern. 75/75 ALWAYS stops the
-        round: with bots enabled a winner is guaranteed (after all 75 balls
-        every card is fully daubed, so the forced bot win below always finds
-        a complete bot card); without bots the round ends winless.
+        round. Bots are ALWAYS present on the boards, so after all 75 balls
+        every card is fully daubed and the forced bot win below finds a
+        complete bot card — a round with bots holding cards always ends with
+        a winner; it can only finish winless if no bots exist at all.
         """
         with self._lock:
             state = self.db.get_game_state(room)
@@ -193,30 +193,27 @@ class GameLoop:
             # 75/75 FIRST — the round MUST stop once every ball has been
             # called, BEFORE any difficulty guard can look at the (now empty)
             # ball machine. After all 75 balls every card is fully daubed, so
-            # with bots enabled _bot_win_claim ALWAYS finds a complete bot
-            # card and the round never ends winless while bots are on. A
-            # winless 75/75 finish is only possible when bots are disabled
-            # (or hold no cards).
+            # _bot_win_claim finds a complete bot card and the round ends with
+            # a winner whenever bots hold cards — the round only finishes
+            # winless if no bots exist (or none hold cards).
             if not self.db.get_ball_order(room):
-                if self.db.get_bots_enabled(room):
-                    winner = self._bot_win_claim(room)
-                    if winner is not None:
-                        return {"number": None,
-                                "called": len(self.db.get_called_numbers(room)),
-                                "winner": winner}
+                winner = self._bot_win_claim(room)
+                if winner is not None:
+                    return {"number": None,
+                            "called": len(self.db.get_called_numbers(room)),
+                            "winner": winner}
                 self.end_round_no_winner(room)
                 return None
-            # GUARANTEED WIN — with bots on, a round NEVER drags to 75 balls:
-            # once the threshold is reached the next call is arranged so a bot
-            # card completes and "claims" first (the winner is simply a player
-            # with an Ethiopian name — nobody is ever told about bots).
-            if self.db.get_bots_enabled(room):
-                if len(self.db.get_called_numbers(room)) >= config.BOT_GUARANTEED_WIN_AFTER:
-                    number, winner = self._force_bot_win(room)
-                    if winner is not None:
-                        return {"number": number,
-                                "called": len(self.db.get_called_numbers(room)),
-                                "winner": winner}
+            # GUARANTEED WIN — a round NEVER drags to 75 balls: once the
+            # threshold is reached the next call is arranged so a bot card
+            # completes and "claims" first (the winner is simply a player with
+            # an Ethiopian name — nobody is ever told about bots).
+            if len(self.db.get_called_numbers(room)) >= config.BOT_GUARANTEED_WIN_AFTER:
+                number, winner = self._force_bot_win(room)
+                if winner is not None:
+                    return {"number": number,
+                            "called": len(self.db.get_called_numbers(room)),
+                            "winner": winner}
             # IMPOSSIBLE (difficulty 5): the next ball is never allowed to
             # complete a HUMAN pattern — if it would, reorder the ball machine
             # so the next ball completes a bot card instead (bots claim
@@ -232,12 +229,11 @@ class GameLoop:
             if number is None:
                 # Defensive duplicate of the 75/75 stop above — the machine
                 # emptied between the order check and the pop.
-                if self.db.get_bots_enabled(room):
-                    winner = self._bot_win_claim(room)
-                    if winner is not None:
-                        return {"number": None,
-                                "called": len(self.db.get_called_numbers(room)),
-                                "winner": winner}
+                winner = self._bot_win_claim(room)
+                if winner is not None:
+                    return {"number": None,
+                            "called": len(self.db.get_called_numbers(room)),
+                            "winner": winner}
                 self.end_round_no_winner(room)
                 return None
             called = self.db.get_called_numbers(room)
@@ -475,10 +471,13 @@ class GameLoop:
                             cap: int | None = None) -> int:
         """Guarantee bot "players" exist in the room (self-healing fill).
 
-        Callers hold the loop lock. Whenever bots are enabled the room is
-        filled toward the CURRENT plan — recomputed from today's human count —
-        so a room with bots on can NEVER sit at 0 players, no matter how it
-        reached its phase:
+        Callers hold the loop lock. BOT PRESENCE IS UNCONDITIONAL — bots are
+        involved in the game BY ANY CASE, no matter what: the super-admin
+        "bots off" toggle only silences their auto-claims (bots stay on the
+        boards so the room is never empty), it never removes them. The room
+        is filled toward the CURRENT plan — recomputed from today's human
+        count — so it can NEVER sit at 0 players, no matter how it reached
+        its phase:
           * start()        -> full fill at boot, before the first tick
           * reset_round()  -> seed batch, so a new countdown never shows 0
           * tick() (prep + playing) -> top-up of up to `cap` per tick
@@ -488,8 +487,6 @@ class GameLoop:
         persisted (bots table + usernames refreshed) for the super-admin
         /api/admin/bots view. Returns how many bots were added.
         """
-        if not self.db.get_bots_enabled(room):
-            return 0
         target, cards_each, plan = self._bot_plan(room)
         current = self.logic.bot_player_count(room)
         goal = target if cap is None else min(target, current + cap)
@@ -497,7 +494,12 @@ class GameLoop:
         while self.logic.bot_player_count(room) < goal:
             slot = self.logic.bot_player_count(room)
             cards = plan[slot] if slot < len(plan) else cards_each
-            if not self.logic.add_bot_player(room, cards):
+            try:
+                if not self.logic.add_bot_player(room, cards):
+                    break
+            except Exception:
+                logger.exception("%s: bot fill skipped a bad bot",
+                                 config.room_label(room))
                 break
             added += 1
         if added:

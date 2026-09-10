@@ -574,11 +574,13 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 - `reset_round()` seeds an instant first batch (up to 8) so a fresh countdown
   never shows an empty table; prep ticks + `start_round()` top up the rest
 - `start_round()` fills the remainder slot-by-slot with the plan's card counts
-- The ticker tops up in ALL phases while bots are enabled (≤8 per tick in
-  prep and playing) — stale DBs / reloads mid-round can no longer leave a room
-  bot-less
-- `add_bots()` (super-admin button) force-enables bots if a toggle ever left
-  them off, then fills straight to the plan target
+- The ticker tops up in ALL phases (≤8 per tick in prep and playing) — stale
+  DBs / reloads mid-round can no longer leave a room bot-less
+- **Presence is unconditional:** bot JOINING is never blocked — the super-admin
+  **"bots off" toggle only silences their auto-claims/auto-wins** (bots stay on
+  the boards so the room is never empty; they simply never win while off)
+- `add_bots()` (super-admin button) force-enables the toggle if it is off and
+  fills straight to the plan target
 
 **`start_round()` method:**
 - Rebuilds the bot plan from the **final human count** and tops up the room slot-by-slot (each bot gets the plan's card count)
@@ -973,7 +975,7 @@ and renders sample cards.
 | POST | `/api/admin/force-call` | Force call next ball |
 | POST | `/api/admin/reset` | Reset current round |
 | POST | `/api/admin/bots/add` | Add bots to a room — **super admin only** |
-| POST | `/api/admin/bots/toggle` | Toggle bots on/off — **super admin only** |
+| POST | `/api/admin/bots/toggle` | Toggle bots on/off — **super admin only** (off = bots still join the boards but never auto-claim/win) |
 | GET | `/api/admin/bots` | Bot status and breakdown — **super admin only** |
 | GET | `/api/admin/stats` | Game statistics |
 | GET | `/api/admin/users` | All users with details |
@@ -995,7 +997,7 @@ and renders sample cards.
 | GET | `/api/superadmin/appeals` | Wallet appeals |
 | POST | `/api/superadmin/appeals/review` | Resolve appeal |
 | POST | `/api/superadmin/game/add-bots` | Manually fill room with bots (up to current plan target) |
-| POST | `/api/superadmin/game/bots-toggle` | Enable/disable bots |
+| POST | `/api/superadmin/game/bots-toggle` | Enable/disable bots (off = bots still join but never auto-claim/win) |
 | POST | `/api/superadmin/game/bots-difficulty` | Set bot difficulty 0-5 (5=Impossible) |
 | POST | `/api/superadmin/game/start` / `stop` / `pause` / `resume` | Game phase controls |
 
