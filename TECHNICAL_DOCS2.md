@@ -565,8 +565,20 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 
 **`tick()` method (every 1 second):**
 - **Preparation phase**: Adds up to 8 bots/tick gradually toward the current plan (chosen by human count)
-- **Playing phase**: Calls next ball when `next_call_time` arrives
+- **Playing phase**: Calls next ball when `next_call_time` arrives — and self-heals the room (adds up to 8 bots/tick) so a round that entered play without bots still fills instead of staying empty
 - **Ended phase**: Resets round when `reset_time` arrives
+
+**Self-healing bot fill — a room with bots on NEVER sits at 0 players:**
+- `start()` (game-loop boot, also run on every WSGI reload) fills every room with
+  bots enabled **immediately to the plan target, before the first tick**
+- `reset_round()` seeds an instant first batch (up to 8) so a fresh countdown
+  never shows an empty table; prep ticks + `start_round()` top up the rest
+- `start_round()` fills the remainder slot-by-slot with the plan's card counts
+- The ticker tops up in ALL phases while bots are enabled (≤8 per tick in
+  prep and playing) — stale DBs / reloads mid-round can no longer leave a room
+  bot-less
+- `add_bots()` (super-admin button) force-enables bots if a toggle ever left
+  them off, then fills straight to the plan target
 
 **`start_round()` method:**
 - Rebuilds the bot plan from the **final human count** and tops up the room slot-by-slot (each bot gets the plan's card count)

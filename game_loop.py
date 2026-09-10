@@ -77,6 +77,12 @@ class GameLoop:
                         self.db.update_game_state(room, next_call_time=_iso(0.5))
                 elif state["phase"] == "ended" and not _parse(state.get("reset_time")):
                     self.db.update_game_state(room, reset_time=_iso(config.POST_GAME_RESET_SECONDS))
+            # GUARANTEED bot fill at boot: fill every room with bots enabled
+            # straight to its plan target BEFORE the first tick runs — even a
+            # fresh room (or one reloaded mid-round with 0 players) never
+            # shows an empty table. The ticker keeps topping up from here.
+            for room in config.ROOM_BETS:
+                self._ensure_bot_players(room)
         self.scheduler.add_job(self.tick, "interval",
                                seconds=config.TICK_INTERVAL, id="game_tick",
                                max_instances=1, coalesce=True)
@@ -111,6 +117,11 @@ class GameLoop:
                     if end and now >= end:
                         self.start_round(room)
                 elif phase == "playing":
+                    # self-healing fill: even if a round entered play before
+                    # bots were added (e.g. stale DB / reload mid-round), bots
+                    # join like any player (up to 8 per tick) instead of the
+                    # room staying empty all round
+                    self._ensure_bot_players(room, cap=8)
                     nxt = _parse(state.get("next_call_time"))
                     if nxt and now >= nxt:
                         self.call_step(room)
@@ -129,23 +140,13 @@ class GameLoop:
 
             bots_enabled = self.db.get_bots_enabled(room)
             if bots_enabled:
-                # final bot plan, based on the CURRENT human count: gradual
-                # prep ticks already filled some of it, so top up the rest
-                # slot-by-slot with the plan's per-bot card counts
+                # final bot plan, based on the CURRENT human count: prep ticks
+                # seeded part of it, so top the rest up slot-by-slot right now —
+                # a round NEVER starts with 0 players.
                 target, cards_each, plan = self._bot_plan(room)
-                current = self.logic.bot_player_count(room)
-                for slot in range(current, target):
-                    cards = plan[slot] if slot < len(plan) else cards_each
-                    if not self.logic.add_bot_player(room, cards):
-                        break
+                self._ensure_bot_players(room)
                 logger.info("%s: round starts with %s bot players · %s cards each",
                             config.room_label(room), target, cards_each)
-                # persist bot accounts (negative ids) for the /api/admin/bots view
-                for sel in self.db.get_all_selections(room):
-                    if sel["user_id"] < 0:
-                        name = bot_name(sel["user_id"])
-                        self.db.record_bot(sel["user_id"], name, 1)
-                        self.db.update_username(sel["user_id"], name)
             # fresh round -> fresh bot-claim schedule
             self._bot_claim_at[room] = {}
 
@@ -382,6 +383,10 @@ class GameLoop:
                 next_call_time=None,
                 reset_time=None,
             )
+            # never let the fresh countdown stare at an empty room: seed a
+            # first batch of bot players immediately; prep ticks + start_round()
+            # top the rest up gradually toward the plan target.
+            self._ensure_bot_players(room, cap=8)
             logger.info("%s: new preparation round (%ss)",
                         config.room_label(room), config.PREPARATION_SECONDS)
 
@@ -466,39 +471,50 @@ class GameLoop:
         plan = self.logic.bot_card_plan(target, cards_each)
         return target, cards_each, plan
 
-    def _add_prep_bots(self, room: int = 30, state: dict | None = None) -> int:
-        """During preparation, join bots gradually toward the current plan's
-        target instead of dumping them all at once.
+    def _ensure_bot_players(self, room: int = 30,
+                            cap: int | None = None) -> int:
+        """Guarantee bot "players" exist in the room (self-healing fill).
 
-        The number added per tick is derived from how far the countdown has
-        progressed (even spread), capped so joins feel natural. Card counts
-        come from the plan's per-bot slots. The final top-up still happens in
-        start_round().
+        Callers hold the loop lock. Whenever bots are enabled the room is
+        filled toward the CURRENT plan — recomputed from today's human count —
+        so a room with bots on can NEVER sit at 0 players, no matter how it
+        reached its phase:
+          * start()        -> full fill at boot, before the first tick
+          * reset_round()  -> seed batch, so a new countdown never shows 0
+          * tick() (prep + playing) -> top-up of up to `cap` per tick
+          * start_round() / add_bots() -> fill the rest to the plan target
+        `cap` limits how many join per call (ticker uses 8 for a natural
+        pace); None fills straight to the plan target. Bot accounts are also
+        persisted (bots table + usernames refreshed) for the super-admin
+        /api/admin/bots view. Returns how many bots were added.
         """
         if not self.db.get_bots_enabled(room):
             return 0
         target, cards_each, plan = self._bot_plan(room)
         current = self.logic.bot_player_count(room)
-        if current >= target:
-            return 0
-        state = state or self.db.get_game_state(room)
-        end = _parse(state.get("preparation_end_time"))
-        if end is None:
-            return 0
-        total = max(1, int(config.PREPARATION_SECONDS))
-        secs_left = max(0.0, (end - datetime.now()).total_seconds())
-        elapsed = max(0.0, total - secs_left)
-        expected = int(round(target * elapsed / total))
-        to_add = max(0, min(8, expected - current))
-        if to_add == 0:
-            return 0
+        goal = target if cap is None else min(target, current + cap)
         added = 0
-        for _ in range(to_add):
-            slot = current + added
+        while self.logic.bot_player_count(room) < goal:
+            slot = self.logic.bot_player_count(room)
             cards = plan[slot] if slot < len(plan) else cards_each
-            if self.logic.add_bot_player(room, cards):
-                added += 1
+            if not self.logic.add_bot_player(room, cards):
+                break
+            added += 1
+        if added:
+            for sel in self.db.get_all_selections(room):
+                if sel["user_id"] < 0:
+                    name = bot_name(sel["user_id"])
+                    self.db.record_bot(sel["user_id"], name, 1)
+                    self.db.update_username(sel["user_id"], name)
         return added
+
+    def _add_prep_bots(self, room: int = 30, state: dict | None = None) -> int:
+        """During preparation, join bots gradually toward the current plan's
+        target instead of dumping them all at once (up to 8 per tick). The
+        plan is recomputed from the CURRENT human count on every call; the
+        initial seed happens immediately on reset, and start_round() does the
+        final top-up."""
+        return self._ensure_bot_players(room, cap=8)
 
     # ------------------------------------------------- Difficulty 5 (Impossible)
     # Humans can NEVER win on Impossible: before each ball is called, if that
@@ -771,14 +787,13 @@ class GameLoop:
 
     def add_bots(self, room: int = 30) -> dict:
         with self._lock:
-            # consistent with the current human count's plan when a game is in play
-            target, _cards_each, _plan = self._bot_plan(room)
-            added = self.logic.ensure_minimum_players(room, target=target)
-            for sel in self.db.get_all_selections(room):
-                if sel["user_id"] < 0:
-                    name = bot_name(sel["user_id"])
-                    self.db.record_bot(sel["user_id"], name, 1)
-                    self.db.update_username(sel["user_id"], name)
+            # a super admin explicitly asking for bots is an affirmative
+            # "bots ON" — re-enable auto-fill in case it was ever toggled off
+            if not self.db.get_bots_enabled(room):
+                self.db.set_bots_enabled(True)
+            # consistent with the current human count's plan; also persists the
+            # bot accounts so the super-admin /api/admin/bots view is current
+            added = self._ensure_bot_players(room)
             return {"ok": True, "added": added,
                     "total": self.logic.player_breakdown(room)["bots"]}
 
