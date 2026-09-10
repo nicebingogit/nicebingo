@@ -62,6 +62,15 @@ class Database:
             try:
                 yield conn
                 conn.commit()
+            except sqlite3.DatabaseError:
+                # Connection is likely broken (disk full, corruption, etc.).
+                # Close it so the next call creates a fresh one.
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                self._conn = None
+                raise
             except Exception:
                 conn.rollback()
                 raise

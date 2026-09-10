@@ -447,13 +447,8 @@ class PremiumBingoBot:
             msg = update.message
         user_id = update.effective_user.id
         credit = db.get_credit(user_id)
-        cards_line = " · ".join(
-            f"{config.room_label(room)}: {len(db.get_user_selections(user_id, room))}"
-            for room in config.ROOM_BETS
-        )
         await msg.reply_text(
-            f"💰 **Balance**\n\nCurrent: **{credit} ETB**\n"
-            f"🃏 Cards: {cards_line}",
+            f"💰 **Balance**\n\nCurrent: **{credit} ETB**",
             reply_markup=self.get_main_menu(user_id),
             parse_mode="Markdown",
         )

@@ -12,7 +12,7 @@ export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmi
           <div className="brand-game-info">
             <span className="brand-game-label">Nice BINGO</span>
             <span className="brand-game-stats">
-              👥 {realPlayers} player{realPlayers !== 1 ? 's' : ''} · 🃏 {cardsInPlay} card{cardsInPlay !== 1 ? 's' : ''}
+              👥 {realPlayers} player{realPlayers !== 1 ? 's' : ''}
             </span>
           </div>
         ) : (

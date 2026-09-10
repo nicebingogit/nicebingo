@@ -137,40 +137,90 @@ class GameLoop:
 
     # ------------------------------------------------------------------ tick
     def tick(self) -> None:
-        """Advance every room's game independently."""
+        """Advance every room's game independently.
+
+        Each room is wrapped in its own try/except so a transient DB error
+        in one room never stalls the others.  Stale timestamps (e.g. a
+        preparation_end_time stuck in the past) are self-healed: the room
+        advances to the next logical phase so the game never stalls forever.
+        """
         with self._lock:
             now = datetime.now()
             for room in config.ROOM_BETS:
-                state = self.db.get_game_state(room)
-                # paused rooms are frozen — the game loop does nothing until
-                # the super admin explicitly resumes
-                if state.get("paused", 0):
-                    continue
-                phase = state.get("phase")
-                if phase == "preparation":
-                    # keep the room looking alive: top up bot players during
-                    # the countdown too, so the player sees other players
-                    # BEFORE the round starts. Bots join gradually (up to 8
-                    # per tick) toward the current plan (chosen by human
-                    # count) — never all at once. Bots disabled keeps just
-                    # ONE other player (nobody plays alone).
-                    self._add_prep_bots(room, state)
-                    end = _parse(state.get("preparation_end_time"))
-                    if end and now >= end:
-                        self.start_round(room)
-                elif phase == "playing":
-                    # self-healing fill: even if a round entered play before
-                    # bots were added (e.g. stale DB / reload mid-round), bot
-                    # players join like any player (up to 8 per tick) instead
-                    # of the room staying empty all round
-                    self._ensure_bot_players(room, cap=8)
-                    nxt = _parse(state.get("next_call_time"))
-                    if nxt and now >= nxt:
-                        self.call_step(room)
-                elif phase == "ended":
-                    rst = _parse(state.get("reset_time"))
-                    if rst and now >= rst:
-                        self.reset_round(room)
+                try:
+                    self._tick_room(room, now)
+                except Exception:
+                    logger.exception("tick(%s): unhandled error — room will retry next tick",
+                                     config.room_label(room))
+                    # Attempt self-heal: if the room's timestamp is stale,
+                    # force-advance to the next phase so it never stalls.
+                    try:
+                        self._heal_stale_room(room)
+                    except Exception:
+                        logger.exception("tick(%s): self-heal also failed", config.room_label(room))
+
+    def _tick_room(self, room: int, now: datetime) -> None:
+        """Process a single room's tick.  Called from tick() under _lock."""
+        state = self.db.get_game_state(room)
+        # paused rooms are frozen — the game loop does nothing until
+        # the super admin explicitly resumes
+        if state.get("paused", 0):
+            return
+        phase = state.get("phase")
+        if phase == "preparation":
+            # keep the room looking alive: top up bot players during
+            # the countdown too, so the player sees other players
+            # BEFORE the round starts. Bots join gradually (up to 8
+            # per tick) toward the current plan (chosen by human
+            # count) — never all at once. Bots disabled keeps just
+            # ONE other player (nobody plays alone).
+            self._add_prep_bots(room, state)
+            end = _parse(state.get("preparation_end_time"))
+            if end and now >= end:
+                self.start_round(room)
+            elif not end:
+                # Stale/missing timestamp — start the round anyway
+                logger.warning("%s: stale preparation_end_time, forcing start",
+                               config.room_label(room))
+                self.start_round(room)
+        elif phase == "playing":
+            # self-healing fill: even if a round entered play before
+            # bots were added (e.g. stale DB / reload mid-round), bot
+            # players join like any player (up to 8 per tick) instead
+            # of the room staying empty all round
+            self._ensure_bot_players(room, cap=8)
+            nxt = _parse(state.get("next_call_time"))
+            if nxt and now >= nxt:
+                self.call_step(room)
+            elif not nxt:
+                # Missing next_call_time — schedule a call immediately
+                logger.warning("%s: stale next_call_time, scheduling call now",
+                               config.room_label(room))
+                self.db.update_game_state(room, next_call_time=_iso(0))
+        elif phase == "ended":
+            rst = _parse(state.get("reset_time"))
+            if rst and now >= rst:
+                self.reset_round(room)
+            elif not rst:
+                # Missing reset_time — reset immediately
+                logger.warning("%s: stale reset_time, forcing reset",
+                               config.room_label(room))
+                self.reset_round(room)
+
+    def _heal_stale_room(self, room: int) -> None:
+        """Force-advance a room stuck with an invalid/stale timestamp."""
+        state = self.db.get_game_state(room)
+        phase = state.get("phase")
+        if phase == "preparation":
+            logger.info("%s: heal — forcing round start (stale timestamp)", config.room_label(room))
+            self.start_round(room)
+        elif phase == "playing":
+            logger.info("%s: heal — ending round with no winner (stale timestamp)",
+                        config.room_label(room))
+            self.end_round_no_winner(room)
+        elif phase == "ended":
+            logger.info("%s: heal — forcing round reset (stale timestamp)", config.room_label(room))
+            self.reset_round(room)
 
     # ------------------------------------------------------------ lifecycle
     def start_round(self, room: int = 30) -> bool:

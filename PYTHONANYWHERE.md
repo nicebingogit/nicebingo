@@ -113,8 +113,8 @@ Click the green **Reload** button. Then open **Web → Error log** and
 
 ```
 [1/3] Schema ready ...
-[3/3] Room by 30 reset → preparation phase
-Game loop started · rooms=[30, 50, 100]
+[3/3] Room by 10 reset → preparation (selections cleared)
+Game loop started · rooms=[10]
 🎰 Bingo bot running in WEBHOOK mode
 🎰 Bingo bot webhook registered → https://<username>.pythonanywhere.com/webhook/<secret>
 ```

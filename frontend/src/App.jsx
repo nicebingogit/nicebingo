@@ -487,7 +487,7 @@ export default function App() {
                 <div className="hero-title">Next round · Preparation</div>
                 {/* the winning amount stays hidden until the round starts */}
                 <div className="hero-sub">
-                  {state.total_players ?? state.real_players ?? 0} players · {state.cards_in_play} cards
+                  {state.total_players ?? state.real_players ?? 0} players
                 </div>
               </div>
               <div className="countdown">

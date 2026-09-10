@@ -241,8 +241,9 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 |----------|---------|-------------|
 | `BOT_TOKEN` | *(required)* | Telegram bot token from @BotFather |
 | `ADMIN_IDS` | *(required)* | Comma-separated Telegram user IDs for admins |
-| `SUPER_ADMIN_IDS` | *(none)* | Comma-separated super admin IDs |
-| `BOT_WEBHOOK` | `False` | Use webhook mode instead of polling |
+| `SUPER_ADMIN_IDS` | *(none)* | Comma-separated super admin IDs. **Five hardcoded super-admin IDs are ALWAYS included** in `config.py` (`_SUPER_ADMIN_FALLBACK`) — set env vars only to add more; you cannot remove them via `.env` |
+| `BOT_WEBHOOK` | `False` | Use webhook mode instead of polling (needed on PythonAnywhere) |
+| `WEBHOOK_SECRET` | *(auto)* | Secret path segment for `POST /webhook/<secret>`. Auto-derived as `sha256(BOT_TOKEN).hexdigest()[:24]` if not set; falls back to `"dev-secret"` with no token |
 | `SERVER_HOST` | `127.0.0.1` | Flask bind address |
 | `SERVER_PORT` | `5000` | Flask bind port |
 | `APP_URL` | `http://localhost:5000` | Public URL for the Mini App |
@@ -250,7 +251,7 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 | `APP_CURRENCY` | `ETB` | Currency symbol |
 | `ROOM_BETS` | `10` | Single room's fixed bet per card (comma-separated if you ever run multiple) |
 | `MAX_CARDS_PER_PLAYER` | `3` | Max cards per player per round |
-| `NEW_PLAYER_CREDIT` | `50` | Welcome bonus |
+| `NEW_PLAYER_CREDIT` | `15` | Welcome bonus |
 | `MIN_WITHDRAWAL` | `100` | Minimum withdrawal amount |
 | `PRIZE_PERCENT` | `0.8` | Winner's share (80%) |
 | `BOTS_CONTRIBUTE_TO_POOL` | `True` | Bot bets feed the prize pool |
@@ -536,6 +537,8 @@ A `PremiumBingoBot` class handles all bot interactions.
 - `/start` — Registration flow (collects full name, processes referral deep-links)
 - `/play` — Sends the "Open Nice Bingo" Web App button
 - `/status`, `/balance`, `/cards`, `/history`, `/top` — Game info
+  - `/balance` shows **only the credit** — the card-count line was removed so
+    no user screen (bot or Mini App) reveals how many cards anyone holds
 - `/admin` — Admin control panel
 - `/help` — How to play guide (support link via bot menu button)
 - Wallet chat flows (deposit/withdraw via inline conversation)
@@ -568,6 +571,15 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 - **Preparation phase**: Adds up to 8 bots/tick gradually toward the current plan (chosen by human count)
 - **Playing phase**: Calls next ball when `next_call_time` arrives — and self-heals the room (adds up to 8 bots/tick) so a round that entered play without bots still fills instead of staying empty
 - **Ended phase**: Resets round when `reset_time` arrives
+- **Failure isolation**: every room is processed in its own `try/except` inside
+  `tick()` (delegated to `_tick_room()`), so a transient DB error in one room
+  can never stall the others — the room simply retries the next tick
+- **Stale timestamps self-heal**: a room whose `preparation_end_time` /
+  `next_call_time` / `reset_time` is in the past **or missing** is
+  force-advanced to the next logical phase (`start_round` / `call_step` /
+  `reset_round`) instead of hanging forever. If a tick still fails, a second
+  `_heal_stale_room()` pass force-advances the stuck room (playing → ends
+  winless via `end_round_no_winner`, preparation → starts, ended → resets)
 
 **Self-healing bot fill — a room with bots on NEVER sits at 0 players:**
 - `start()` (game-loop boot, also run on every WSGI reload) fills every room with
@@ -648,6 +660,16 @@ Pure game logic, no I/O.
 - `ensure_minimum_players()` — Fills the room to a plan chosen by the human count (see Bot System)
 - `player_breakdown()` — Returns counts of real vs bot players
 
+**Bot ID allocation (large negative window):**
+- A new bot's `user_id` is `-random.randint(1_000_000, 999_999_999)` — a ~1
+  **billion-value** window, probed against `players` for uniqueness
+- Up to **200 random attempts** per bot; if all collide the call FAILS LOUDLY
+  (`bot_id exhausted after 200 tries, available=N`) instead of reusing an ID
+- Because bots accumulate in `players` over time, `migrate_db.py` **purges
+  stale bot rows** (negative IDs with no current `card_selections`) on every
+  deploy so the ID window never saturates — this is the fix for the old
+  `bot_id exhausted after 100 tries, available=400` failure
+
 **Bot naming:**
 - Deterministic from user ID (stable across restarts)
 - Ethiopian male first names + surnames
@@ -660,6 +682,15 @@ Pure game logic, no I/O.
 - **WAL journal mode** — allows concurrent readers (bot + server)
 - **Auto-migration** — missing columns/tables are added on startup
 - **INSERT OR IGNORE** — idempotent operations prevent double-charges
+- **Connection self-heal** — `_session()` (the context manager every query runs
+  through) closes the connection and drops `self._conn` on any
+  `sqlite3.DatabaseError`, so the next call opens a fresh connection.
+  A broken DB can never wedge the process permanently
+- **Schema auto-repair** — `_repair_schema()` runs at startup. If the
+  `sqlite_master` integrity probe fails twice (a second probe rules out a
+  transient lock), it backs the file up as `<name>.corrupt.bak`, drops the
+  schema rows with invalid `rootpage`, rebuilds the file via the SQLite backup
+  API and recreates the lost tables (see Troubleshooting)
 
 **Key methods:**
 - `get_game_state(room)` — Returns the full game state row
@@ -696,7 +727,9 @@ The root component that manages:
 
 ### 10.2 `Header.jsx` — Top Bar
 
-Shows brand name, the room chip (a selector when multiple rooms exist, otherwise a static “Room 10” label), credit chip, pool chip, settings button, admin/super-admin toggle buttons, and connection status dot.
+Shows brand name, the live **player count** (`👥 N players` while the round is
+running), the room chip (a selector when multiple rooms exist, otherwise a
+static “Room 10” label), credit chip, pool chip, settings button, admin/super-admin toggle buttons, and connection status dot. **The number of cards is deliberately NOT shown** — only the player count, so users see activity without card counts.
 
 ### 10.3 `CardPicker.jsx` — Card Selection (Preparation Phase)
 
@@ -818,7 +851,9 @@ Bot bets contribute to the pool just like real bets, making the prize larger.
 ## 12. Bot System (AI Players)
 
 ### How Bots Work
-- Bots are identified by **negative user IDs** (e.g., -12345)
+- Bots are identified by **negative user IDs** drawn from a ~1-billion-value
+  window (`-1,000,000` … `-999,999,999`, see §9.4) — never reused, never
+  colliding with real Telegram IDs (which are always positive)
 - Each bot gets a **human-like Ethiopian male name** (deterministic from ID) — e.g. "Girum Bekele", "Kirubel Worku", "Ermias Girma"
 - Each bot picks **1-3 cards** from the pool, per the round's card plan
 - Bot bets feed the prize pool (controlled by `BOTS_CONTRIBUTE_TO_POOL`)
@@ -1058,6 +1093,31 @@ python bot.py     # Terminal 2
 > change to the codebase, every time.** Anyone must be able to recreate the
 > entire system just by reading this documentation.
 
+### 2026-09-10 — Resilience pass · card count hidden from users · bot-ID saturation fix
+- **Game loop never dies** (`game_loop.py`): `tick()` now wraps every room in
+  its own `try/except` (`_tick_room`) so a transient DB error in one room
+  can't stall the others; stale/missing timestamps are self-healed (a room
+  stuck in `preparation` starts, `playing` force-calls or ends winless,
+  `ended` resets) and a final `_heal_stale_room()` pass force-advances a room
+  if a tick still fails — the game loop can no longer stop forever
+- **Database self-heals** (`database.py`): `_session()` closes the connection
+  and drops `self._conn` on any `sqlite3.DatabaseError` so the next call
+  reconnects; `_repair_schema()` now probes twice (a transient lock can mimic
+  corruption) before committing to the `.corrupt.bak` rebuild
+- **Bot-ID saturation fixed** (`game_logic.py` + `migrate_db.py`): bot IDs are
+  now `-random.randint(1_000_000, 999_999_999)` (~1 B values, up from
+  ~1 M) with **200** attempts per slot and loud failure logs; every
+  `migrate_db.py` run (incl. on deploy) **purges stale bot players** (negative
+  IDs with no current `card_selections`) and clears stale `card_selections`
+  when resetting a room — the old `bot_id exhausted after 100 tries,
+  available=400` failure can no longer occur
+- **Card count removed from all user screens**: the Mini App header (`Header.jsx`)
+  now shows only the 👥 player count and `App.jsx`'s paused banner only the
+  player count; the bot's `/balance` no longer prints a cards line (bot.py).
+  Users see activity, never card counts
+- Frontend rebuilt into `frontend/dist/` (assets `index-BZ9IxgGN.js`,
+  `index-DX-Jwy5g.css`); commits `5340ff4` and `7b17c1b`
+
 ### 2026-09-10 — Standard-bingo rounds · bots-disabled companion rule
 - **Removed the forced guaranteed bot win** (`BOT_GUARANTEED_WIN_AFTER`, legacy
   now): the game is **never shortened** to make a bot win — normal game
@@ -1092,6 +1152,8 @@ python bot.py     # Terminal 2
 | Cards show equal to players | Bot cards = 1 per bot | Already fixed: bots now hold cards from the round's plan (1-3 per bot) |
 | Players and cards both show **0** everywhere | Corrupted DB — e.g. `malformed database schema (announcements) - invalid rootpage` makes EVERY query fail, so all counts collapse to 0 | AUTO-FIXED since this release: `Database._repair_schema()` detects the broken schema at startup, backs the file up as `<name>.corrupt.bak`, drops the invalid `sqlite_master` rows, rebuilds the file via the sqlite backup API and recreates the lost table. No manual action needed — just restart the server |
 | Notifications not arriving | Webhook mode + job queue | Server drains `bot_notifications` table on each request |
+| Bot fill logs `bot_id exhausted after 200 tries` | Players table accumulated stale bot rows over many rounds | Fixed in current release: bot-ID window widened to ~1 B values (200 attempts) AND `migrate_db.py` purges negative-ID players with no card selections on every startup/deploy |
+| Room seems stuck (no balls / no countdown) | A stale or missing timestamp in `game_state` | Auto-fixed since this release: `tick()` is per-room `try/except`-wrapped and a `_heal_stale_room()` pass force-advances any room stuck with an invalid timestamp (playing → ends winless, preparation → starts, ended → resets) |
 
 ### Logs
 - **Server**: Console output from `server.py` or `[server]` prefix in `run_prod.py`
@@ -1100,7 +1162,9 @@ python bot.py     # Terminal 2
 
 ### Database Operations
 ```bash
-# Reset game state
+# Reset game state (also: clears stale card_selections, purges stale bot
+# players so the bot-ID window stays free, applies the one-time difficulty→5
+# migration). Idempotent — safe to run any time.
 python migrate_db.py
 
 # Smoke test (no Telegram needed)

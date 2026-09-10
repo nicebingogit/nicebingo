@@ -62,15 +62,15 @@ routes, depending on whether you can provide a card:
 | Feature | Details |
 |---|---|
 | 🎮 **Telegram Mini App** | Full-screen interactive Bingo arena inside Telegram, opened with one button |
-| ⏱️ **60 s countdown** | Preparation countdown, then the round auto-starts |
+| ⏱️ **40 s countdown** | Preparation countdown, then the round auto-starts |
 | 🔢 **Auto-calling** | A ball every **4 seconds**, driven by a server-side APScheduler loop |
 | 💰 **Global win pool** | Pool = sum of **all** purchased cards (bots included); winner takes **80 %**, credited instantly |
-| 🃏 **Up to 4 cards** | One room — **fixed 10 ETB per card** in the single “By 10” room (per-card bet editor in the app) |
+| 🃏 **Up to 3 cards** | One room — **fixed 10 ETB per card** in the single “By 10” room. The UI shows the live 👥 **player count only** — card counts are hidden from every user screen |
 | 🤖 **Smart bot fill** | The single room is filled with 18-140 invisible bots (chosen by the **number of humans** playing: fewer humans → more bots). Bots join EVERY round — a room with **zero humans still plays a full round** with bots. Bots carry 1-3 real cards with a random 5-15-card deduction per round, feed the pool, and are invisible to players — **only the super admin knows they are bots**; everyone else just sees players with Ethiopian names (Girum, Kirubel, Ermias…). The fill is **self-healing**: bots top up at boot, after every reset and even mid-round, so a room with bots on never sits at 0 players |
 | ➕ **Manual bot fill** | The super admin panel's Game Controls has an **Add Bots** button (plus bot on/off and difficulty 0-5) — it instantly tops the room up to the current bot plan. With bots **off**, the room keeps exactly **one other player** so nobody ever plays alone |
 | 🏆 **Standard bingo rounds** | Normal game duration and pacing — a winner only on a valid BINGO claim; after all 75 balls the round ends winless (like standard bingo). **Impossible** difficulty: a human can never win — the ball that would complete a human's card is never drawn, and a claim is never refused with a warning; instead a player with an Ethiopian name takes the win |
 | 👀 **Spectate bot cards** | A player who joined but picked no card watches a random bot's card daub live (with that player's Ethiopian name) — so even near-empty rooms feel alive |
-| 🔁 **Auto-reset** | New 60 s round automatically after a winner or the 75th ball |
+| 🔁 **Auto-reset** | New 40 s round automatically after a winner or the 75th ball |
 | 🔔 **Real-time sync** | The app polls the local API every 2.5 s — called numbers, sold cards, phase, pool |
 | 🔊 **Sound effects** | Synthesized via Web Audio (no files needed) with Classic / Retro / Digital / Mute packs |
 | 🏆 **Winner celebration** | Confetti modal with the winning pattern + instant payout |
@@ -127,7 +127,7 @@ Window 3 (bot):     Telegram bot polling (starts as soon as the URL is ready)
 2. Tap **🎮 OPEN BINGO ARENA** — the full-screen Mini App opens inside Telegram.
 3. **First time:** enter your **full name** and tap **📱 Share** — Telegram
    shares your phone number automatically (your wallet account).
-4. During the 60 s countdown pick up to **4 cards** (fixed **10 ETB** per card in the single room) or hit **⚡ Quick Play**.
+4. During the 40 s countdown pick up to **3 cards** (fixed **10 ETB** per card in the single room) or hit **⚡ Quick Play**.
 4. Balls are called every 4 seconds — find each number on your card and
    **tap it to mark it** (paper-bingo style). Complete a **row, column,
    diagonal or four corners** and press **🔔 BINGO!** (the server verifies your
@@ -188,7 +188,7 @@ then set in `.env`: `APP_URL=https://xxxx.ngrok-free.app` and restart the bot.
 | `/start` | all | Register + welcome + Mini App button |
 | `/play` | all | Sends the **Play Mini App** button |
 | `/status` | all | Live round status (phase, pool, countdown) |
-| `/balance` | all | Your ETB balance |
+| `/balance` | all | Your ETB balance (no card count shown — matching the Mini App) |
 | `/cards` | all | Your cards this round (text preview) |
 | `/history` | all | Your last rounds |
 | `/top` | all | Leaderboard |
@@ -212,10 +212,10 @@ ADMIN_IDS=your-telegram-id-here        # find yours via @userinfobot
 # SERVER_PORT=5000
 # APP_URL=http://localhost:5000        # run_tunnel.bat sets your https URL automatically
 # ROOM_BETS=10                        # ONE room, FIXED bet per card (default: a single “By 10” room)
-# MAX_CARDS_PER_PLAYER=4               # max cards per player per round
-# NEW_PLAYER_CREDIT=1000               # welcome coins
+# MAX_CARDS_PER_PLAYER=3               # max cards per player per round
+# NEW_PLAYER_CREDIT=15                 # welcome coins
 # PRIZE_PERCENT=0.8                    # winner's share of the pool
-# PREPARATION_SECONDS=60               # countdown between rounds
+# PREPARATION_SECONDS=40               # countdown between rounds
 # CALL_INTERVAL_SECONDS=4              # seconds between balls
 # POST_GAME_RESET_SECONDS=15           # winner screen length
 # MAX_TOTAL_PLAYERS=18                 # informational — bot count follows human count (config.BOT_OPTIONS)
