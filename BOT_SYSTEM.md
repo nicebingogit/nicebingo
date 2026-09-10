@@ -28,7 +28,7 @@
 
 The bot system fills every game room with AI-controlled "players" that behave identically to human players. Bots:
 
-- Have **Ethiopian male names** (e.g., "Abel Girma", "Biruk Tesfaye")
+- Have **human-like names** — 65% Ethiopian male, 30% international nicknames, 5% Ethiopian female (e.g., "Abel Girma", "HotShot", "Hiwot Girma")
 - Hold **1–3 cards** per bot (varies by difficulty option)
 - **Buy cards** just like humans (bets feed the prize pool)
 - **Press BINGO** when their card completes a winning pattern (delay varies by difficulty)
@@ -114,12 +114,19 @@ def pick_bot_target(self, humans: int | None = None) -> int:
 
 ## 4. Bot Naming
 
-Bot names are **deterministic** based on the negative user ID, so the same bot keeps the same name across restarts.
+Bot names are **deterministic** based on the negative user ID, so the same bot keeps the same name across restarts. The mix is **~65% Ethiopian male, ~30% international nicknames, ~5% Ethiopian female**:
 
 **`game_logic.py:bot_name()`:**
 ```python
 def bot_name(user_id: int) -> str:
     idx = abs(int(user_id))
+    mix = (idx * 31 + 17) % 100        # 65 male / 30 nickname / 5 female
+    if mix < 5:
+        first = BOT_FEMALE_FIRST_NAMES[(idx * 9 + 5) % len(BOT_FEMALE_FIRST_NAMES)]
+        last = BOT_LAST_NAMES[(idx * 5 + idx // len(BOT_FEMALE_FIRST_NAMES)) % len(BOT_LAST_NAMES)]
+        return f"{first} {last}"
+    if mix < 35:
+        return BOT_NICKNAMES[(idx * 13 + 7) % len(BOT_NICKNAMES)]
     first = BOT_MALE_FIRST_NAMES[(idx * 7 + 3) % len(BOT_MALE_FIRST_NAMES)]
     last = BOT_LAST_NAMES[(idx * 5 + idx // len(BOT_MALE_FIRST_NAMES)) % len(BOT_LAST_NAMES)]
     return f"{first} {last}"
@@ -127,9 +134,11 @@ def bot_name(user_id: int) -> str:
 
 **Name pools:**
 - `BOT_MALE_FIRST_NAMES`: 90+ Ethiopian male first names (Abel, Abebe, Amanuel, Biruk, ...)
+- `BOT_FEMALE_FIRST_NAMES`: ~30 Ethiopian female first names
+- `BOT_NICKNAMES`: 30 international nicknames (BigShot, RoyalFlush, MoneyMaster, NumberNinja, ...)
 - `BOT_LAST_NAMES`: 12 Ethiopian surnames (Tadesse, Alemu, Bekele, Tesfaye, ...)
 
-**Examples:** "Abel Girma", "Biruk Tesfaye", "Ermias Worku", "Kirubel Haile"
+**Examples:** "Abel Girma", "Biruk Tesfaye", "HotShot", "Hiwot Girma", "Kirubel Haile"
 
 ---
 
@@ -176,9 +185,10 @@ Reset Round → Seed batch (up to 8 bots)
      ↓
 Preparation tick (every 1s) → Add up to 8 bots/tick
      ↓
-Start Round → Final top-up to plan target
-     ↓
-Playing tick (every 1s) → Self-healing fill (up to 8/tick)
+Start Round → Final top-up to plan target (last fill — the
+     ↓         roster is then FROZEN for the whole round)
+Playing tick (every 1s) → Call balls only — NO bot fill (player
+                         count and prize pool are locked mid-round)
 ```
 
 ### Code Flow
@@ -186,11 +196,16 @@ Playing tick (every 1s) → Self-healing fill (up to 8/tick)
 1. **`reset_round()`** → `_ensure_bot_players(room, cap=8)` — immediate seed
 2. **`tick()` (preparation)** → `_add_prep_bots(room)` → `_ensure_bot_players(room, cap=8)`
 3. **`start_round()`** → `_bot_plan(room)` → `_ensure_bot_players(room)` — full fill
-4. **`tick()` (playing)** → `_ensure_bot_players(room, cap=8)` — self-healing
+4. **`tick()` (playing)** → calls balls only — **no** `_ensure_bot_players` (roster frozen)
 
 ### Self-Healing
 
-Even if a round entered play without bots (e.g., stale DB, WSGI reload), the ticker adds up to 8 bots per tick during the playing phase. The room **never** stays empty.
+The fill is **self-healing up through `start_round()`** — even a reloaded/headless
+room tops-up during preparation until the round starts. Once the round is
+**playing** the roster is FROZEN: `start()`, `_post_boot_fill()` and the ticker
+all skip `playing` rooms, so the player count and prize pool never change
+mid-round. The full fill always happens one final time in `start_round()` while
+the room is still in preparation.
 
 ### Post-Boot Fill
 
@@ -296,7 +311,7 @@ On difficulties 0–4, the game plays like **standard bingo**:
 ```sql
 CREATE TABLE IF NOT EXISTS bots (
     user_id    INTEGER PRIMARY KEY,   -- Negative integer (e.g., -12345)
-    username   TEXT,                  -- Ethiopian male name
+    username   TEXT,                  -- human-like bot name (65 male / 30 nick / 5 female)
     cards      INTEGER DEFAULT 0,    -- Card count
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -357,7 +372,7 @@ Regular players see `total_players` (humans + bots combined) — they never lear
 The Mini App shows:
 - **"Players"**: `total_players` (humans + bots combined) — never shows 0
 - **"Cards in play"**: Total selections (human + bot cards)
-- **Player names**: Ethiopian male names for bots, real names for humans
+- **Player names**: human-like bot names (65% Ethiopian male / 30% nicknames / 5% Ethiopian female), real names for humans
 - **No bot indicators**: Bots are indistinguishable from humans
 
 The **Super Admin Panel** has:
@@ -477,7 +492,7 @@ def bot_name(user_id: int) -> str:
 def add_bot_player(self, room, cards_per_bot=None):
     # 1. Get available cards (not taken by anyone in this room)
     # 2. Generate a unique negative user_id
-    # 3. Create player record with Ethiopian male name
+    # 3. Create player record with human-like bot name (see Section 4)
     # 4. Select random cards from available pool
     # 5. Return {"bot_id": -NNN, "cards": N}
 ```
@@ -500,7 +515,7 @@ def tick(self):
     if phase == "preparation":
         self._add_prep_bots(room, state)  # cap=8 per tick
     elif phase == "playing":
-        self._ensure_bot_players(room, cap=8)  # self-healing
+        pass  # roster FROZEN — no bot fill mid-round
 ```
 
 ### Step 7: Difficulty / Claim System (`game_loop.py`)
@@ -548,8 +563,8 @@ def _state_payload(user_id, room):
 
 ## Summary of Key Principles
 
-1. **Room never shows 0 players** — bots fill immediately on boot, gradually during prep, and self-heal during play
-2. **Bots are invisible** — stored as regular players with Ethiopian male names, negative IDs hidden from frontend
+1. **Room never shows 0 players** — bots fill immediately on boot, gradually during prep, and the final top-up happens in `start_round()` (the roster is then frozen until the next countdown)
+2. **Bots are invisible** — stored as regular players with human-like names (65% Ethiopian male / 30% nicknames / 5% Ethiopian female), negative IDs hidden from frontend
 3. **Option-based filling** — 0–1 humans → 80–140 bots × 1 card; 2–5 → 40–79 × 2; 6+ → 18–39 × 3
 4. **Card deduction** — 5–15 cards randomly removed from total bot cards each round
 5. **Normal game duration** — no shortened rounds to make bots win (except Impossible)

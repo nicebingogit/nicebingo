@@ -38,7 +38,7 @@ Nice Bingo is a real-time multiplayer Bingo game built as a **Telegram Mini App*
 ### Key Features
 - **Single room (By 10)**: the game runs exactly ONE room — 10 ETB per card. `ROOM_BETS` in `.env` can change it (e.g. `ROOM_BETS=50`), but the production default is a single “By 10” room
 - **Real-time gameplay**: Balls called every 4 seconds via a server-side game loop
-- **Bot players**: AI players fill every room to 18-140 players (count chosen by how many **humans** are playing — see [Bot System](#12-bot-system-ai-players)). Bots look exactly like real players (Ethiopian male names, negative IDs) and are completely invisible to humans. The fill works on **every difficulty level**; the only difference is that on **Impossible** no human can win. With bots disabled the room keeps exactly **one other player** so nobody plays alone.
+- **Bot players**: AI players fill every room to 18-140 players (count chosen by how many **humans** are playing — see [Bot System](#12-bot-system-ai-players)). Bots look exactly like real players (human-like names — 65% Ethiopian male / 30% nicknames / 5% Ethiopian female, negative IDs — see §9.4) and are completely invisible to humans. The fill works on **every difficulty level**; the only difference is that on **Impossible** no human can win. With bots disabled the room keeps exactly **one other player** so nobody plays alone.
 - **Auto-play mode**: Players can toggle auto-daub and auto-claim
 - **Wallet system**: Deposit/withdraw via bank accounts (TeleBirr, CBE, CBB, etc.)
 - **Referral program**: 5% commission on referred players' bets
@@ -569,7 +569,7 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 
 **`tick()` method (every 1 second):**
 - **Preparation phase**: Adds up to 8 bots/tick gradually toward the current plan (chosen by human count)
-- **Playing phase**: Calls next ball when `next_call_time` arrives — and self-heals the room (adds up to 8 bots/tick) so a round that entered play without bots still fills instead of staying empty
+- **Playing phase**: Calls next ball when `next_call_time` arrives. The roster is **FROZEN** once the round starts — no bots join mid-round (`tick()`, the boot fill in `start()`, and `_post_boot_fill()` all skip rooms that are already `playing`), so the player count and prize pool are locked for the whole round and can only change in the next preparation phase. The full fill happens one final time in `start_round()` while still in preparation.
 - **Ended phase**: Resets round when `reset_time` arrives
 - **Failure isolation**: every room is processed in its own `try/except` inside
   `tick()` (delegated to `_tick_room()`), so a transient DB error in one room
@@ -587,8 +587,11 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 - `reset_round()` seeds an instant first batch (up to 8) so a fresh countdown
   never shows an empty table; prep ticks + `start_round()` top up the rest
 - `start_round()` fills the remainder slot-by-slot with the plan's card counts
-- The ticker tops up in ALL phases (≤8 per tick in prep and playing) — stale
-  DBs / reloads mid-round can no longer leave a room bot-less
+- The ticker tops up during **preparation only** (≤8 per tick). Once a room is
+  **playing**, the roster is FROZEN — no bots join (`_tick_room`, the boot
+  fill and `_post_boot_fill()` all skip `playing` rooms) so player count and
+  prize pool stay fixed for the whole round. A reload mid-round keeps the
+  existing roster as-is (the full fill happened in `start_round()`)
 - **Presence is unconditional:** bot JOINING is never blocked while the toggle
   is on — the super-admin **"bots off" toggle only silences their
   auto-claims/auto-wins**; the room keeps exactly **one other player** so
@@ -624,8 +627,8 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 - If invalid: eliminates the player for this round (false BINGO)
 - **Impossible (5)**: a human can never win — the win is handed to a bot
   player instead; the claim is NEVER refused with a "you can't win" warning
-  and bots are never mentioned (the winner is simply a player with an
-  Ethiopian name)
+  and bots are never mentioned (the winner is simply a player with a
+  human-like name)
 
 **`handle_winner()` method:**
 - Credits the prize to the winner
@@ -671,9 +674,12 @@ Pure game logic, no I/O.
   `bot_id exhausted after 100 tries, available=400` failure
 
 **Bot naming:**
-- Deterministic from user ID (stable across restarts)
-- Ethiopian male first names + surnames
-- Example: "Abel Girma", "Biruk Tesfaye"
+- Deterministic from user ID (stable across restarts) — `mix = (idx * 31 + 17) % 100`
+- **~65% male Ethiopian first names + surnames** (`mix ≥ 35`)
+- **~30% international nicknames** (`mix < 35`) — single-word handles like
+  "BigShot", "RoyalFlush", "MoneyMaster", "NumberNinja"
+- **~5% female Ethiopian first names + surnames** (`mix < 5`)
+- Example names: "Abel Girma", "Biruk Tesfaye", "HotShot", "Leul...", "Hiwot Girma"
 
 ### 9.5 `database.py` — SQLite Layer
 
@@ -681,6 +687,11 @@ Pure game logic, no I/O.
 - **One persistent connection per process** (serialized by RLock) — ~100x faster than opening per-operation on Windows
 - **WAL journal mode** — allows concurrent readers (bot + server)
 - **Auto-migration** — missing columns/tables are added on startup
+  (`_migrate_schema()` runs on **every** init, including a brand-new
+  database, so the full `game_state` schema — `ball_order`, `round_number`,
+  `current_game_id`, `bots_enabled`, `next_call_time`, `reset_time`, `paused`,
+  `bots_difficulty` — plus a per-room `game_state` row always exist; fixed the
+  fresh-DB bug where those columns were only created via the exception path)
 - **INSERT OR IGNORE** — idempotent operations prevent double-charges
 - **Connection self-heal** — `_session()` (the context manager every query runs
   through) closes the connection and drops `self._conn` on any
@@ -727,9 +738,9 @@ The root component that manages:
 
 ### 10.2 `Header.jsx` — Top Bar
 
-Shows brand name, the live **player count** (`👥 N players` while the round is
+Shows brand name, the live **card count** (`🃏 N card(s)` while the round is
 running), the room chip (a selector when multiple rooms exist, otherwise a
-static “Room 10” label), credit chip, pool chip, settings button, admin/super-admin toggle buttons, and connection status dot. **The number of cards is deliberately NOT shown** — only the player count, so users see activity without card counts.
+static “Room 10” label), credit chip, pool chip, settings button, admin/super-admin toggle buttons, and connection status dot. **The number of players is deliberately NOT shown** — only the card count (`cards_in_play`), so users see activity without being able to compare against a player count. The preparation hero in `App.jsx` shows `cards_in_play` instead of the player count too.
 
 ### 10.3 `CardPicker.jsx` — Card Selection (Preparation Phase)
 
@@ -854,7 +865,9 @@ Bot bets contribute to the pool just like real bets, making the prize larger.
 - Bots are identified by **negative user IDs** drawn from a ~1-billion-value
   window (`-1,000,000` … `-999,999,999`, see §9.4) — never reused, never
   colliding with real Telegram IDs (which are always positive)
-- Each bot gets a **human-like Ethiopian male name** (deterministic from ID) — e.g. "Girum Bekele", "Kirubel Worku", "Ermias Girma"
+- Each bot gets a deterministic human-like name — **~65% Ethiopian male**,
+  **~30% international nickname** (e.g. "BigShot", "RoyalFlush"),
+  **~5% Ethiopian female** (see §9.4) — e.g. "Girum Bekele", "HotShot", "Hiwot Girma"
 - Each bot picks **1-3 cards** from the pool, per the round's card plan
 - Bot bets feed the prize pool (controlled by `BOTS_CONTRIBUTE_TO_POOL`)
 - Bots are ordinary `players` rows to every player in the room — only the
@@ -897,7 +910,8 @@ with 2 and 9 bots with 1. Option 1 (1 card each) cannot be reduced below 1 card
 per bot, so no deduction applies there.
 
 > Bots are completely **invisible to humans** — they are stored as ordinary
-> players (negative IDs) with Ethiopian male names, and their bets feed the
+> players (negative IDs) with human-like names (65% Ethiopian male, 30%
+> nicknames, 5% Ethiopian female — see §9.4), and their bets feed the
 > prize pool. Only the **super admin** sees them via `/api/admin/bots` and the
 > `bots` table.
 
@@ -1093,6 +1107,37 @@ python bot.py     # Terminal 2
 > change to the codebase, every time.** Anyone must be able to recreate the
 > entire system just by reading this documentation.
 
+### 2026-09-11 — Fresh-DB schema fix · roster/pool frozen mid-round · bot-name mix · card count shown
+- **Fresh-DB schema bug fixed** (`database.py`): `init_db()` now runs
+  `_migrate_schema()` on the happy path too (previously the `game_state`
+  columns `ball_order`, `round_number`, `current_game_id`, `bots_enabled`,
+  `next_call_time`, `reset_time`, `paused`, `bots_difficulty` plus the
+  per-room `game_state` rows were only created through the exception-path
+  migration) — a brand-new database now boots the full game immediately
+- **Player count & prize pool are FROZEN once a round starts**: the gaming
+  loop no longer fills bots during the `playing` phase (`_tick_room`), and
+  both the boot fill (`start()`) and `_post_boot_fill()` skip rooms that are
+  already `playing`; the final fill happens one last time in `start_round()`.
+  `_state_payload` reports the **stored** `prize_pool`/`total_bets` while a
+  round is `playing`/`ended` (live recomputation only during preparation), so
+  the winning price shown never changes mid-round
+- **Bot-name mix** (`game_logic.py`, deterministic from bot ID —
+  `mix = (idx * 31 + 17) % 100`): **65% male Ethiopian** first+last name,
+  **30% international nickname** (`BOT_NICKNAMES` widened to 30),
+  **5% female Ethiopian** first+last name. `api_smoke.py` step 15 asserts
+  exactly 65/30/5 per 100 sampled IDs
+- **Card count shown, player count hidden** (`Header.jsx` + `App.jsx`): the
+  header now displays `🃏 N card(s)` (`cards_in_play`) and the preparation
+  hero shows the card count — **reversing** the 2026-09-10 "card counts
+  hidden" pass; users see how many cards are in play, never a player count
+- **api_smoke hardened**: hardcoded test cards are freed from any seeded bot
+  (`free_card()`) before the human picks them, and the free picks are now
+  asserted — the suite previously flaked when a `reset`-seeded bot happened to
+  hold card 5/6/8/9 etc.; both `api_smoke.py` (all steps) and `smoke_test.py`
+  pass from a fresh database
+- Frontend rebuilt into `frontend/dist/` (assets `index-DS5ksLzo.js`,
+  `index-DX-Jwy5g.css`)
+
 ### 2026-09-10 — Resilience pass · card count hidden from users · bot-ID saturation fix
 - **Game loop never dies** (`game_loop.py`): `tick()` now wraps every room in
   its own `try/except` (`_tick_room`) so a transient DB error in one room
@@ -1112,9 +1157,9 @@ python bot.py     # Terminal 2
   when resetting a room — the old `bot_id exhausted after 100 tries,
   available=400` failure can no longer occur
 - **Card count removed from all user screens**: the Mini App header (`Header.jsx`)
-  now shows only the 👥 player count and `App.jsx`'s paused banner only the
-  player count; the bot's `/balance` no longer prints a cards line (bot.py).
-  Users see activity, never card counts
+  and `App.jsx`'s paused banner; the bot's `/balance` no longer prints a cards
+  line (bot.py). **Later reversed** — since 2026-09-11 the header shows the
+  card count instead of the player count (see the 2026-09-11 changelog entry)
 - Frontend rebuilt into `frontend/dist/` (assets `index-BZ9IxgGN.js`,
   `index-DX-Jwy5g.css`); commits `5340ff4` and `7b17c1b`
 

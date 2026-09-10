@@ -68,6 +68,14 @@ def step(n, label, ok=True, extra=""):
     assert ok, label
 
 
+def free_card(card_id: str, room: int = 30) -> None:
+    """Release the card from any bot so the human can pick it (reset seeds
+    bots that may have grabbed a hardcoded test card)."""
+    for sel in db.get_all_selections(room):
+        if sel["user_id"] < 0 and sel["card_id"] == card_id:
+            db.deselect_card(sel["user_id"], sel["card_id"])
+
+
 def main():
     t0 = time.time()
 
@@ -224,6 +232,7 @@ def main():
 
     # -------------------------------------------- 7. exact 80% payout + claim
     post("/api/admin/reset", {"admin_id": ADMIN})
+    free_card("3")
     code, data = post("/api/select-card", {"user_id": TEST_USER, "card_id": "3", "bet_amount": 30})
     step(7, "Pick card #3 for payout test", code == 200)
     post("/api/admin/force-start", {"admin_id": ADMIN})
@@ -256,8 +265,12 @@ def main():
     # dynamic payout: total pool = sum of the ACTUAL bets in the room
     # (two Room-by-30 cards -> 30 + 30 = 60 pool -> 48 prize)
     post("/api/admin/reset", {"admin_id": ADMIN})
-    post("/api/select-card", {"user_id": TEST_USER, "card_id": "5"})
-    post("/api/select-card", {"user_id": TEST_USER, "card_id": "6"})
+    free_card("5")
+    free_card("6")
+    code, data = post("/api/select-card", {"user_id": TEST_USER, "card_id": "5"})
+    step(7, "Pick card #5 for the dynamic payout test", code == 200)
+    code, data = post("/api/select-card", {"user_id": TEST_USER, "card_id": "6"})
+    step(7, "Pick card #6 for the dynamic payout test", code == 200)
     post("/api/admin/force-start", {"admin_id": ADMIN})
     for sel in db.get_all_selections():
         if sel["user_id"] < 0:
@@ -455,6 +468,7 @@ def main():
 
     # -------------------------------------------- 11. false-BINGO elimination
     post("/api/admin/reset", {"admin_id": ADMIN})
+    free_card("4")
     code, data = post("/api/select-card", {"user_id": TEST_USER, "card_id": "4", "bet_amount": 30})
     step(11, "Pick card #4 for the false-BINGO test", code == 200)
     credit_after_select = db.get_credit(TEST_USER)
@@ -558,11 +572,13 @@ def main():
     # delay), so a bot genuinely wins rounds — the player is never alone.
     # Bot fill works on EVERY difficulty: switch to the default Impossible (5)
     # here — bots still join and claim instantly, exactly like a full room.
-    from game_logic import bot_name, BOT_MALE_FIRST_NAMES
-    sample = [bot_name(-(1000 + i)) for i in range(30)]
-    step(15, "All bot names are human MALE names (first + surname)",
-         all(n.split()[0] in BOT_MALE_FIRST_NAMES for n in sample)
-         and len(sample[0].split()) == 2)
+    from game_logic import bot_name, BOT_MALE_FIRST_NAMES, BOT_FEMALE_FIRST_NAMES, BOT_NICKNAMES
+    sample = [bot_name(-(1000 + i)) for i in range(100)]
+    male = sum(1 for n in sample if n.split()[0] in BOT_MALE_FIRST_NAMES)
+    female = sum(1 for n in sample if n.split()[0] in BOT_FEMALE_FIRST_NAMES)
+    nick = sum(1 for n in sample if " " not in n and n in BOT_NICKNAMES)
+    step(15, "Bot names mix: ~65% male Ethiopian · ~30% nicknames · ~5% female",
+         male == 65 and female == 5 and nick == 30)
     loop.set_bots_difficulty(5)
 
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
@@ -602,6 +618,7 @@ def main():
     # claim_bingo hands any win to a bot player instead — a human claim is
     # NEVER refused with a warning; it just never lands on the human.
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
+    free_card("8", room=30)
     code, data = post("/api/select-card",
                       {"user_id": TEST_USER, "card_id": "8", "bet_amount": 30})
     step(15, "Impossible test: human picks a card", code == 200)
@@ -623,6 +640,7 @@ def main():
          and state["phase"] in ("playing", "ended"))
     # the claim backstop: a human pressing BINGO on Impossible never wins
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
+    free_card("9", room=30)
     post("/api/select-card",
           {"user_id": TEST_USER, "card_id": "9", "bet_amount": 30})
     post("/api/admin/force-start", {"admin_id": ADMIN, "room": 30})

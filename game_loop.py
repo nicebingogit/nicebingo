@@ -80,9 +80,14 @@ class GameLoop:
             # GUARANTEED bot fill at boot: fill every room with bots enabled
             # straight to its plan target BEFORE the first tick runs — even a
             # fresh room (or one reloaded mid-round with 0 players) never
-            # shows an empty table. The ticker keeps topping up from here.
+            # shows an empty table. Rooms already IN PLAYING are skipped: the
+            # roster is frozen once a round starts, so a reload mid-round does
+            # not change the player count / prize pool. The ticker keeps
+            # topping up from here for preparation (and the ended phase).
             for room in config.ROOM_BETS:
-                self._ensure_bot_players(room)
+                st = self.db.get_game_state(room)
+                if st.get("phase") != "playing":
+                    self._ensure_bot_players(room)
         self.scheduler.add_job(self.tick, "interval",
                                seconds=config.TICK_INTERVAL, id="game_tick",
                                max_instances=1, coalesce=True)
@@ -118,6 +123,9 @@ class GameLoop:
             with self._lock:
                 any_empty = False
                 for room in config.ROOM_BETS:
+                    st = self.db.get_game_state(room)
+                    if st.get("phase") == "playing":
+                        continue  # roster frozen mid-round
                     count = self.logic.bot_player_count(room)
                     if count < 1:
                         any_empty = True
@@ -184,11 +192,10 @@ class GameLoop:
                                config.room_label(room))
                 self.start_round(room)
         elif phase == "playing":
-            # self-healing fill: even if a round entered play before
-            # bots were added (e.g. stale DB / reload mid-round), bot
-            # players join like any player (up to 8 per tick) instead
-            # of the room staying empty all round
-            self._ensure_bot_players(room, cap=8)
+            # NOTE: no bot fill here. The roster is FROZEN once the round
+            # starts — player count and prize pool must not change mid-round
+            # (the full fill already happened in start_round()). Any room
+            # below plan during play stays that way until the next countdown.
             nxt = _parse(state.get("next_call_time"))
             if nxt and now >= nxt:
                 self.call_step(room)
@@ -564,8 +571,10 @@ class GameLoop:
         reached its phase:
           * start()        -> full fill at boot, before the first tick
           * reset_round()  -> seed batch, so a new countdown never shows 0
-          * tick() (prep + playing) -> top-up of up to `cap` per tick
+          * tick() (preparation only) -> top-up of up to `cap` per tick
           * start_round() / add_bots() -> fill the rest to the plan target
+        The roster is FROZEN once the round starts (playing) — no bot fill
+        happens mid-round, so the player count / prize pool never change.
         With bots DISABLED the room keeps exactly ONE other player holding a
         card — nobody should ever play alone — and no more are ever added
         while that one is present (the toggle only re-enables auto-claims;

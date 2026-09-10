@@ -1,6 +1,6 @@
 import { PACKS, getPack } from '../sound.js';
 
-export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmin, isSuperAdmin, showAdmin, showSuper, onToggleAdmin, onToggleSuper, onToggleSettings, connected, phase, realPlayers, cardsInPlay }) {
+export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmin, isSuperAdmin, showAdmin, showSuper, onToggleAdmin, onToggleSuper, onToggleSettings, connected, phase, cardsInPlay }) {
   const packIdx = PACKS.findIndex((p) => p.id === getPack());
   const currentPack = PACKS[packIdx] || PACKS[0];
   const isPlaying = phase === 'playing' || phase === 'ended';
@@ -12,7 +12,7 @@ export default function Header({ credit, pool, room, rooms, onRoomChange, isAdmi
           <div className="brand-game-info">
             <span className="brand-game-label">Nice BINGO</span>
             <span className="brand-game-stats">
-              👥 {realPlayers} player{realPlayers !== 1 ? 's' : ''}
+              🃏 {cardsInPlay} card{cardsInPlay !== 1 ? 's' : ''}
             </span>
           </div>
         ) : (

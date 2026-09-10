@@ -278,6 +278,17 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
     state = db.get_game_state(room)
     called = db.get_called_numbers(room)
     pool = logic.calculate_prize_pool(room)
+    phase = state.get("phase")
+    # ONCE THE ROUND STARTS the prize pool is FROZEN in game_state (computed
+    # in start_round() after the full bot fill). Using the stored value keeps
+    # the displayed winning amount from drifting mid-round; live recalculation
+    # only drives the preparation preview.
+    if phase in ("playing", "ended"):
+        prize_pool = int(state.get("prize_pool") or 0)
+        total_bets = int(state.get("total_bets") or 0)
+    else:
+        prize_pool = pool["prize_pool"]
+        total_bets = pool["total_bets"]
     winner = None
     if state.get("phase") == "ended" and state.get("winner_user_id"):
         info = json.loads(state["winning_pattern"] or "{}")
@@ -312,8 +323,8 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
         "called_numbers": called,
         "called_count": len(called),
         "total_numbers": config.TOTAL_NUMBERS,
-        "win_pool": pool["prize_pool"],
-        "total_bets": pool["total_bets"],
+        "win_pool": prize_pool,
+        "total_bets": total_bets,
         "real_players": pool["real_players"],
         "total_players": pool["real_players"] + logic.player_breakdown(room)["bots"],
         "cards_in_play": len(db.get_all_selections(room)),

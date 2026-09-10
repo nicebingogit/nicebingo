@@ -523,169 +523,179 @@ class Database:
             # on PythonAnywhere's free tier.
             print(f"[database] bulk schema creation failed ({exc}) — falling back to per-table creation", flush=True)
             self._create_tables_individually()
-            # ----------------------------------------------------------
-            # migrate the legacy SINGLETON game_state (id=1) to per-ROOM
-            # rows keyed by the fixed bet. Existing data moves to room 30.
-            # ----------------------------------------------------------
-            cols = {r[1] for r in conn.execute("PRAGMA table_info(game_state)").fetchall()}
-            if "room" not in cols:
-                legacy_cols = [r[1] for r in
-                               conn.execute("PRAGMA table_info(game_state)").fetchall()]
-                common = [c for c in legacy_cols if c != "id"]
-                conn.execute("ALTER TABLE game_state RENAME TO game_state_legacy")
-                conn.execute(
-                    """
-                    CREATE TABLE game_state (
-                        room INTEGER PRIMARY KEY,
-                        phase TEXT DEFAULT 'preparation',
-                        preparation_end_time TEXT,
-                        current_call TEXT,
-                        winner_user_id INTEGER,
-                        winning_pattern TEXT,
-                        prize_pool INTEGER DEFAULT 0,
-                        total_bets INTEGER DEFAULT 0,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        ball_order TEXT,
-                        round_number INTEGER DEFAULT 0,
-                        current_game_id INTEGER,
-                        bots_enabled INTEGER DEFAULT 1,
-                        next_call_time TEXT,
-                        reset_time TEXT
-                    )
-                    """
-                )
-                col_list = ", ".join(common)
-                conn.execute(
-                    f"INSERT INTO game_state (room, {col_list}) "
-                    f"SELECT 30, {col_list} FROM game_state_legacy"
-                )
-                conn.execute("DROP TABLE game_state_legacy")
+        # Schema migrations run on EVERY startup — including brand-new
+        # databases. The CREATEs above define only the base tables; this pass
+        # ensures the newer columns / rows (bots_difficulty, ball_order,
+        # per-room game_state rows, …) exist on fresh installs too, not just
+        # on old or corrupted databases. Every legacy branch below is guarded
+        # so it is a no-op on a healthy new file.
+        with self._session() as conn:
+            self._migrate_schema(conn)
 
-            # migrations for pre-existing databases
-            self._ensure_column(conn, "game_state", "ball_order", "TEXT")
-            self._ensure_column(conn, "game_state", "round_number", "INTEGER DEFAULT 0")
-            self._ensure_column(conn, "game_state", "current_game_id", "INTEGER")
-            self._ensure_column(conn, "game_state", "bots_enabled", "INTEGER DEFAULT 1")
-            self._ensure_column(conn, "game_state", "next_call_time", "TEXT")
-            self._ensure_column(conn, "game_state", "reset_time", "TEXT")
-            self._ensure_column(conn, "game_state", "paused", "INTEGER DEFAULT 0")
-            self._ensure_column(conn, "game_state", "bots_difficulty", "INTEGER DEFAULT 5")
-            # rooms: existing rows join the default room (30) until a player
-            # picks a room from the listbox
-            self._ensure_column(conn, "card_selections", "room", "INTEGER NOT NULL DEFAULT 30")
-            self._ensure_column(conn, "called_numbers", "room", "INTEGER NOT NULL DEFAULT 30")
-            # called_numbers uniqueness must be PER-ROOM (room, number). Legacy
-            # databases created with a global UNIQUE(number) silently drop the
-            # same ball drawn in a second room, so its board never highlights
-            # it — detect the legacy autoindex and rebuild the table.
-            legacy_global_unique = False
-            idx_rows = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'index' "
-                "AND tbl_name = 'called_numbers' AND name LIKE 'sqlite_autoindex%'"
-            ).fetchall()
-            for (idx_name,) in idx_rows:
-                cols = [r[2] for r in
-                        conn.execute(f"PRAGMA index_info('{idx_name}')").fetchall()]
-                if cols == ["number"]:
-                    legacy_global_unique = True
-                    break
-            if legacy_global_unique:
-                conn.execute("ALTER TABLE called_numbers RENAME TO called_numbers_legacy")
-                conn.execute(
-                    """
-                    CREATE TABLE called_numbers (
-                        id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                        room      INTEGER NOT NULL DEFAULT 30,
-                        number    TEXT NOT NULL,
-                        called_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(room, number)
-                    )
-                    """
-                )
-                conn.execute(
-                    "INSERT INTO called_numbers (room, number, called_at) "
-                    "SELECT room, number, called_at FROM called_numbers_legacy"
-                )
-                conn.execute("DROP TABLE called_numbers_legacy")
-            self._ensure_column(conn, "games", "room", "INTEGER NOT NULL DEFAULT 30")
-            self._ensure_column(conn, "game_history", "game_id", "INTEGER")
-            # wallet / registration migrations
-            self._ensure_column(conn, "players", "full_name", "TEXT")
-            self._ensure_column(conn, "players", "phone", "TEXT")
-            self._ensure_column(conn, "players", "is_registered", "INTEGER NOT NULL DEFAULT 1")
-            # admin-credit system: every admin has their own credit (the float
-            # the super admin sells them). Deposits approved on an admin's
-            # account deduct ADMIN_APPROVAL_RATE of the amount from that
-            # admin's credit; withdrawals approved add it back to the reviewer.
-            self._ensure_column(conn, "players", "admin_credit", "INTEGER NOT NULL DEFAULT 0")
-            # last_seen (ISO timestamp): an admin is "online" when they have
-            # made an API call / bot command recently. Only ONLINE admins'
-            # payment accounts are shown to users for deposits.
-            self._ensure_column(conn, "players", "last_seen", "TEXT")
-            # payment accounts now belong to an admin (admin_id = owner). Only
-            # the owner's account is charged when a deposit into it is approved.
-            self._ensure_column(conn, "payment_accounts", "admin_id", "INTEGER")
-            # legacy accounts created before admin ownership existed are
-            # assigned to the FIRST admin so they keep working (the super admin
-            # can re-assign them later in the Super Admin panel).
-            if config.ADMIN_IDS:
-                conn.execute(
-                    "UPDATE payment_accounts SET admin_id = ? "
-                    "WHERE admin_id IS NULL", (config.ADMIN_IDS[0],)
-                )
-            # wallet transaction snapshot columns (safe for old databases)
-            self._ensure_column(conn, "transactions", "user_name", "TEXT")
-            self._ensure_column(conn, "transactions", "payment_account_id", "INTEGER")
-            self._ensure_column(conn, "transactions", "provider", "TEXT")
-            self._ensure_column(conn, "transactions", "account_number", "TEXT")
-            self._ensure_column(conn, "transactions", "account_holder", "TEXT")
-            self._ensure_column(conn, "transactions", "reviewed_by", "INTEGER")
-            # migrate the legacy single wallet account (settings.admin_account /
-            # admin_account_name) into payment_accounts exactly once — existing
-            # installations keep their account instead of silently losing it.
-            count = conn.execute("SELECT COUNT(*) FROM payment_accounts").fetchone()[0]
-            if count == 0:
-                acc = conn.execute(
-                    "SELECT value FROM settings WHERE key = 'admin_account'").fetchone()
-                if acc and acc[0]:
-                    name = conn.execute(
-                        "SELECT value FROM settings WHERE key = 'admin_account_name'").fetchone()
-                    label = (name[0] if name and name[0] else "Wallet")
-                    conn.execute(
-                        "INSERT INTO payment_accounts (provider, account_name, "
-                        "account_number, is_active) VALUES (?, ?, ?, 1)",
-                        (label, label, acc[0]),
-                    )
-            # read-only profiles view over players + aggregate history stats
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        # ----------------------------------------------------------
+        # migrate the legacy SINGLETON game_state (id=1) to per-ROOM
+        # rows keyed by the fixed bet. Existing data moves to room 30.
+        # ----------------------------------------------------------
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(game_state)").fetchall()}
+        if "room" not in cols:
+            legacy_cols = [r[1] for r in
+                           conn.execute("PRAGMA table_info(game_state)").fetchall()]
+            common = [c for c in legacy_cols if c != "id"]
+            conn.execute("ALTER TABLE game_state RENAME TO game_state_legacy")
             conn.execute(
                 """
-                CREATE VIEW IF NOT EXISTS profiles AS
-                SELECT p.user_id, p.username, p.credit, p.is_admin, p.created_at,
-                       COALESCE(s.rounds, 0)        AS rounds,
-                       COALESCE(s.wins, 0)          AS wins,
-                       COALESCE(s.winnings, 0)      AS total_winnings
-                FROM players p
-                LEFT JOIN (
-                    SELECT user_id, COUNT(*) AS rounds,
-                           SUM(CASE WHEN winnings > 0 THEN 1 ELSE 0 END) AS wins,
-                           SUM(winnings) AS winnings
-                    FROM game_history GROUP BY user_id
-                ) s ON s.user_id = p.user_id
+                CREATE TABLE game_state (
+                    room INTEGER PRIMARY KEY,
+                    phase TEXT DEFAULT 'preparation',
+                    preparation_end_time TEXT,
+                    current_call TEXT,
+                    winner_user_id INTEGER,
+                    winning_pattern TEXT,
+                    prize_pool INTEGER DEFAULT 0,
+                    total_bets INTEGER DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ball_order TEXT,
+                    round_number INTEGER DEFAULT 0,
+                    current_game_id INTEGER,
+                    bots_enabled INTEGER DEFAULT 1,
+                    next_call_time TEXT,
+                    reset_time TEXT
+                )
                 """
             )
-            # one game_state row per room, all sitting in a fresh preparation
-            # phase (rooms created later start on their own countdown)
-            for room in config.ROOM_BETS:
-                row = conn.execute(
-                    "SELECT COUNT(*) FROM game_state WHERE room = ?", (room,)
-                ).fetchone()
-                if row[0] == 0:
-                    conn.execute(
-                        "INSERT INTO game_state (room, phase, preparation_end_time) "
-                        "VALUES (?, 'preparation', ?)",
-                        (room, (datetime.now() +
-                                timedelta(seconds=config.PREPARATION_SECONDS)).isoformat()),
-                    )
+            col_list = ", ".join(common)
+            conn.execute(
+                f"INSERT INTO game_state (room, {col_list}) "
+                f"SELECT 30, {col_list} FROM game_state_legacy"
+            )
+            conn.execute("DROP TABLE game_state_legacy")
+
+        # migrations for pre-existing databases
+        self._ensure_column(conn, "game_state", "ball_order", "TEXT")
+        self._ensure_column(conn, "game_state", "round_number", "INTEGER DEFAULT 0")
+        self._ensure_column(conn, "game_state", "current_game_id", "INTEGER")
+        self._ensure_column(conn, "game_state", "bots_enabled", "INTEGER DEFAULT 1")
+        self._ensure_column(conn, "game_state", "next_call_time", "TEXT")
+        self._ensure_column(conn, "game_state", "reset_time", "TEXT")
+        self._ensure_column(conn, "game_state", "paused", "INTEGER DEFAULT 0")
+        self._ensure_column(conn, "game_state", "bots_difficulty", "INTEGER DEFAULT 5")
+        # rooms: existing rows join the default room (30) until a player
+        # picks a room from the listbox
+        self._ensure_column(conn, "card_selections", "room", "INTEGER NOT NULL DEFAULT 30")
+        self._ensure_column(conn, "called_numbers", "room", "INTEGER NOT NULL DEFAULT 30")
+        # called_numbers uniqueness must be PER-ROOM (room, number). Legacy
+        # databases created with a global UNIQUE(number) silently drop the
+        # same ball drawn in a second room, so its board never highlights
+        # it — detect the legacy autoindex and rebuild the table.
+        legacy_global_unique = False
+        idx_rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index' "
+            "AND tbl_name = 'called_numbers' AND name LIKE 'sqlite_autoindex%'"
+        ).fetchall()
+        for (idx_name,) in idx_rows:
+            columns = [r[2] for r in
+                       conn.execute(f"PRAGMA index_info('{idx_name}')").fetchall()]
+            if columns == ["number"]:
+                legacy_global_unique = True
+                break
+        if legacy_global_unique:
+            conn.execute("ALTER TABLE called_numbers RENAME TO called_numbers_legacy")
+            conn.execute(
+                """
+                CREATE TABLE called_numbers (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    room      INTEGER NOT NULL DEFAULT 30,
+                    number    TEXT NOT NULL,
+                    called_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(room, number)
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO called_numbers (room, number, called_at) "
+                "SELECT room, number, called_at FROM called_numbers_legacy"
+            )
+            conn.execute("DROP TABLE called_numbers_legacy")
+        self._ensure_column(conn, "games", "room", "INTEGER NOT NULL DEFAULT 30")
+        self._ensure_column(conn, "game_history", "game_id", "INTEGER")
+        # wallet / registration migrations
+        self._ensure_column(conn, "players", "full_name", "TEXT")
+        self._ensure_column(conn, "players", "phone", "TEXT")
+        self._ensure_column(conn, "players", "is_registered", "INTEGER NOT NULL DEFAULT 1")
+        # admin-credit system: every admin has their own credit (the float
+        # the super admin sells them). Deposits approved on an admin's
+        # account deduct ADMIN_APPROVAL_RATE of the amount from that
+        # admin's credit; withdrawals approved add it back to the reviewer.
+        self._ensure_column(conn, "players", "admin_credit", "INTEGER NOT NULL DEFAULT 0")
+        # last_seen (ISO timestamp): an admin is "online" when they have
+        # made an API call / bot command recently. Only ONLINE admins'
+        # payment accounts are shown to users for deposits.
+        self._ensure_column(conn, "players", "last_seen", "TEXT")
+        # payment accounts now belong to an admin (admin_id = owner). Only
+        # the owner's account is charged when a deposit into it is approved.
+        self._ensure_column(conn, "payment_accounts", "admin_id", "INTEGER")
+        # legacy accounts created before admin ownership existed are
+        # assigned to the FIRST admin so they keep working (the super admin
+        # can re-assign them later in the Super Admin panel).
+        if config.ADMIN_IDS:
+            conn.execute(
+                "UPDATE payment_accounts SET admin_id = ? "
+                "WHERE admin_id IS NULL", (config.ADMIN_IDS[0],)
+            )
+        # wallet transaction snapshot columns (safe for old databases)
+        self._ensure_column(conn, "transactions", "user_name", "TEXT")
+        self._ensure_column(conn, "transactions", "payment_account_id", "INTEGER")
+        self._ensure_column(conn, "transactions", "provider", "TEXT")
+        self._ensure_column(conn, "transactions", "account_number", "TEXT")
+        self._ensure_column(conn, "transactions", "account_holder", "TEXT")
+        self._ensure_column(conn, "transactions", "reviewed_by", "INTEGER")
+        # migrate the legacy single wallet account (settings.admin_account /
+        # admin_account_name) into payment_accounts exactly once — existing
+        # installations keep their account instead of silently losing it.
+        count = conn.execute("SELECT COUNT(*) FROM payment_accounts").fetchone()[0]
+        if count == 0:
+            acc = conn.execute(
+                "SELECT value FROM settings WHERE key = 'admin_account'").fetchone()
+            if acc and acc[0]:
+                name = conn.execute(
+                    "SELECT value FROM settings WHERE key = 'admin_account_name'").fetchone()
+                label = (name[0] if name and name[0] else "Wallet")
+                conn.execute(
+                    "INSERT INTO payment_accounts (provider, account_name, "
+                    "account_number, is_active) VALUES (?, ?, ?, 1)",
+                    (label, label, acc[0]),
+                )
+        # read-only profiles view over players + aggregate history stats
+        conn.execute(
+            """
+            CREATE VIEW IF NOT EXISTS profiles AS
+            SELECT p.user_id, p.username, p.credit, p.is_admin, p.created_at,
+                   COALESCE(s.rounds, 0)        AS rounds,
+                   COALESCE(s.wins, 0)          AS wins,
+                   COALESCE(s.winnings, 0)      AS total_winnings
+            FROM players p
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) AS rounds,
+                       SUM(CASE WHEN winnings > 0 THEN 1 ELSE 0 END) AS wins,
+                       SUM(winnings) AS winnings
+                FROM game_history GROUP BY user_id
+            ) s ON s.user_id = p.user_id
+            """
+        )
+        # one game_state row per room, all sitting in a fresh preparation
+        # phase (rooms created later start on their own countdown)
+        for room in config.ROOM_BETS:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM game_state WHERE room = ?", (room,)
+            ).fetchone()
+            if row[0] == 0:
+                conn.execute(
+                    "INSERT INTO game_state (room, phase, preparation_end_time) "
+                    "VALUES (?, 'preparation', ?)",
+                    (room, (datetime.now() +
+                            timedelta(seconds=config.PREPARATION_SECONDS)).isoformat()),
+                )
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:

@@ -17,8 +17,9 @@ RANGES = {"B": (1, 15), "I": (16, 30), "N": (31, 45), "G": (46, 60), "O": (61, 7
 # Human-looking display names for bot accounts (negative user ids). Bots are
 # meant to feel like other people in the room, never like "Bot_12345".
 #
-# Every bot gets a male first name + surname (the requested default mix), so
-# the room always looks like real Ethiopian men playing alongside the user.
+# The mix (deterministic from the id) is ~65% male Ethiopian first name +
+# surname, ~30% international nicknames and ~5% female Ethiopian first name +
+# surname (see bot_name() below).
 BOT_MALE_FIRST_NAMES = [
     "Abel", "Abebe", "Amanuel", "Biruk", "Dagmawi", "Dawit", "Elias",
     "Ephrem", "Haile", "Henok", "Kalid", "Kebede", "Kidus", "Nahom",
@@ -50,7 +51,8 @@ BOT_NICKNAMES = [
     "NightOwl", "FastFingers", "CardMaster", "GoldenBall", "SlyFox",
     "NumberNinja", "HotShot", "WildCard", "LuckySeven", "BallHawk",
     "DeepPocket", "SilverFox", "StarPlayer", "TopGun", "QuickShot",
-    "KingPin", "HighRoller", "LuckyCharm", "MoneyMaker",
+    "KingPin", "HighRoller", "LuckyCharm", "MoneyMaker", "BigShot",
+    "SmoothOperator", "AceOfSpades", "RoyalFlush", "MoneyMaster",
 ]
 BOT_LAST_NAMES = [
     "Tadesse", "Alemu", "Bekele", "Tesfaye", "Girma", "Haile",
@@ -62,12 +64,21 @@ def bot_name(user_id: int) -> str:
     """Deterministic, human-like display name for a bot account.
 
     Stable across restarts (derived from the id, not random), so the same
-    "player" keeps the same name round after round. Bots always get a human
-    MALE first name + surname (e.g. "Abel Girma"), so the room feels full of
-    real men playing alongside the user. The multipliers mix the id so that
-    nearby ids get clearly different name combos.
+    "player" keeps the same name round after round. The mix is:
+      * ~5 %  — female Ethiopian first name + surname (e.g. "Meron Girma")
+      * ~30 % — international nicknames (e.g. "Lucky", "HotShot")
+      * ~65 % — male Ethiopian first name + surname (e.g. "Abel Girma")
+    The multipliers mix the id so that nearby ids get clearly different
+    name combos.
     """
     idx = abs(int(user_id))
+    mix = (idx * 31 + 17) % 100
+    if mix < 5:
+        first = BOT_FEMALE_FIRST_NAMES[(idx * 9 + 5) % len(BOT_FEMALE_FIRST_NAMES)]
+        last = BOT_LAST_NAMES[(idx * 5 + idx // len(BOT_FEMALE_FIRST_NAMES)) % len(BOT_LAST_NAMES)]
+        return f"{first} {last}"
+    if mix < 35:
+        return BOT_NICKNAMES[(idx * 13 + 7) % len(BOT_NICKNAMES)]
     first = BOT_MALE_FIRST_NAMES[(idx * 7 + 3) % len(BOT_MALE_FIRST_NAMES)]
     last = BOT_LAST_NAMES[(idx * 5 + idx // len(BOT_MALE_FIRST_NAMES)) % len(BOT_LAST_NAMES)]
     return f"{first} {last}"
