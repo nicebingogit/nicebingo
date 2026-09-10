@@ -87,6 +87,16 @@ class GameLoop:
                                seconds=config.TICK_INTERVAL, id="game_tick",
                                max_instances=1, coalesce=True)
         self.scheduler.start()
+        # Second-chance fill: if the initial fill failed (e.g. cards weren't
+        # seeded yet on PythonAnywhere), the first tick retries automatically.
+        # Additionally, schedule a delayed re-fill 5 seconds after boot to
+        # catch any race condition where the DB wasn't fully ready at boot.
+        try:
+            self.scheduler.add_job(self._post_boot_fill, "interval",
+                                   seconds=5, id="post_boot_fill",
+                                   max_instances=1, coalesce=True)
+        except Exception:
+            pass  # idempotent — job may already exist on WSGI reload
         logger.info("Game loop started · rooms=%s", config.ROOM_BETS)
 
     def stop(self) -> None:
@@ -94,6 +104,36 @@ class GameLoop:
             self.scheduler.shutdown(wait=False)
         except Exception:
             pass
+
+    def _post_boot_fill(self) -> None:
+        """Second-chance bot fill after boot. If the initial fill at startup
+        failed (e.g. cards weren't seeded yet on PythonAnywhere, or the DB
+        was still being repaired), this method retries. Runs once per 5
+        seconds for the first ~30 seconds after boot, then stops itself
+        by removing its own job.
+
+        update-in-every-change: yes
+        """
+        try:
+            with self._lock:
+                any_empty = False
+                for room in config.ROOM_BETS:
+                    count = self.logic.bot_player_count(room)
+                    if count < 1:
+                        any_empty = True
+                        self._ensure_bot_players(room)
+                        logger.info("Post-boot fill: room %s had 0 bots, filled to %s",
+                                    room, self.logic.bot_player_count(room))
+                # If every room has at least 1 bot, stop the re-fill job
+                if not any_empty:
+                    try:
+                        self.scheduler.remove_job("post_boot_fill")
+                    except Exception:
+                        pass
+                    logger.info("Post-boot fill complete — all rooms have players")
+        except Exception as exc:
+            logger.error("Post-boot fill error: %s", exc)
+
 
     # ------------------------------------------------------------------ tick
     def tick(self) -> None:
@@ -503,15 +543,27 @@ class GameLoop:
                     self.db.record_bot(sel["user_id"], name, 1)
                     self.db.update_username(sel["user_id"], name)
             return 1
+        # Ensure cards exist before trying to fill bots — on PythonAnywhere
+        # the card seed might not have run yet if the DB was just repaired.
+        card_count = self.db.count_cards()
+        if card_count == 0:
+            logger.warning("%s: 0 cards in pool — bot fill deferred (seed may be pending)",
+                           config.room_label(room))
+            return 0
         target, cards_each, plan = self._bot_plan(room)
         current = self.logic.bot_player_count(room)
         goal = target if cap is None else min(target, current + cap)
+        if current == 0 and goal > 0:
+            logger.info("%s: filling with bots — target=%d, cards_each=%d, cards_in_pool=%d",
+                        config.room_label(room), target, cards_each, card_count)
         added = 0
         while self.logic.bot_player_count(room) < goal:
             slot = self.logic.bot_player_count(room)
             cards = plan[slot] if slot < len(plan) else cards_each
             try:
                 if not self.logic.add_bot_player(room, cards):
+                    logger.warning("%s: add_bot_player returned None at slot %d — card pool may be exhausted",
+                                   config.room_label(room), slot)
                     break
             except Exception:
                 logger.exception("%s: bot fill skipped a bad bot",
@@ -817,6 +869,7 @@ class GameLoop:
             # consistent with the current human count's plan; also persists the
             # bot accounts so the super-admin /api/admin/bots view is current
             # (bots ENABLED -> full plan fill; DISABLED rooms keep 1 player)
+            added = self._ensure_bot_players(room)
             return {"ok": True, "added": added,
                     "total": self.logic.player_breakdown(room)["bots"]}
 

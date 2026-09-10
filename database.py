@@ -164,6 +164,127 @@ class Database:
                       f"{backup or 'a backup'} or delete the DB to reseed",
                       flush=True)
 
+    def _create_tables_individually(self) -> None:
+        """Fallback: create each table one at a time so a single corrupted
+        table never blocks the rest. Used when the bulk executescript fails
+        on a partially corrupted database (common on PythonAnywhere free tier)."""
+        _TABLES_DDL = [
+            ("players", """CREATE TABLE IF NOT EXISTS players (
+                user_id INTEGER PRIMARY KEY, username TEXT, full_name TEXT,
+                phone TEXT, is_registered INTEGER NOT NULL DEFAULT 1,
+                credit INTEGER NOT NULL DEFAULT 1000,
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("game_state", """CREATE TABLE IF NOT EXISTS game_state (
+                room INTEGER PRIMARY KEY, phase TEXT DEFAULT 'preparation',
+                preparation_end_time TEXT, current_call TEXT,
+                winner_user_id INTEGER, winning_pattern TEXT,
+                prize_pool INTEGER DEFAULT 0, total_bets INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("cards", """CREATE TABLE IF NOT EXISTS cards (
+                id TEXT PRIMARY KEY, numbers TEXT NOT NULL
+            )"""),
+            ("card_selections", """CREATE TABLE IF NOT EXISTS card_selections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                card_id TEXT NOT NULL, room INTEGER NOT NULL DEFAULT 30,
+                bet_amount INTEGER DEFAULT 30,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, card_id)
+            )"""),
+            ("called_numbers", """CREATE TABLE IF NOT EXISTS called_numbers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room INTEGER NOT NULL DEFAULT 30, number TEXT NOT NULL,
+                called_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(room, number)
+            )"""),
+            ("games", """CREATE TABLE IF NOT EXISTS games (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room INTEGER NOT NULL DEFAULT 30, round_number INTEGER,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ended_at TIMESTAMP, winner_user_id INTEGER,
+                winner_name TEXT, winning_pattern TEXT,
+                total_bets INTEGER DEFAULT 0, prize_paid INTEGER DEFAULT 0,
+                house_kept INTEGER DEFAULT 0, status TEXT DEFAULT 'running'
+            )"""),
+            ("game_history", """CREATE TABLE IF NOT EXISTS game_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER,
+                user_id INTEGER, card_ids TEXT, total_bet INTEGER,
+                winnings INTEGER, credit_after INTEGER, status TEXT,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("bots", """CREATE TABLE IF NOT EXISTS bots (
+                user_id INTEGER PRIMARY KEY, username TEXT,
+                cards INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("transactions", """CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                type TEXT NOT NULL, amount INTEGER NOT NULL, tx_id TEXT,
+                phone TEXT, user_name TEXT, payment_account_id INTEGER,
+                provider TEXT, account_number TEXT, account_holder TEXT,
+                status TEXT DEFAULT 'pending', admin_note TEXT,
+                reviewed_by INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TIMESTAMP
+            )"""),
+            ("payment_accounts", """CREATE TABLE IF NOT EXISTS payment_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,
+                account_name TEXT NOT NULL, account_number TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("round_eliminations", """CREATE TABLE IF NOT EXISTS round_eliminations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, game_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL, reason TEXT DEFAULT 'false_bingo',
+                eliminated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("settings", """CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY, value TEXT
+            )"""),
+            ("appeals", """CREATE TABLE IF NOT EXISTS appeals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                transaction_id INTEGER NOT NULL, reason TEXT,
+                status TEXT DEFAULT 'pending', resolution TEXT,
+                resolved_by INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP
+            )"""),
+            ("bot_notifications", """CREATE TABLE IF NOT EXISTS bot_notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL,
+                text TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                sent_at TIMESTAMP
+            )"""),
+            ("activity_log", """CREATE TABLE IF NOT EXISTS activity_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
+                action TEXT NOT NULL, details TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("referrals", """CREATE TABLE IF NOT EXISTS referrals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, referrer_id INTEGER NOT NULL,
+                referred_id INTEGER NOT NULL UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("referral_commissions", """CREATE TABLE IF NOT EXISTS referral_commissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                referrer_id INTEGER NOT NULL, referred_id INTEGER NOT NULL,
+                game_id INTEGER, room INTEGER DEFAULT 30,
+                total_bet INTEGER NOT NULL DEFAULT 0,
+                commission INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+            ("announcements", """CREATE TABLE IF NOT EXISTS announcements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL,
+                posted_by INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""),
+        ]
+        for name, ddl in _TABLES_DDL:
+            try:
+                with self._session() as conn:
+                    conn.execute(ddl)
+            except Exception as exc:
+                print(f"[database] table '{name}' creation issue: {exc}", flush=True)
+
     def init_db(self) -> None:
         self._repair_schema()
         conn = self._connect()
@@ -171,207 +292,219 @@ class Database:
             conn.execute("PRAGMA journal_mode=WAL")  # one-time, enables concurrent readers
         except sqlite3.Error:
             pass
-        with self._session() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS players (
-                    user_id       INTEGER PRIMARY KEY,
-                    username      TEXT,
-                    full_name     TEXT,
-                    phone         TEXT,
-                    is_registered INTEGER NOT NULL DEFAULT 1,
-                    credit        INTEGER NOT NULL DEFAULT 1000,
-                    is_admin      INTEGER NOT NULL DEFAULT 0,
-                    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                -- one row per ROOM (keyed by its fixed bet: 30 / 50 / 100).
-                -- Each room is its own game with its own phase, ball order,
-                -- pool and timer, so low and high rollers never mix.
-                CREATE TABLE IF NOT EXISTS game_state (
-                    room INTEGER PRIMARY KEY,
-                    phase TEXT DEFAULT 'preparation',
-                    preparation_end_time TEXT,
-                    current_call TEXT,
-                    winner_user_id INTEGER,
-                    winning_pattern TEXT,
-                    prize_pool INTEGER DEFAULT 0,
-                    total_bets INTEGER DEFAULT 0,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS cards (
-                    id      TEXT PRIMARY KEY,
-                    numbers TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS card_selections (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id    INTEGER NOT NULL,
-                    card_id    TEXT NOT NULL,
-                    room       INTEGER NOT NULL DEFAULT 30,
-                    bet_amount INTEGER DEFAULT 30,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_id, card_id)
-                );
-                -- one row per (room, number): the SAME ball can be drawn in
-                -- several rooms, so uniqueness must be per room — a global
-                -- UNIQUE(number) would silently drop the second room's call
-                -- and its calling board would never highlight that ball.
-                CREATE TABLE IF NOT EXISTS called_numbers (
-                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                    room      INTEGER NOT NULL DEFAULT 30,
-                    number    TEXT NOT NULL,
-                    called_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(room, number)
-                );
-                CREATE TABLE IF NOT EXISTS games (
-                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                    room            INTEGER NOT NULL DEFAULT 30,
-                    round_number    INTEGER,
-                    started_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    ended_at        TIMESTAMP,
-                    winner_user_id  INTEGER,
-                    winner_name     TEXT,
-                    winning_pattern TEXT,
-                    total_bets      INTEGER DEFAULT 0,
-                    prize_paid      INTEGER DEFAULT 0,
-                    house_kept      INTEGER DEFAULT 0,
-                    status          TEXT DEFAULT 'running'
-                );
-                CREATE TABLE IF NOT EXISTS game_history (
-                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                    game_id      INTEGER,
-                    user_id      INTEGER,
-                    card_ids     TEXT,
-                    total_bet    INTEGER,
-                    winnings     INTEGER,
-                    credit_after INTEGER,
-                    status       TEXT,
-                    played_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                -- persistent bot accounts (negative user ids)
-                CREATE TABLE IF NOT EXISTS bots (
-                    user_id    INTEGER PRIMARY KEY,
-                    username   TEXT,
-                    cards      INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                -- deposit / withdraw requests (wallet) reviewed by the admin.
-                -- The payment account details are stored as a SNAPSHOT on each
-                -- row (provider / account_number / account_holder) so that
-                -- editing or deleting an account later never corrupts the
-                -- historical transaction record. user_name snapshots who paid.
-                CREATE TABLE IF NOT EXISTS transactions (
-                    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id            INTEGER NOT NULL,
-                    type               TEXT NOT NULL,
-                    amount             INTEGER NOT NULL,
-                    tx_id              TEXT,
-                    phone              TEXT,
-                    user_name          TEXT,
-                    payment_account_id INTEGER,
-                    provider           TEXT,
-                    account_number     TEXT,
-                    account_holder     TEXT,
-                    status             TEXT DEFAULT 'pending',
-                    admin_note         TEXT,
-                    reviewed_by        INTEGER,
-                    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    reviewed_at        TIMESTAMP
-                );
-                -- payment accounts (TeleBirr / CBE / CBB / bank ...) that
-                -- players send deposits to. Managed by the admin; a user picks
-                -- one active account when submitting a deposit.
-                CREATE TABLE IF NOT EXISTS payment_accounts (
-                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                    provider       TEXT NOT NULL,
-                    account_name   TEXT NOT NULL,
-                    account_number TEXT NOT NULL,
-                    is_active      INTEGER NOT NULL DEFAULT 1,
-                    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                -- round eliminations (false BINGO). Scoped by game_id so a
-                -- player is only out for the CURRENT round and automatically
-                -- becomes eligible again when the next round starts. Persisted
-                -- so a server restart mid-round cannot revive the player.
-                CREATE TABLE IF NOT EXISTS round_eliminations (
-                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    game_id       INTEGER NOT NULL,
-                    user_id       INTEGER NOT NULL,
-                    reason        TEXT DEFAULT 'false_bingo',
-                    eliminated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                -- simple key/value settings (legacy admin wallet account kept
-                -- for backward compatibility; payment_accounts is authoritative)
-                CREATE TABLE IF NOT EXISTS settings (
-                    key   TEXT PRIMARY KEY,
-                    value TEXT
-                );
-                -- wallet appeals: a user who sent a deposit but the admin never
-                -- approved it can appeal; the SUPER ADMIN resolves these.
-                CREATE TABLE IF NOT EXISTS appeals (
-                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id        INTEGER NOT NULL,
-                    transaction_id INTEGER NOT NULL,
-                    reason         TEXT,
-                    status         TEXT DEFAULT 'pending',
-                    resolution     TEXT,
-                    resolved_by    INTEGER,
-                    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    resolved_at    TIMESTAMP
-                );
-                -- cross-process bot message queue: server.py (Flask) enqueues
-                -- admin/user alerts here; the bot's announcer tick drains the
-                -- queue and sends them over Telegram. Works in BOTH polling
-                -- and webhook modes (server and bot may be separate processes).
-                CREATE TABLE IF NOT EXISTS bot_notifications (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id    INTEGER NOT NULL,
-                    text       TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    sent_at    TIMESTAMP
-                );
-                -- activity log: every critical action for the super admin
-                -- console. Records who did what, when, and key details.
-                CREATE TABLE IF NOT EXISTS activity_log (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id    INTEGER,
-                    action     TEXT NOT NULL,
-                    details    TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                -- referral system: admins invite users via a unique referral
-                -- link and earn 5% commission on every round those users play.
-                CREATE TABLE IF NOT EXISTS referrals (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    referrer_id INTEGER NOT NULL,
-                    referred_id INTEGER NOT NULL UNIQUE,
-                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (referrer_id) REFERENCES players(user_id),
-                    FOREIGN KEY (referred_id) REFERENCES players(user_id)
-                );
-                -- commission ledger: one row per round where a referred player
-                -- participated. The commission is 5% of the total bets from
-                -- ALL cards that referred player held in that round.
-                CREATE TABLE IF NOT EXISTS referral_commissions (
-                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    referrer_id   INTEGER NOT NULL,
-                    referred_id   INTEGER NOT NULL,
-                    game_id       INTEGER,
-                    room          INTEGER DEFAULT 30,
-                    total_bet     INTEGER NOT NULL DEFAULT 0,
-                    commission    INTEGER NOT NULL DEFAULT 0,
-                    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (referrer_id) REFERENCES players(user_id),
-                    FOREIGN KEY (referred_id) REFERENCES players(user_id)
-                );
-                CREATE TABLE IF NOT EXISTS announcements (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    text        TEXT NOT NULL,
-                    posted_by   INTEGER,
-                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                """
-            )
+        # Robust init: wrap schema creation in a try/except so a single
+        # corrupted table never prevents the rest of the database from being
+        # created. This is critical on PythonAnywhere where the free-tier
+        # can corrupt the DB during a concurrent write or reload.
+        try:
+            with self._session() as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS players (
+                        user_id       INTEGER PRIMARY KEY,
+                        username      TEXT,
+                        full_name     TEXT,
+                        phone         TEXT,
+                        is_registered INTEGER NOT NULL DEFAULT 1,
+                        credit        INTEGER NOT NULL DEFAULT 1000,
+                        is_admin      INTEGER NOT NULL DEFAULT 0,
+                        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    -- one row per ROOM (keyed by its fixed bet: 30 / 50 / 100).
+                    -- Each room is its own game with its own phase, ball order,
+                    -- pool and timer, so low and high rollers never mix.
+                    CREATE TABLE IF NOT EXISTS game_state (
+                        room INTEGER PRIMARY KEY,
+                        phase TEXT DEFAULT 'preparation',
+                        preparation_end_time TEXT,
+                        current_call TEXT,
+                        winner_user_id INTEGER,
+                        winning_pattern TEXT,
+                        prize_pool INTEGER DEFAULT 0,
+                        total_bets INTEGER DEFAULT 0,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS cards (
+                        id      TEXT PRIMARY KEY,
+                        numbers TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS card_selections (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id    INTEGER NOT NULL,
+                        card_id    TEXT NOT NULL,
+                        room       INTEGER NOT NULL DEFAULT 30,
+                        bet_amount INTEGER DEFAULT 30,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, card_id)
+                    );
+                    -- one row per (room, number): the SAME ball can be drawn in
+                    -- several rooms, so uniqueness must be per room — a global
+                    -- UNIQUE(number) would silently drop the second room's call
+                    -- and its calling board would never highlight that ball.
+                    CREATE TABLE IF NOT EXISTS called_numbers (
+                        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                        room      INTEGER NOT NULL DEFAULT 30,
+                        number    TEXT NOT NULL,
+                        called_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(room, number)
+                    );
+                    CREATE TABLE IF NOT EXISTS games (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        room            INTEGER NOT NULL DEFAULT 30,
+                        round_number    INTEGER,
+                        started_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        ended_at        TIMESTAMP,
+                        winner_user_id  INTEGER,
+                        winner_name     TEXT,
+                        winning_pattern TEXT,
+                        total_bets      INTEGER DEFAULT 0,
+                        prize_paid      INTEGER DEFAULT 0,
+                        house_kept      INTEGER DEFAULT 0,
+                        status          TEXT DEFAULT 'running'
+                    );
+                    CREATE TABLE IF NOT EXISTS game_history (
+                        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                        game_id      INTEGER,
+                        user_id      INTEGER,
+                        card_ids     TEXT,
+                        total_bet    INTEGER,
+                        winnings     INTEGER,
+                        credit_after INTEGER,
+                        status       TEXT,
+                        played_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    -- persistent bot accounts (negative user ids)
+                    CREATE TABLE IF NOT EXISTS bots (
+                        user_id    INTEGER PRIMARY KEY,
+                        username   TEXT,
+                        cards      INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    -- deposit / withdraw requests (wallet) reviewed by the admin.
+                    -- The payment account details are stored as a SNAPSHOT on each
+                    -- row (provider / account_number / account_holder) so that
+                    -- editing or deleting an account later never corrupts the
+                    -- historical transaction record. user_name snapshots who paid.
+                    CREATE TABLE IF NOT EXISTS transactions (
+                        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id            INTEGER NOT NULL,
+                        type               TEXT NOT NULL,
+                        amount             INTEGER NOT NULL,
+                        tx_id              TEXT,
+                        phone              TEXT,
+                        user_name          TEXT,
+                        payment_account_id INTEGER,
+                        provider           TEXT,
+                        account_number     TEXT,
+                        account_holder     TEXT,
+                        status             TEXT DEFAULT 'pending',
+                        admin_note         TEXT,
+                        reviewed_by        INTEGER,
+                        created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        reviewed_at        TIMESTAMP
+                    );
+                    -- payment accounts (TeleBirr / CBE / CBB / bank ...) that
+                    -- players send deposits to. Managed by the admin; a user picks
+                    -- one active account when submitting a deposit.
+                    CREATE TABLE IF NOT EXISTS payment_accounts (
+                        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                        provider       TEXT NOT NULL,
+                        account_name   TEXT NOT NULL,
+                        account_number TEXT NOT NULL,
+                        is_active      INTEGER NOT NULL DEFAULT 1,
+                        created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    -- round eliminations (false BINGO). Scoped by game_id so a
+                    -- player is only out for the CURRENT round and automatically
+                    -- becomes eligible again when the next round starts. Persisted
+                    -- so a server restart mid-round cannot revive the player.
+                    CREATE TABLE IF NOT EXISTS round_eliminations (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        game_id       INTEGER NOT NULL,
+                        user_id       INTEGER NOT NULL,
+                        reason        TEXT DEFAULT 'false_bingo',
+                        eliminated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    -- simple key/value settings (legacy admin wallet account kept
+                    -- for backward compatibility; payment_accounts is authoritative)
+                    CREATE TABLE IF NOT EXISTS settings (
+                        key   TEXT PRIMARY KEY,
+                        value TEXT
+                    );
+                    -- wallet appeals: a user who sent a deposit but the admin never
+                    -- approved it can appeal; the SUPER ADMIN resolves these.
+                    CREATE TABLE IF NOT EXISTS appeals (
+                        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id        INTEGER NOT NULL,
+                        transaction_id INTEGER NOT NULL,
+                        reason         TEXT,
+                        status         TEXT DEFAULT 'pending',
+                        resolution     TEXT,
+                        resolved_by    INTEGER,
+                        created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        resolved_at    TIMESTAMP
+                    );
+                    -- cross-process bot message queue: server.py (Flask) enqueues
+                    -- admin/user alerts here; the bot's announcer tick drains the
+                    -- queue and sends them over Telegram. Works in BOTH polling
+                    -- and webhook modes (server and bot may be separate processes).
+                    CREATE TABLE IF NOT EXISTS bot_notifications (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        chat_id    INTEGER NOT NULL,
+                        text       TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        sent_at    TIMESTAMP
+                    );
+                    -- activity log: every critical action for the super admin
+                    -- console. Records who did what, when, and key details.
+                    CREATE TABLE IF NOT EXISTS activity_log (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id    INTEGER,
+                        action     TEXT NOT NULL,
+                        details    TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    -- referral system: admins invite users via a unique referral
+                    -- link and earn 5% commission on every round those users play.
+                    CREATE TABLE IF NOT EXISTS referrals (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        referrer_id INTEGER NOT NULL,
+                        referred_id INTEGER NOT NULL UNIQUE,
+                        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (referrer_id) REFERENCES players(user_id),
+                        FOREIGN KEY (referred_id) REFERENCES players(user_id)
+                    );
+                    -- commission ledger: one row per round where a referred player
+                    -- participated. The commission is 5% of the total bets from
+                    -- ALL cards that referred player held in that round.
+                    CREATE TABLE IF NOT EXISTS referral_commissions (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        referrer_id   INTEGER NOT NULL,
+                        referred_id   INTEGER NOT NULL,
+                        game_id       INTEGER,
+                        room          INTEGER DEFAULT 30,
+                        total_bet     INTEGER NOT NULL DEFAULT 0,
+                        commission    INTEGER NOT NULL DEFAULT 0,
+                        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (referrer_id) REFERENCES players(user_id),
+                        FOREIGN KEY (referred_id) REFERENCES players(user_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS announcements (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        text        TEXT NOT NULL,
+                        posted_by   INTEGER,
+                        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+        except Exception as exc:
+            # If the bulk executescript fails (e.g. one table is corrupted),
+            # create each table individually so a single bad table doesn't
+            # block the rest. This is a recovery path for corrupted databases
+            # on PythonAnywhere's free tier.
+            print(f"[database] bulk schema creation failed ({exc}) — falling back to per-table creation", flush=True)
+            self._create_tables_individually()
             # ----------------------------------------------------------
             # migrate the legacy SINGLETON game_state (id=1) to per-ROOM
             # rows keyed by the fixed bet. Existing data moves to room 30.
