@@ -8,6 +8,11 @@ Vercel, no external services** — and it runs either **on your Windows desktop*
 or **24/7 in the free cloud with no PC needed** (see
 [☁️ Run 24/7 in the cloud](#-run-247-in-the-cloud-free)).
 
+> **📄 Complete reference:** `TECHNICAL_DOCS2.md` documents the entire system —
+> anyone can recreate the whole thing just by reading it.
+> **⚠️ That documentation (and this README) must be updated with every change
+> to the codebase** — an out-of-date document is worse than no document.
+
 ```
 ┌─────────────────────┐      ┌──────────────────────────────────────────┐
 │  Telegram app       │      │  YOUR WINDOWS PC                         │
@@ -62,8 +67,8 @@ routes, depending on whether you can provide a card:
 | 💰 **Global win pool** | Pool = sum of **all** purchased cards (bots included); winner takes **80 %**, credited instantly |
 | 🃏 **Up to 4 cards** | One room — **fixed 10 ETB per card** in the single “By 10” room (per-card bet editor in the app) |
 | 🤖 **Smart bot fill** | The single room is filled with 18-140 invisible bots (chosen by the **number of humans** playing: fewer humans → more bots). Bots join EVERY round — a room with **zero humans still plays a full round** with bots. Bots carry 1-3 real cards with a random 5-15-card deduction per round, feed the pool, and are invisible to players — **only the super admin knows they are bots**; everyone else just sees players with Ethiopian names (Girum, Kirubel, Ermias…). The fill is **self-healing**: bots top up at boot, after every reset and even mid-round, so a room with bots on never sits at 0 players |
-| ➕ **Manual bot fill** | The super admin panel's Game Controls has an **Add Bots** button (plus bot on/off and difficulty 0-5) — it instantly tops the room up to the current bot plan |
-| 🏆 **Someone always wins** | A winner is guaranteed well before ball 75: once **64 balls** (`BOT_GUARANTEED_WIN_AFTER`) have been called without a winner, the next call is arranged so a bot card completes and that player wins. **Impossible** difficulty: a human can never win — the ball that would complete a human's card is never drawn, and a claim is never refused with a warning; instead a player with an Ethiopian name takes the win |
+| ➕ **Manual bot fill** | The super admin panel's Game Controls has an **Add Bots** button (plus bot on/off and difficulty 0-5) — it instantly tops the room up to the current bot plan. With bots **off**, the room keeps exactly **one other player** so nobody ever plays alone |
+| 🏆 **Standard bingo rounds** | Normal game duration and pacing — a winner only on a valid BINGO claim; after all 75 balls the round ends winless (like standard bingo). **Impossible** difficulty: a human can never win — the ball that would complete a human's card is never drawn, and a claim is never refused with a warning; instead a player with an Ethiopian name takes the win |
 | 👀 **Spectate bot cards** | A player who joined but picked no card watches a random bot's card daub live (with that player's Ethiopian name) — so even near-empty rooms feel alive |
 | 🔁 **Auto-reset** | New 60 s round automatically after a winner or the 75th ball |
 | 🔔 **Real-time sync** | The app polls the local API every 2.5 s — called numbers, sold cards, phase, pool |

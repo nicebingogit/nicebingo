@@ -281,6 +281,20 @@ def main():
     code, data = post("/api/admin/bots/toggle", {"admin_id": SUPER, "enabled": True})
     step(8, "Bots toggled back ON", data["enabled"] is True)
 
+    # --- bots DISABLED: the room keeps exactly ONE other player so nobody
+    # ever plays alone — but never the full 18-140 bot fill.
+    post("/api/admin/bots/toggle", {"admin_id": SUPER, "enabled": False})
+    post("/api/admin/reset", {"admin_id": ADMIN})
+    loop._ensure_bot_players(30)  # direct call — the ticker is not running in tests
+    bots = {s["user_id"] for s in db.get_all_selections(30) if s["user_id"] < 0}
+    step(8, "Bots disabled: exactly ONE other player joins (no one plays alone)",
+         len(bots) == 1)
+    loop._ensure_bot_players(30)
+    bots = {s["user_id"] for s in db.get_all_selections(30) if s["user_id"] < 0}
+    step(8, "Bots disabled: no more players are ever added beyond that one",
+         len(bots) == 1)
+    post("/api/admin/bots/toggle", {"admin_id": SUPER, "enabled": True})
+
     admin_before = db.get_credit(ADMIN)
     code, data = post("/api/admin/credit",
                       {"admin_id": ADMIN, "user_id": TEST_USER, "amount": 500})
@@ -619,10 +633,11 @@ def main():
     step(15, "Impossible: a human can never win — the claim never lands on a human",
          not (data.get("winner") and data["winner"]["user_id"] > 0))
 
-    # -------- 15c. someone ALWAYS wins: if no one claimed by ball
-    # BOT_GUARANTEED_WIN_AFTER, a ready bot is FORCED to win — a round with
-    # bots never drags to 75. Easy (0) makes bots never claim on their own,
-    # so this win can only come from the forced guaranteed-win path.
+    # -------- 15c. STANDARD bingo duration — nobody is forced to win and the
+    # game is NEVER shortened to make a bot win. Every difficulty other than
+    # Impossible plays like a standard bingo game: Easy (0) bots never claim
+    # on their own, so calling ALL 75 balls must end the round winless — the
+    # natural, full-length end (a winner only ever comes from a real claim).
     loop.set_bots_difficulty(0)
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})
     post("/api/admin/force-start", {"admin_id": ADMIN, "room": 30})
@@ -635,12 +650,12 @@ def main():
             forced = data["winner"]
             break
     code, state = get("/api/game-state", query_string={"user_id": TEST_USER, "room": 30})
-    step(15, "Guaranteed win: a ready BOT is forced to win before ball 75",
-         state["phase"] == "ended" and bool(state.get("winner"))
-         and state["winner"]["user_id"] < 0)
-    step(15, "Forced win is announced through the normal winner flow",
-         forced is not None and forced["user_id"] < 0
-         and bool(forced.get("prize")))
+    step(15, "Standard bingo: normal duration — no forced win, all 75 balls called",
+         state["phase"] == "ended" and forced is None
+         and len(state["called_numbers"]) == 75)
+    code, data = get("/api/admin/bots", query_string={"admin_id": SUPER, "room": 30})
+    step(15, "Bot fill works on this difficulty too (18-140 per human-count option)",
+         code == 200 and data["breakdown"]["bots"] >= 18)
 
     # ------------------- 16. super admin console + admin-credit/online model
     # the super admin sees EVERY account (admins AND users) with credits

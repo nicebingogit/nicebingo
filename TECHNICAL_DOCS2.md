@@ -26,6 +26,7 @@
 14. [Referral System](#14-referral-system)
 15. [API Reference](#15-api-reference)
 16. [Deployment](#16-deployment)
+16b. [Changelog (update on EVERY change)](#16b-changelog-update-on-every-change)
 17. [Troubleshooting](#17-troubleshooting)
 
 ---
@@ -37,7 +38,7 @@ Nice Bingo is a real-time multiplayer Bingo game built as a **Telegram Mini App*
 ### Key Features
 - **Single room (By 10)**: the game runs exactly ONE room — 10 ETB per card. `ROOM_BETS` in `.env` can change it (e.g. `ROOM_BETS=50`), but the production default is a single “By 10” room
 - **Real-time gameplay**: Balls called every 4 seconds via a server-side game loop
-- **Bot players**: AI players fill every room to 18-140 players (count chosen by how many **humans** are playing — see [Bot System](#12-bot-system-ai-players)). Bots look exactly like real players (Ethiopian male names, negative IDs) and are completely invisible to humans.
+- **Bot players**: AI players fill every room to 18-140 players (count chosen by how many **humans** are playing — see [Bot System](#12-bot-system-ai-players)). Bots look exactly like real players (Ethiopian male names, negative IDs) and are completely invisible to humans. The fill works on **every difficulty level**; the only difference is that on **Impossible** no human can win. With bots disabled the room keeps exactly **one other player** so nobody plays alone.
 - **Auto-play mode**: Players can toggle auto-daub and auto-claim
 - **Wallet system**: Deposit/withdraw via bank accounts (TeleBirr, CBE, CBB, etc.)
 - **Referral program**: 5% commission on referred players' bets
@@ -253,7 +254,7 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 | `MIN_WITHDRAWAL` | `100` | Minimum withdrawal amount |
 | `PRIZE_PERCENT` | `0.8` | Winner's share (80%) |
 | `BOTS_CONTRIBUTE_TO_POOL` | `True` | Bot bets feed the prize pool |
-| `BOT_GUARANTEED_WIN_AFTER` | `64` | With bots on, if nobody has won after this many called balls the next call is arranged so a bot card completes and wins (rounds never drag to 75) |
+| `BOT_GUARANTEED_WIN_AFTER` | `64` | **Legacy — no longer used.** Rounds are never shortened to make a bot win; normal game duration and pacing are preserved |
 | `PREPARATION_SECONDS` | `40` | Countdown between rounds |
 | `CALL_INTERVAL_SECONDS` | `4` | Seconds between ball calls |
 | `POST_GAME_RESET_SECONDS` | `15` | Winner screen duration |
@@ -576,9 +577,10 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 - `start_round()` fills the remainder slot-by-slot with the plan's card counts
 - The ticker tops up in ALL phases (≤8 per tick in prep and playing) — stale
   DBs / reloads mid-round can no longer leave a room bot-less
-- **Presence is unconditional:** bot JOINING is never blocked — the super-admin
-  **"bots off" toggle only silences their auto-claims/auto-wins** (bots stay on
-  the boards so the room is never empty; they simply never win while off)
+- **Presence is unconditional:** bot JOINING is never blocked while the toggle
+  is on — the super-admin **"bots off" toggle only silences their
+  auto-claims/auto-wins**; the room keeps exactly **one other player** so
+  nobody plays alone, and no full bot fill happens until it is back on
 - `add_bots()` (super-admin button) force-enables the toggle if it is off and
   fills straight to the plan target
 
@@ -591,12 +593,17 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 
 **`call_step()` method:**
 - Pops the next ball from the persisted order
-- Runs `_bot_claim_pass()` — bots may auto-claim BINGO
-- **Guaranteed winner**: once `BOT_GUARANTEED_WIN_AFTER` (64) balls have been
-  called with no winner, `_force_bot_win()` reorders the machine so the next
-  call completes a bot card and that player claims — a round with bots on
-  NEVER drags to 75 balls
-- **75/75 ALWAYS stops the round**: `call_step` checks the EMPTY BALL MACHINE FIRST — before any difficulty guard — so once every ball is called the round unconditionally ends (forced bot win with bots on; winless without). No room can ever call past ball 75 or hang in `playing`
+- Runs `_bot_claim_pass()` — bots may auto-claim BINGO (per difficulty delay)
+- **Normal game duration is preserved — no forced wins.** Every difficulty
+  other than Impossible plays like a **standard bingo game**: a winner is
+  declared ONLY when a player presses BINGO, and the round is never shortened
+  to make a bot win
+- **75/75 ALWAYS stops the round**: `call_step` checks the EMPTY BALL MACHINE
+  FIRST — before any difficulty guard — so once every ball is called the round
+  unconditionally ends. On every difficulty EXCEPT Impossible it ends
+  **winless** after all 75 balls (standard bingo). ONLY on Impossible (5) a
+  ready bot is declared the winner at that point so a human can still never
+  win. No room can ever call past ball 75 or hang in `playing`
 - Schedules the next ball call
 
 **`claim_bingo()` method:**
@@ -782,7 +789,7 @@ Synthesized via Web Audio API (no external files). Four packs:
 4. Auto-play mode daubs and claims automatically
 5. When a player completes a winning pattern, they press BINGO
 6. Server verifies the card — valid claim pays the prize, false claim eliminates
-7. **75/75 always stops the game — and someone always wins with bots on**: the ball loop checks the empty ball machine FIRST (before the Impossible guard) and unconditionally ends the round at ball 75. After all 75 balls every card is fully daubed, so a ready bot is always found and forced to win (`_bot_win_claim`) — a round never ends winless or hangs while bots are enabled. On **Impossible** difficulty the ball machine is additionally reordered so a bot completes and claims before a human ever can
+7. **75/75 always stops the game — standard bingo end**: the ball loop checks the empty ball machine FIRST (before the Impossible guard) and unconditionally ends the round at ball 75. On every difficulty EXCEPT Impossible the round simply ends **winless** if nobody claimed — exactly like a standard bingo game; the game duration is never shortened to make a bot win. ONLY on **Impossible** difficulty a ready bot is declared the winner at 75/75 (so a human can never win), and the ball machine is additionally reordered there so a bot completes and claims before a human ever can
 
 ### Winning Patterns
 - **Row**: All 5 numbers in any horizontal row
@@ -826,15 +833,20 @@ Bot bets contribute to the pool just like real bets, making the prize larger.
 
 ### Bot Filling Logic
 1. During preparation, bots join gradually (up to 8 per tick) toward the
-   current plan — the room always looks alive before the round starts
+   current plan — the room always looks alive before the round starts (bots
+   are added **gradually throughout the countdown**, never all at once)
 2. The plan is recomputed from the **current human-player count** every call,
    so the fill follows how many real players are in the room that round
 3. When the round starts, `_bot_plan()` rebuilds the plan with the **final**
    human count and `start_round()` tops up the room slot-by-slot
 4. Every round randomly deducts **5-15 cards** from the total bot-card count
    (option's cards × bots, minus the deduction). Each bot keeps at least 1 card
-5. Bots work on **every difficulty level** — they are added to fill the room
-   regardless of the difficulty setting
+5. Bots work on **every difficulty level** — the fill is identical on all of
+   them; the ONLY difference is that on **Impossible (5)** no human can win
+6. **Bots disabled** (super-admin toggle): the room keeps exactly **ONE other
+   player** holding a card — nobody should ever play alone — and no further
+   players are added until the toggle is back on. The toggle only silences
+   their auto-claims; the single companion is joined as a normal player
 
 **Bot count is chosen by the number of HUMAN players** (`pick_bot_target()`):
 
@@ -857,23 +869,27 @@ per bot, so no deduction applies there.
 ### Bot Claim System
 Bots press BINGO like humans — only when a card actually has a complete pattern.
 
-**Difficulty levels (0-5). Default = 5 (Impossible):**
+**Difficulty levels (0-5). Default = 5 (Impossible). The bot FILL is identical
+on every level (18-140 players by human count); only the claiming / win logic
+differs — and every level other than Impossible behaves like a standard bingo
+game with normal duration and pacing:**
 | Level | Name | Delay Range | Behavior |
 |-------|------|-------------|----------|
-| 0 | Easy | Never | Bots never claim on their own — humans win whenever they claim; if nobody won by ball `BOT_GUARANTEED_WIN_AFTER` (64) a ready bot is forced the win (rounds never end winless) |
+| 0 | Easy | Never | Bots never claim on their own — humans win whenever they claim; the round simply ends winless after all 75 balls if nobody claims (standard bingo) |
 | 1 | Normal | 5-8 balls | Very slow, rarely win |
 | 2 | Medium | 3-5 balls | Balanced, human-like delay |
 | 3 | Hard | 1-2 balls | Fast, often beats humans |
 | 4 | Very Hard | 0-1 balls | Near-instant |
-| 5 | **Impossible** | 0 balls | Instant — **default**, humans can never win |
+| 5 | **Impossible** | 0 balls | Instant — **default**; a human can NEVER win (see below) |
 
 **Impossible (5) is the default** and its mechanics are **strictly isolated**:
 only difficulty 5 reorders the ball machine and blocks human wins (`_impossible_guard`
 in `call_step`). A human's claim is never refused with a warning — the ball that
 would complete a human's card is simply never drawn, and if a human ever holds a
 ready pattern the win is handed to a bot player (via `_force_bot_win`) so the
-claim silently "lands" on a player with an Ethiopian name instead. The round also
-never ends winless.
+claim silently "lands" on a player with an Ethiopian name instead. If the round
+somehow reaches 75/75 without a winner on Impossible, a ready bot is declared
+the winner so a human can still never win.
 
 The delay is the number of balls to wait AFTER the pattern is completed before claiming. This gives other players a chance to claim first.
 
@@ -920,9 +936,9 @@ ADMIN_IDS=1 SUPER_ADMIN_IDS=2 ROOM_BETS=30,50,100 venv\Scripts\python.exe smoke_
 # or, for the API-only suite:  venv\Scripts\python.exe api_smoke.py
 ```
 The suite plays full rounds offline (registration, card sales, gradual bot fill,
-bot wins, **Impossible: a human can never win**, forced bot win before the 75th
-ball (`BOT_GUARANTEED_WIN_AFTER`), exact 80% payout, false-BINGO elimination,
-admin/super-admin controls)
+bot wins, **Impossible: a human can never win**, **standard-bingo 75-ball end
+with no forced wins**, bots-disabled **one-companion-player rule**, exact 80%
+payout, false-BINGO elimination, admin/super-admin controls)
 and renders sample cards.
 
 ---
@@ -1033,6 +1049,31 @@ python server.py  # Terminal 1
 python bot.py     # Terminal 2
 # For HTTPS: run_tunnel.bat or ngrok http 5000
 ```
+
+---
+
+## 16b. Changelog (update on EVERY change)
+
+> **⚠️ This changelog — and the whole document — must be updated with every
+> change to the codebase, every time.** Anyone must be able to recreate the
+> entire system just by reading this documentation.
+
+### 2026-09-10 — Standard-bingo rounds · bots-disabled companion rule
+- **Removed the forced guaranteed bot win** (`BOT_GUARANTEED_WIN_AFTER`, legacy
+  now): the game is **never shortened** to make a bot win — normal game
+  duration and pacing are preserved on every difficulty
+- **Standard bingo end**: after all 75 balls the round ends **winless** on
+  every difficulty EXCEPT Impossible (5); only Impossible declares a ready bot
+  the winner at 75/75 so a human can still never win
+- **Bots disabled** (super-admin toggle): the room keeps exactly **ONE other
+  player** holding a card — nobody plays alone — instead of the full 18-140
+  fill; the toggle still only silences their auto-claims
+- Bot fill unchanged otherwise: 18-140 players chosen by human count
+  (Options 1/2/3 with 1/2/3 cards each + random 5-15 card deduction), added
+  gradually through the countdown, male Ethiopian names, invisible to humans,
+  super-admin-only review; fill identical on all difficulties
+- Smoke tests updated (`api_smoke.py` sections 8 and 15c); `BOT_GUARANTEED_WIN_AFTER`
+  kept in `config.py`/`.env.example` marked legacy for compatibility
 
 ---
 

@@ -108,19 +108,21 @@ class GameLoop:
                     continue
                 phase = state.get("phase")
                 if phase == "preparation":
-                    # keep the room looking alive: top up bots during the
-                    # countdown too, so the player sees other players BEFORE
-                    # the round starts. Bots join gradually (random chunks each
-                    # tick) toward the current plan (chosen by human count).
+                    # keep the room looking alive: top up bot players during
+                    # the countdown too, so the player sees other players
+                    # BEFORE the round starts. Bots join gradually (up to 8
+                    # per tick) toward the current plan (chosen by human
+                    # count) — never all at once. Bots disabled keeps just
+                    # ONE other player (nobody plays alone).
                     self._add_prep_bots(room, state)
                     end = _parse(state.get("preparation_end_time"))
                     if end and now >= end:
                         self.start_round(room)
                 elif phase == "playing":
                     # self-healing fill: even if a round entered play before
-                    # bots were added (e.g. stale DB / reload mid-round), bots
-                    # join like any player (up to 8 per tick) instead of the
-                    # room staying empty all round
+                    # bots were added (e.g. stale DB / reload mid-round), bot
+                    # players join like any player (up to 8 per tick) instead
+                    # of the room staying empty all round
                     self._ensure_bot_players(room, cap=8)
                     nxt = _parse(state.get("next_call_time"))
                     if nxt and now >= nxt:
@@ -140,8 +142,9 @@ class GameLoop:
 
             # final bot plan, based on the CURRENT human count: prep ticks
             # seeded part of it, so top the rest up slot-by-slot right now —
-            # a round NEVER starts with 0 players. Bot presence is guaranteed
-            # even when the super-admin toggle is off (it only silences claims).
+            # a round NEVER starts with 0 players. With bots disabled this
+            # keeps exactly ONE other player in the room (nobody plays alone;
+            # the toggle only silences their auto-claims).
             target, cards_each, plan = self._bot_plan(room)
             self._ensure_bot_players(room)
             logger.info("%s: round starts with %s bot players · %s cards each",
@@ -181,10 +184,11 @@ class GameLoop:
         A winner is ONLY declared when a player presses the BINGO button
         (claim_bingo) — the loop never auto-announces a winner mid-round, even
         when a card already has a winning pattern. 75/75 ALWAYS stops the
-        round. Bots are ALWAYS present on the boards, so after all 75 balls
-        every card is fully daubed and the forced bot win below finds a
-        complete bot card — a round with bots holding cards always ends with
-        a winner; it can only finish winless if no bots exist at all.
+        round, exactly like a standard bingo game: on every difficulty other
+        than Impossible the round simply ends winless when the machine is
+        empty (no forced bot win, no shortened game — normal duration and
+        pacing are preserved). ONLY on Impossible (difficulty 5) the last
+        ball is handed to a bot so a human can still never win.
         """
         with self._lock:
             state = self.db.get_game_state(room)
@@ -192,28 +196,19 @@ class GameLoop:
                 return None
             # 75/75 FIRST — the round MUST stop once every ball has been
             # called, BEFORE any difficulty guard can look at the (now empty)
-            # ball machine. After all 75 balls every card is fully daubed, so
-            # _bot_win_claim finds a complete bot card and the round ends with
-            # a winner whenever bots hold cards — the round only finishes
-            # winless if no bots exist (or none hold cards).
+            # ball machine. Standard-bingo end: with no winner after all 75
+            # balls the round ends winless on every difficulty EXCEPT
+            # Impossible (5), where a ready bot is declared the winner so a
+            # human can never win — normal game duration is never shortened.
             if not self.db.get_ball_order(room):
-                winner = self._bot_win_claim(room)
-                if winner is not None:
-                    return {"number": None,
-                            "called": len(self.db.get_called_numbers(room)),
-                            "winner": winner}
+                if self.db.get_bots_difficulty(room) == 5:
+                    winner = self._bot_win_claim(room)
+                    if winner is not None:
+                        return {"number": None,
+                                "called": len(self.db.get_called_numbers(room)),
+                                "winner": winner}
                 self.end_round_no_winner(room)
                 return None
-            # GUARANTEED WIN — a round NEVER drags to 75 balls: once the
-            # threshold is reached the next call is arranged so a bot card
-            # completes and "claims" first (the winner is simply a player with
-            # an Ethiopian name — nobody is ever told about bots).
-            if len(self.db.get_called_numbers(room)) >= config.BOT_GUARANTEED_WIN_AFTER:
-                number, winner = self._force_bot_win(room)
-                if winner is not None:
-                    return {"number": number,
-                            "called": len(self.db.get_called_numbers(room)),
-                            "winner": winner}
             # IMPOSSIBLE (difficulty 5): the next ball is never allowed to
             # complete a HUMAN pattern — if it would, reorder the ball machine
             # so the next ball completes a bot card instead (bots claim
@@ -229,11 +224,12 @@ class GameLoop:
             if number is None:
                 # Defensive duplicate of the 75/75 stop above — the machine
                 # emptied between the order check and the pop.
-                winner = self._bot_win_claim(room)
-                if winner is not None:
-                    return {"number": None,
-                            "called": len(self.db.get_called_numbers(room)),
-                            "winner": winner}
+                if self.db.get_bots_difficulty(room) == 5:
+                    winner = self._bot_win_claim(room)
+                    if winner is not None:
+                        return {"number": None,
+                                "called": len(self.db.get_called_numbers(room)),
+                                "winner": winner}
                 self.end_round_no_winner(room)
                 return None
             called = self.db.get_called_numbers(room)
@@ -472,21 +468,41 @@ class GameLoop:
         """Guarantee bot "players" exist in the room (self-healing fill).
 
         Callers hold the loop lock. BOT PRESENCE IS UNCONDITIONAL — bots are
-        involved in the game BY ANY CASE, no matter what: the super-admin
-        "bots off" toggle only silences their auto-claims (bots stay on the
-        boards so the room is never empty), it never removes them. The room
-        is filled toward the CURRENT plan — recomputed from today's human
-        count — so it can NEVER sit at 0 players, no matter how it reached
-        its phase:
+        involved in the game BY ANY CASE, no matter what. With bots ENABLED
+        the room is filled toward the CURRENT plan — recomputed from today's
+        human count — so it can NEVER sit at 0 players, no matter how it
+        reached its phase:
           * start()        -> full fill at boot, before the first tick
           * reset_round()  -> seed batch, so a new countdown never shows 0
           * tick() (prep + playing) -> top-up of up to `cap` per tick
           * start_round() / add_bots() -> fill the rest to the plan target
+        With bots DISABLED the room keeps exactly ONE other player holding a
+        card — nobody should ever play alone — and no more are ever added
+        while that one is present (the toggle only re-enables auto-claims;
+        joining as a normal player is what keeps the room non-empty).
         `cap` limits how many join per call (ticker uses 8 for a natural
         pace); None fills straight to the plan target. Bot accounts are also
         persisted (bots table + usernames refreshed) for the super-admin
         /api/admin/bots view. Returns how many bots were added.
         """
+        if not self.db.get_bots_enabled(room):
+            # BOTS OFF — guarantee ONE other player so nobody plays alone.
+            if self.logic.bot_player_count(room) >= 1:
+                return 0
+            try:
+                # None = the historical human-like 2-3 random cards
+                if not self.logic.add_bot_player(room, None):
+                    return 0
+            except Exception:
+                logger.exception("%s: solo-companion bot fill failed",
+                                 config.room_label(room))
+                return 0
+            for sel in self.db.get_all_selections(room):
+                if sel["user_id"] < 0:
+                    name = bot_name(sel["user_id"])
+                    self.db.record_bot(sel["user_id"], name, 1)
+                    self.db.update_username(sel["user_id"], name)
+            return 1
         target, cards_each, plan = self._bot_plan(room)
         current = self.logic.bot_player_count(room)
         goal = target if cap is None else min(target, current + cap)
@@ -511,11 +527,12 @@ class GameLoop:
         return added
 
     def _add_prep_bots(self, room: int = 30, state: dict | None = None) -> int:
-        """During preparation, join bots gradually toward the current plan's
-        target instead of dumping them all at once (up to 8 per tick). The
-        plan is recomputed from the CURRENT human count on every call; the
+        """During preparation, join bot players gradually toward the current
+        plan's target instead of dumping them all at once (up to 8 per tick).
+        The plan is recomputed from the CURRENT human count on every call; the
         initial seed happens immediately on reset, and start_round() does the
-        final top-up."""
+        final top-up. With bots disabled this keeps just ONE other player in
+        the room (nobody plays alone)."""
         return self._ensure_bot_players(room, cap=8)
 
     # ------------------------------------------------- Difficulty 5 (Impossible)
@@ -670,12 +687,16 @@ class GameLoop:
         return winner
 
     def _force_bot_win(self, room: int = 30) -> Tuple[str | None, dict | None]:
-        """Guarantee a winner before the round reaches 75 balls (the
-        guaranteed-win threshold). If a bot card is already complete it claims
-        right away; otherwise the machine is reordered so the next ball
-        completes a bot card, which is then called and claimed. Returns
-        (number, winner), or (None, None) when no bot can win yet (keep
-        calling normally until one can).
+        """Declare a ready bot the round winner — the IMPOSSIBLE backstop.
+
+        If a bot card already has a complete pattern it claims right away;
+        otherwise the machine is reordered so the NEXT ball completes a bot
+        card, which is then called and claimed. Used ONLY when a HUMAN tries
+        to claim on Impossible (difficulty 5): a human can never win there,
+        so the win lands on a bot "player" instead (just a player with an
+        Ethiopian name — nobody is ever told about bots). The game duration
+        is NEVER shortened by this — it only fires inside a human claim.
+        Returns (number, winner), or (None, None) when no bot can win yet.
         """
         with self._lock:
             called = set(self.db.get_called_numbers(room))
@@ -795,7 +816,7 @@ class GameLoop:
                 self.db.set_bots_enabled(True)
             # consistent with the current human count's plan; also persists the
             # bot accounts so the super-admin /api/admin/bots view is current
-            added = self._ensure_bot_players(room)
+            # (bots ENABLED -> full plan fill; DISABLED rooms keep 1 player)
             return {"ok": True, "added": added,
                     "total": self.logic.player_breakdown(room)["bots"]}
 
