@@ -23,13 +23,16 @@ from dotenv import load_dotenv
 _HERE = Path(__file__).resolve().parent
 load_dotenv(_HERE / ".env")
 
-# --- Environment variables (defaults for PythonAnywhere) ---
-os.environ.setdefault('BOT_TOKEN', '8813404978:AAHupEGJSdvEuaPmP9GRnZ7BOeOs0oZN4ac')
+# --- Environment variables ---
+# BOT_TOKEN is a SECRET and comes ONLY from .env — never hardcode it here.
+os.environ.setdefault('BOT_TOKEN', '')
 os.environ.setdefault('APP_URL', 'https://nicebingo.pythonanywhere.com')
 os.environ.setdefault('BOT_WEBHOOK', '1')
 os.environ.setdefault('SERVER_HOST', '0.0.0.0')
 os.environ.setdefault('SERVER_PORT', '5000')
 os.environ.setdefault('ADMIN_IDS', '')
+# SUPER_ADMIN_IDS default kept here so a reload without a populated .env still
+# has working super admins. Put your real ids in .env to override.
 os.environ.setdefault('SUPER_ADMIN_IDS', '5747372427,391347553,502672318,903313112,420938946,1512842545')
 
 logger = logging.getLogger("wsgi")
@@ -61,6 +64,16 @@ try:
     logger.info("Game loop started from wsgi.py")
 except Exception as exc:
     logger.error("Game loop start failed: %s", exc)
+
+# --- Step 2b: Maintenance (backup / prune / cleanup) at boot + on interval ---
+# Runs in its own Database connection: safe next to the running loop. If the DB
+# is damaged it stops instead of writing (see maintenance.run).
+try:
+    import maintenance  # noqa: E402
+    maintenance.run(reason="boot")
+    maintenance.schedule(server.loop.scheduler)
+except Exception as _maint_exc:
+    logger.error("Maintenance boot failed: %s", _maint_exc)
 
 # --- Step 3: Start the Telegram bot (webhook mode) ---
 if os.getenv("BOT_WEBHOOK", "0").strip().lower() in ("1", "true", "yes"):

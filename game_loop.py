@@ -12,6 +12,7 @@ import json
 import logging
 import random
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Tuple
 
@@ -47,6 +48,9 @@ class GameLoop:
         # it "notices" after a short random delay (1-4 balls) and claims, so
         # other players genuinely win rounds. shape: {room: {bot_id: call_index}}
         self._bot_claim_at: dict[int, dict[int, int]] = {}
+        # heartbeat throttling — /health reads game_loop_heartbeat setting to
+        # tell if this loop is alive without us writing the DB every second
+        self._last_heartbeat_at = 0.0
         # NO cached bot target: the plan is recomputed every time from the
         # CURRENT human-player count (fewer humans -> more bots, 80-140; more
         # humans -> fewer bots, 18-39) plus a per-bot card plan with a random
@@ -166,6 +170,22 @@ class GameLoop:
                         self._heal_stale_room(room)
                     except Exception:
                         logger.exception("tick(%s): self-heal also failed", config.room_label(room))
+            # Heartbeat (throttled to ~once per 15s) so /health can prove
+            # this loop is running without a per-tick DB write.
+            if time.monotonic() - self._last_heartbeat_at > 15:
+                self._last_heartbeat_at = time.monotonic()
+                try:
+                    self.db.set_setting("game_loop_heartbeat",
+                                        datetime.now().isoformat())
+                except Exception:
+                    pass
+            # Watchdog: if the scheduler ever dies underneath us, restart it.
+            if not self.scheduler.running:
+                logger.warning("watchdog: scheduler stopped — restarting")
+                try:
+                    self.start()
+                except Exception:
+                    logger.exception("watchdog: restart failed")
 
     def _tick_room(self, room: int, now: datetime) -> None:
         """Process a single room's tick.  Called from tick() under _lock."""

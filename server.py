@@ -370,13 +370,13 @@ def api_init():
     if user_id is None:
         return jsonify({"error": "Missing or invalid user_id / init_data"}), 400
     room = _room_from_request()
-    username = request.args.get("username") or f"Player_{user_id}"
+    username = (request.args.get("username") or "").strip()
     player = db.get_player(user_id)
     if player is None:
         # brand-new visitor: placeholder account, NOT registered yet -> the
         # Mini App shows the registration screen (full name + phone) before
         # any gameplay. The welcome bonus is granted on successful registration.
-        db.create_player(user_id, username, credit=0)
+        db.create_player(user_id, username or f"Player_{user_id}", credit=0)
         db.update_profile(user_id, registered=False)
         try:
             db.log_activity('new_player_joined', user_id,
@@ -396,7 +396,11 @@ def api_init():
                     notify_user(sa_id, join_lines)
         except Exception:
             pass
-    else:
+    elif username:
+        # Refresh the username ONLY when a real value was sent. The Mini App
+        # omits this param on some requests, and falling back to
+        # f"Player_{user_id}" here used to relabel every existing account as
+        # "@Player_1234567890".
         db.update_username(user_id, username)
     return jsonify({**_user_payload(user_id, room), "state": _state_payload(user_id, room)})
 

@@ -78,17 +78,24 @@ Service → **Configuration → Environment**:
 SERVER_HOST=0.0.0.0
 SERVER_PORT=5000
 DB_PATH=/data/bingo_bot.db
+DB_BACKUP_DIR=/data/backups        # daily snapshots live on the same volume
 ```
 
 **Secrets** (hidden values — paste from your `.env`):
 ```
 BOT_TOKEN=<your token>
 ADMIN_IDS=<your-telegram-id>
+SUPER_ADMIN_IDS=<your-super-admin-ids>   # required — no hardcoded fallbacks since 2026-09-12
 ```
 
 > Do **not** set `APP_URL` yet — you'll set it after the first deploy (step 8).
 > Optional extras: `ANNOUNCE_NUMBERS=True` / `ANNOUNCE_ROUNDS=True` if you want
 > the bot to announce every ball / round results in chat.
+
+> **Disk hygiene on the 512 MB volume:** since 2026-09-12 the system
+> self-prunes (old games / activity / called balls, `PRUNE_HISTORY_DAYS`),
+> snapshots the DB daily to `DB_BACKUP_DIR` (keeping the newest 14), and
+> **stops writing below 25 MB free** instead of corrupting the SQLite file.
 
 ### 7. Deploy
 Click **Deploy** and watch the **build log** (first build installs the pinned

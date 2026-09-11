@@ -5,7 +5,9 @@ const BASE = ''; // same origin: Flask serves both the app and the API
 async function request(path, options = {}) {
   const user = getTelegramUser();
   const params = new URLSearchParams({ user_id: String(user.id) });
-  if (user.username) params.set('username', user.username);
+  // send the real @handle only — never the display fallback (first_name /
+  // Player_<id>), which would overwrite the stored username server-side
+  if (user.handle) params.set('username', user.handle);
   if (initData) params.set('init_data', initData);
   for (const [k, v] of Object.entries(options.params || {})) {
     params.set(k, String(v));

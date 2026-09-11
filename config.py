@@ -67,11 +67,10 @@ if not SUPER_ADMIN_IDS:
     single = _int("SUPER_ADMIN_ID", 0)
     if single:
         SUPER_ADMIN_IDS = [single]
-# Hardcoded super admin IDs — always included regardless of .env
-_SUPER_ADMIN_FALLBACK = [5747372427, 391347553, 502672318, 903313112, 420938946]
-for _uid in _SUPER_ADMIN_FALLBACK:
-    if _uid not in SUPER_ADMIN_IDS:
-        SUPER_ADMIN_IDS.append(_uid)
+if not SUPER_ADMIN_IDS:
+    print("[config] WARNING: no SUPER_ADMIN_IDS configured — set them in .env "
+          "(comma-separated Telegram numeric ids). Without one there is no "
+          "super administrator.", flush=True)
 # backward compat: code that uses SUPER_ADMIN_ID still works
 SUPER_ADMIN_ID = SUPER_ADMIN_IDS[0] if SUPER_ADMIN_IDS else 0
 # ADMIN_APPROVAL_RATE: the share of a DEPOSIT amount that is deducted from the
@@ -95,12 +94,25 @@ SERVER_HOST = os.getenv("SERVER_HOST", "127.0.0.1")
 SERVER_PORT = _int("SERVER_PORT", 5000)
 # Public URL of the Mini App. localhost works in Telegram for testing on the
 # same machine; use an ngrok / Cloudflare tunnel HTTPS url for your phone.
-APP_URL = os.getenv("APP_URL", f"http://localhost:{SERVER_PORT}")
-
-# ---------------------------------------------------------------------------
+APP_URL = os.getenv("APP_URL", f"http://localhost:{SERVER_PORT}")# ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
-DB_PATH = os.getenv("DB_PATH", "bingo_bot.db")
+# The database MUST live outside the code folder.  A deploy that copies the
+# project (zip / folder copy — which carries the gitignored *.db files that sit
+# next to the code) silently replaces the live database, and every real account
+# with it.  Set an absolute path outside the project in .env:
+#     DB_PATH=/home/youruser/bingo_data/bingo_bot.db
+# A relative value is still accepted for backward compatibility, but it is
+# resolved against the PROJECT folder (not the current working directory), so
+# the same database is used no matter where the app is launched from.
+_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = (os.getenv("DB_PATH", "") or "bingo_bot.db").strip() or "bingo_bot.db"
+if not os.path.isabs(DB_PATH):
+    DB_PATH = os.path.join(_PROJECT_DIR, DB_PATH)
+DB_PATH = os.path.abspath(DB_PATH)
+# True while the database still sits inside the code folder — warned about at
+# startup because a project-copy deploy would overwrite it (see move_db.py).
+DB_PATH_INSIDE_PROJECT = DB_PATH.startswith(_PROJECT_DIR + os.sep)
 
 # ---------------------------------------------------------------------------
 # Economy (ETB — Ethiopian Birr)
@@ -121,6 +133,28 @@ NEW_PLAYER_CREDIT = _int("NEW_PLAYER_CREDIT", 15)  # welcome coins
 MIN_WITHDRAWAL = _int("MIN_WITHDRAWAL", 100)      # minimum withdraw request (ETB)
 PRIZE_PERCENT = _float("PRIZE_PERCENT", 0.8)        # 80% of the pool goes to the winner
 BOTS_CONTRIBUTE_TO_POOL = True                      # bot bets also feed the pool
+
+
+# ---------------------------------------------------------------------------
+# Maintenance & reliability (auto housekeeping so the DB never fills the disk)
+# ---------------------------------------------------------------------------
+# The database prunes old games / activity / called balls after this many days
+# (smaller = smaller file = less risk of the disk-full corruption of Sep 2026).
+# A fixed number of the newest rows is ALWAYS kept for live display, and
+# running rounds are never touched.
+PRUNE_HISTORY_DAYS = _int("PRUNE_HISTORY_DAYS", 30)
+# Closed rounds kept for display regardless of age (recent-games lists).
+PRUNE_KEEP_LATEST_ROWS = _int("PRUNE_KEEP_LATEST_ROWS", 500)
+# Daily sqlite3.online backup snapshot of the whole database is written here
+# (absolute path recommended) and only the newest DB_BACKUP_KEEP copies kept.
+DB_BACKUP_DIR = os.getenv("DB_BACKUP_DIR", "").strip() or os.path.join(_PROJECT_DIR, "backups")
+DB_BACKUP_KEEP = _int("DB_BACKUP_KEEP", 14)
+# How often the scheduled maintenance job runs (minutes), plus the interval
+# job id used by wsgi.py / game_loop.py.
+MAINTENANCE_INTERVAL_MIN = _int("MAINTENANCE_INTERVAL_MIN", 360)
+# Maintenance forbids writing once fewer than this many MB are free — writing
+# on a full disk is exactly what corrupts SQLite, so it stops instead.
+MAINTENANCE_MIN_FREE_MB = _float("MAINTENANCE_MIN_FREE_MB", 25.0)
 
 
 def room_label(room: int) -> str:

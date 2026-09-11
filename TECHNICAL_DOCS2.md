@@ -118,6 +118,8 @@ nicebingo/
 ├── cards_data.py           # Pre-generated 400 unique Bingo cards
 ├── card_generator.py       # Pillow card-image renderer (chat previews)
 ├── migrate_db.py           # Schema migration + card seed (idempotent)
+├── maintenance.py          # Auto housekeeping: disk guard, integrity, daily backup, prune, corrupt-row cleanup, WAL checkpoint
+├── salvage_recover.py      # Incident-recovery tool: builds a verified recovered.db from a corrupt DB (read-only), drops garbage player rows
 ├── run_prod.py             # Production supervisor (runs server + bot in one container)
 ├── api_smoke.py            # Offline API test suite
 ├── smoke_test.py           # Full offline smoke test
@@ -242,7 +244,13 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 |----------|---------|-------------|
 | `BOT_TOKEN` | *(required)* | Telegram bot token from @BotFather |
 | `ADMIN_IDS` | *(required)* | Comma-separated Telegram user IDs for admins |
-| `SUPER_ADMIN_IDS` | *(none)* | Comma-separated super admin IDs. **Five hardcoded super-admin IDs are ALWAYS included** in `config.py` (`_SUPER_ADMIN_FALLBACK`) — set env vars only to add more; you cannot remove them via `.env` |
+| `SUPER_ADMIN_IDS` | *(none)* | Comma-separated telecom-number Telegram IDs with full privileges. **Required** — with no value (and no `SUPER_ADMIN_ID`) `config.py` warns loudly and there is NO super admin. No hardcoded fallbacks since 2026-09-12; `wsgi.py` provides PythonAnywhere defaults via `setdefault` so a reload without `.env` still works |
+| `PRUNE_HISTORY_DAYS` | `30` | Finished games / old activity / old called balls older than this many days are auto-deleted by every maintenance pass (running rounds never touched; newest `PRUNE_KEEP_LATEST_ROWS` always kept). Bounds the `games` table so the DB never fills the disk again |
+| `PRUNE_KEEP_LATEST_ROWS` | `500` | Newest finished games / activity rows always kept for display regardless of age |
+| `DB_BACKUP_DIR` | `backups/` (project) | Folder for daily sqlite3 backup snapshots. **Use an absolute path OUTSIDE the code folder** (like `DB_PATH`) so copies/`git pull` never route around it |
+| `DB_BACKUP_KEEP` | `14` | How many daily backups to keep (oldest deleted) |
+| `MAINTENANCE_INTERVAL_MIN` | `360` | Minutes between automatic maintenance runs (6h) |
+| `MAINTENANCE_MIN_FREE_MB` | `25` | Maintenance refuses to WRITE once fewer MB are free — writing on a full disk corrupts SQLite (the Sep 2026 production incident) |
 | `BOT_WEBHOOK` | `False` | Use webhook mode instead of polling (needed on PythonAnywhere) |
 | `WEBHOOK_SECRET` | *(auto)* | Secret path segment for `POST /webhook/<secret>`. Auto-derived as `sha256(BOT_TOKEN).hexdigest()[:24]` if not set; falls back to `"dev-secret"` with no token |
 | `SERVER_HOST` | `127.0.0.1` | Flask bind address |
@@ -582,6 +590,10 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
   `reset_round`) instead of hanging forever. If a tick still fails, a second
   `_heal_stale_room()` pass force-advances the stuck room (playing → ends
   winless via `end_round_no_winner`, preparation → starts, ended → resets)
+- **Heartbeat + watchdog**: every ~15s `tick()` writes the `game_loop_heartbeat`
+  setting (throttled — never one write per tick) so `/health` can prove the
+  loop is alive; if the APScheduler is ever found stopped, `tick()` restarts
+  it via `start()` (idempotent)
 
 **Self-healing bot fill — a room with bots on NEVER sits at 0 players:**
 - `start()` (game-loop boot, also run on every WSGI reload) fills every room with
@@ -735,12 +747,35 @@ Pure game logic, no I/O.
 - `review_transaction(tx_id, status, reviewed_by)` — Approve/reject a wallet request
 - `notify_user(chat_id, lines)` — Enqueue a notification for the bot to send
 
+**Maintenance & self-defense (used by `maintenance.py`):**
+- `check_integrity()` — `PRAGMA integrity_check` probe; returns `(ok, message)`
+  and never raises on a damaged file
+- `available_disk_mb()` / `db_size_bytes()` — free space + file size
+- `backup_database(reason)` — consistent **online** snapshot via the sqlite3
+  backup API into `DB_BACKUP_DIR`; keeps only the newest `DB_BACKUP_KEEP`
+- `prune_history(keep_days)` — deletes finished games older than N days
+  (newest `PRUNE_KEEP_LATEST_ROWS` always kept), orphaned `game_history`,
+  old `activity_log` and old `called_numbers`; running rounds never touched
+- `wal_checkpoint()` — `PRAGMA wal_checkpoint(TRUNCATE)` so trimmed rows
+  actually return free space to the packed free-tier disk
+- `clean_corrupt_player_rows()` — deletes the garbage rows whose `credit` is a
+  timestamp string, `is_registered` is outside 0/1, or whose `username` is a
+  negative (bot) number on a positive (human) `user_id`; every removal is
+  logged to `activity_log` first; real accounts are never matched
+- `purge_unconfigured_rooms()` — removes stuck `game_state` rows for rooms no
+  longer listed in `ROOM_BETS`, only when the room has no pending selections
+
 ### 9.6 `config.py` — Configuration
 
 All settings are read from environment variables with defaults. Helper functions:
 - `_int(name, default)` — Parse integer from env
 - `_float(name, default)` — Parse float from env
 - `_bool(name, default)` — Parse boolean from env
+
+The **maintenance / reliability group** (`PRUNE_HISTORY_DAYS`,
+`PRUNE_KEEP_LATEST_ROWS`, `DB_BACKUP_DIR`, `DB_BACKUP_KEEP`,
+`MAINTENANCE_INTERVAL_MIN`, `MAINTENANCE_MIN_FREE_MB`) is consumed by the new
+`maintenance.py` module — see §9.5 and the 2026-09-12 changelog entry.
 
 ---
 
@@ -1140,7 +1175,48 @@ python bot.py     # Terminal 2
 > change to the codebase, every time.** Anyone must be able to recreate the
 > entire system just by reading this documentation.
 
-### 2026-09-11 (2nd pass) — 7-way bot-name mix · min-10-balls round rule · called numbers on both sides · responsive/accessibility pass
+### 2026-09-12 — Disk-full self-defense · auto-pruning · corrupt-row cleanup · no hardcoded secrets
+- **NEW `maintenance.py`** — automatic housekeeping run on boot (`wsgi.py`)
+  and every `MAINTENANCE_INTERVAL_MIN` minutes via the game-loop scheduler:
+  (1) **low-disk guard** — never writes to the DB when free space <
+  `MAINTENANCE_MIN_FREE_MB` (writing on a full disk is what corrupted production
+  in Sep 2026); (2) **integrity probe** (`PRAGMA integrity_check`) — a damaged
+  DB is left untouched and a `<db>.damaged` marker + activity-log entry is
+  written instead of pruning; (3) **daily backup snapshot** via the sqlite3
+  backup API into `DB_BACKUP_DIR`, keeping only the newest `DB_BACKUP_KEEP`;
+  (4) **corrupt player-row cleanup**; (5) **stale-room purge**; (6) **history
+  pruning**; (7) **WAL checkpoint(TRUNCATE)** so trimmed pages free disk space
+- **Auto-pruning** (`Database.prune_history`, `config.PRUNE_HISTORY_DAYS=30`,
+  `PRUNE_KEEP_LATEST_ROWS=500`): finished games older than N days are deleted
+  (the newest 500 finished rounds are always kept for display), plus orphaned
+  `game_history`, old `activity_log` (>30 days, newest 500 kept) and old
+  `called_numbers`. `games` is therefore bounded (~500 rows) instead of
+  growing forever — the database stayed ~117 MB because it was never pruned.
+  Running rounds are never touched
+- **Corrupt user rows fixed** (`Database.clean_corrupt_player_rows`): rows
+  whose `credit` holds a timestamp string, whose `is_registered` is outside
+  0/1, or whose `username` is a negative (bot) number with a positive (human)
+  `user_id` — the "credit shows a date / users are just numbers" garbage in
+  the admin console — are removed and logged to `activity_log` first. Real
+  accounts (positive id, integer credit, 0/1 registration, no leading-dash
+  username) are never matched
+- **Stale rooms purged** (`Database.purge_unconfigured_rooms`): `game_state`
+  rows for rooms no longer in `ROOM_BETS` are deleted **only** when the room
+  has no pending `card_selections` — the production rooms 20/30 that sat stuck
+  in `playing` since 2026-09-09 are cleaned automatically
+- **Game loop heartbeat + watchdog** (`game_loop.py`): `tick()` writes a
+  throttled `game_loop_heartbeat` setting every ~15s so `/health` can prove the
+  loop is alive, and restarts the APScheduler if it ever stops running
+- **Hardcoded secrets removed** (`wsgi.py`): the committed `BOT_TOKEN` default
+  is gone — the token is read ONLY from `.env` (an empty token makes the bot
+  fail loudly). `SUPER_ADMIN_IDS` default is kept in `wsgi.py` so a reload
+  without `.env` still works; `config.py` no longer injects the five hardcoded
+  super-admin fallbacks and warns loudly when none is configured
+- **Maintenance settings** added to `config.py` / `.env.example`:
+  `PRUNE_HISTORY_DAYS`, `PRUNE_KEEP_LATEST_ROWS`, `DB_BACKUP_DIR`,
+  `DB_BACKUP_KEEP`, `MAINTENANCE_INTERVAL_MIN`, `MAINTENANCE_MIN_FREE_MB`
+- On PythonAnywhere, set `DB_BACKUP_DIR` to an absolute path **outside** the
+  code folder (like `DB_PATH`) so daily snapshots survive project copies
 - **Bot-name mix reworked** (`game_logic.py`): instead of 65/30/5 the names
   are now **20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian male /
   5% Ethiopian female / 10% East African nickname / 5% international
@@ -1267,9 +1343,12 @@ python bot.py     # Terminal 2
 | Port 5000 already in use | Another process on port | Close it or set `SERVER_PORT` in .env |
 | Cards show equal to players | Bot cards = 1 per bot | Already fixed: bots now hold cards from the round's plan (1-3 per bot) |
 | Players and cards both show **0** everywhere | Corrupted DB — e.g. `malformed database schema (announcements) - invalid rootpage` makes EVERY query fail, so all counts collapse to 0 | AUTO-FIXED since this release: `Database._repair_schema()` detects the broken schema at startup, backs the file up as `<name>.corrupt.bak`, drops the invalid `sqlite_master` rows, rebuilds the file via the sqlite backup API and recreates the lost table. No manual action needed — just restart the server |
+| Admin console shows users whose **credit is a date** / usernames that are just **numbers** | Player rows mangled by the Sep 2026 disk-full corruption — `credit` holds a timestamp string, `is_registered` is 10, or a bot's negative id leaked into a human row's username | AUTO-FIXED since 2026-09-12: `maintenance.py` (and `Database.clean_corrupt_player_rows`) deletes those rows on boot and every 6h, logging each removal to `activity_log`. Real accounts are never matched. If already loaded in your Prod DB, run one full pass: `python -c "import maintenance; maintenance.run(force_backup=True)"` |
+| `Disk quota exceeded` / `cp: failed to close` / `SQL error: disk I/O error` (or the DB silently corrupts) | **Disk FULL** — the free tier has ~512 MB and the DB never pruned (grew to 117 MB); SQLite cannot commit on a full disk, which is what corrupted it | PROTECTED since 2026-09-12: auto-pruning (`PRUNE_HISTORY_DAYS`), daily backups and the `MAINTENANCE_MIN_FREE_MB` write-guard. To free space now: delete stale files (`db_rescue*`, old `.corrupt.bak`) and run `python -c "import maintenance; maintenance.run(force_backup=True)"` to prune + `wal_checkpoint` |
 | Notifications not arriving | Webhook mode + job queue | Server drains `bot_notifications` table on each request |
 | Bot fill logs `bot_id exhausted after 200 tries` | Players table accumulated stale bot rows over many rounds | Fixed in current release: bot-ID window widened to ~1 B values (200 attempts) AND `migrate_db.py` purges negative-ID players with no card selections on every startup/deploy |
 | Room seems stuck (no balls / no countdown) | A stale or missing timestamp in `game_state` | Auto-fixed since this release: `tick()` is per-room `try/except`-wrapped and a `_heal_stale_room()` pass force-advances any room stuck with an invalid timestamp (playing → ends winless, preparation → starts, ended → resets) |
+| Rooms outside `ROOM_BETS` sit frozen in `playing` forever | They are never ticked | Since 2026-09-12 `maintenance.py` purges `game_state` rows for unconfigured rooms (only when they hold no card selections) |
 
 ### Logs
 - **Server**: Console output from `server.py` or `[server]` prefix in `run_prod.py`
@@ -1278,6 +1357,21 @@ python bot.py     # Terminal 2
 
 ### Database Operations
 ```bash
+# Run one full maintenance pass now: disk guard -> integrity -> daily backup
+# -> corrupt-row cleanup -> stale-room purge -> prune -> WAL checkpoint.
+python -c "import maintenance; maintenance.run(force_backup=True)"
+
+# RECOVER a corrupted database (Sep 2026 incident playbook): builds
+# db_rescue2/recovered.db from the live DB read-only, drops the garbage player
+# rows (credit=timestamp / numeric usernames), verifies integrity and prints a
+# human census. Swap it in ONLY when it says "VERIFIED":
+#   python3 salvage_recover.py
+#   cp bingo_bot.db bingo_bot.db.live-pre-swap        # keep the original
+#   rm -f bingo_bot.db-wal bingo_bot.db-shm
+#   cp db_rescue2/recovered.db bingo_bot.db
+#   # press Reload (PythonAnywhere) / restart. Then delete the old files &
+#   # bingo_bot.db.corrupt.bak to free space.
+
 # Reset game state (also: clears stale card_selections, purges stale bot
 # players so the bot-ID window stays free, applies the one-time difficulty→5
 # migration). Idempotent — safe to run any time.

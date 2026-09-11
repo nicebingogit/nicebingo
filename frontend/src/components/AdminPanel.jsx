@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { playClick } from '../sound.js';
-import { getTelegramUser } from '../telegram.js';
+import { getTelegramUser, isTelegramHandle } from '../telegram.js';
 
 const TX_STATUS = {
   pending: { label: '⏳ Pending', cls: 'pending' },
@@ -435,7 +435,10 @@ export default function AdminPanel({ room, onError, onChanged }) {
 
             <div className="detail-grid">
               <div className="profile-row"><span className="muted">Full name</span><b>{selected.full_name || '—'}</b></div>
-              <div className="profile-row"><span className="muted">Telegram username</span><b>@{selected.username || '—'}</b></div>
+              <div className="profile-row">
+                <span className="muted">Telegram username</span>
+                <b>{isTelegramHandle(selected.username) ? `@${selected.username}` : (selected.username || '—')}</b>
+              </div>
               <div className="profile-row"><span className="muted">Telegram ID</span><b>{selected.user_id}</b></div>
               <div className="profile-row"><span className="muted">Phone</span><b>{selected.phone || '—'}</b></div>
               <div className="profile-row"><span className="muted">Registration</span><b>{selected.is_registered ? '✅ Registered' : '⏳ Unregistered'}</b></div>

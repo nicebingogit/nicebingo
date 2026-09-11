@@ -34,10 +34,11 @@ required by Telegram for the Mini App button). No credit card, ever.
 | File | Change |
 |---|---|
 | `bot.py` | Webhook mode: `start_webhook()` / `dispatch_webhook()`; polling stays the default |
-| `config.py` | `BOT_WEBHOOK` + `WEBHOOK_SECRET` settings |
+| `config.py` | `BOT_WEBHOOK` + `WEBHOOK_SECRET` settings; maintenance/reliability settings (`PRUNE_HISTORY_DAYS`, `DB_BACKUP_DIR`, `MAINTENANCE_MIN_FREE_MB`, …) |
 | `server.py` | `POST /webhook/<secret>` endpoint that feeds updates to the bot |
-| `game_loop.py` | `start()` made idempotent (safe across WSGI reloads) |
-| `wsgi.py` | **New** — the WSGI entry PythonAnywhere serves (migrate → loop → bot) |
+| `game_loop.py` | `start()` made idempotent (safe across WSGI reloads); heartbeat + scheduler watchdog in `tick()` |
+| `wsgi.py` | **New** — the WSGI entry PythonAnywhere serves (migrate → loop → bot → maintenance). No hardcoded bot token: `BOT_TOKEN` comes **only** from the environment |
+| `maintenance.py` | **New** — automatic housekeeping: low-disk guard, integrity probe, daily backup snapshot, corrupt-player-row cleanup, stale-room purge, history pruning, WAL checkpoint (runs on boot + every `MAINTENANCE_INTERVAL_MIN`) |
 
 ---
 
@@ -103,12 +104,26 @@ On the same page, **Environment variables → Add**:
 ```
 BOT_TOKEN     = <your token>
 ADMIN_IDS     = <your ids, comma separated>
+SUPER_ADMIN_IDS = <your super-admin ids, comma separated>   # REQUIRED — see below
 APP_URL       = https://<username>.pythonanywhere.com
 BOT_WEBHOOK   = 1
 SERVER_HOST   = 0.0.0.0
 ```
-(`DB_PATH` is optional — the database stays at `~/nicebingo/bingo_bot.db`,
-which is persistent. `WEBHOOK_SECRET` is auto-derived from the bot token.)
+(`WEBHOOK_SECRET` is auto-derived from the bot token.)
+
+> **Super admin:** since 2026-09-12 `config.py` has **no hardcoded super-admins
+> and warns loudly if none are set**. Set `SUPER_ADMIN_IDS` above (your numeric
+> Telegram ids, comma separated), or they fall back to the ids embedded in
+> `wsgi.py` via `setdefault`.
+
+> **Database location (important for the 512 MB quota):** the default DB lives
+> at `~/nicebingo/bingo_bot.db`, **inside the code folder**. That is fine, but
+> for a deploy that copies the project, prefer an absolute `DB_PATH` *outside*
+> the project, e.g. `DB_PATH=/home/<username>/bingo_data/bingo_bot.db` (create
+> the folder with `mkdir -p ~/bingo_data` first; `move_db.py` moves an
+> existing database and keeps an audit log of moves). Backups go to
+> `DB_BACKUP_DIR=/home/<username>/bingo_backups` (also outside the code folder)
+> so daily snapshots survive any project re-copy.
 
 > **Tip:** If you can't find the Environment Variables section in the Web tab,
 > add them directly in the WSGI file using `os.environ.setdefault(...)` at the
@@ -148,10 +163,16 @@ Game loop started · rooms=[10]
   (a stuck room force-starts / force-calls / ends winless); the SQLite
   connection reconnects on any DB error; `_repair_schema()` rebuilds a
   corrupted DB and `migrate_db.main()` runs on every reload (seeds cards,
-  purges stale bot rows). There is nothing to click, restart, or monitor
-  manually in normal operation. The `/health` endpoint tells you in one glance
-  if the web process, the game loop, the database, and the bot thread are all
-  alive.
+  purges stale bot rows). `maintenance.py` runs on every boot **and** every
+  `MAINTENANCE_INTERVAL_MIN` (default 6 h): it refuses to write when the disk
+  runs low, checks integrity, takes a **daily backup snapshot**, deletes
+  corrupted player rows ("credit shows a date / users are just numbers"),
+  removes stuck rooms that are no longer configured, prunes old games /
+  activity / called balls (`PRUNE_HISTORY_DAYS`), and TRUNCATEs the WAL so the
+  freed space is returned to the quota. There is nothing to click, restart, or
+  monitor manually in normal operation. The `/health` endpoint tells you in one
+  glance if the web process, the game loop, the database, and the bot thread
+  are all alive.
 - **Optional tuning** via env vars (defaults are already sensible): set
   `TICK_INTERVAL=3` on the free tier to cut CPU ~3× (balls still land on the
   `CALL_INTERVAL_SECONDS` schedule, just with a tick of jitter); lower
@@ -186,8 +207,12 @@ rm -rf nicebingo-main bingo.zip
 
   (or just `git pull` and type your GitHub username + the token as the
   password each time).
-- **Backups:** download `~/nicebingo/bingo_bot.db` regularly (while the app is
-  reloaded, or just copy the file — SQLite handles it).
+- **Backups:** automatic — `maintenance.py` writes a daily snapshot to
+  `DB_BACKUP_DIR` (default `~/nicebingo/backups/`; the newest `DB_BACKUP_KEEP`
+  = 14 copies are kept, oldest deleted). Download those to your PC whenever
+  you like. You can also download `~/nicebingo/bingo_bot.db` directly (copy
+  the file while running — SQLite handles it). To take a snapshot right now:
+  `python -c "import maintenance; maintenance.run(force_backup=True)"`.
 
 ---
 
@@ -195,6 +220,10 @@ rm -rf nicebingo-main bingo.zip
 
 - **512 MB disk** — keep the repo lean (that's why we removed
   `frontend/node_modules` and `tools/`; the venv is the big chunk and fits).
+  The database no longer grows forever: `maintenance.py` prunes old games /
+  activity / called balls every 6 h and checkpoints the WAL, and it **stops
+  writing** below `MAINTENANCE_MIN_FREE_MB` (default 25 MB) instead of
+  corrupting the file on a full disk.
 - **1 web app**, CPU is throttled (still plenty for a low-traffic bingo room).
 - No background tasks — that's exactly why the bot runs in webhook mode here.
 
@@ -212,6 +241,8 @@ rm -rf nicebingo-main bingo.zip
 | Error log shows a `setWebhook` / connection failure to `api.telegram.org` | Free accounts can normally reach Telegram; if the bank of the account blocks it, contact PythonAnywhere support and ask them to whitelist `api.telegram.org` |
 | Updated the code but the game still runs the old version | The zip was unzipped *inside* `~/nicebingo` (it lands in `~/nicebingo/nicebingo-main/` and nothing is replaced). Run the corrected update command above from `cd ~`, then **Reload**. Verify the new code is there: `grep -n superadmin ~/nicebingo/server.py` should print lines |
 | `unzip` says `End-of-central-directory signature not found` and the download is only 14 bytes | Your repo is **private** — the anonymous zip URL returns `404: Not Found`. Don't use the zip; use git with a personal access token (see *Keeping it running* → *Private repo?*) |
+| Log shows `Disk quota exceeded` / `cp: failed to close` / `SQL error: disk I/O error`, or user credit starts showing dates | **Disk full** — the free quota is 512 MB and SQLite corrupts when it cannot commit. Since 2026-09-12 the system prunes + checkpoints every 6 h and stops writing below 25 MB free. To recover space now: delete stale files in your home dir (`db_rescue*`, old `*.corrupt.bak`), then run `python -c "import maintenance; maintenance.run(force_backup=True)"` and Reload |
+| Admin console shows players whose credit is a date / usernames that are just numbers | Corrupted player rows from the leak incident | Auto-cleaned since 2026-09-12: `maintenance.py` removes them on boot and every 6 h, logging each removal to `activity_log`. On a running Prod DB run `python -c "import maintenance; maintenance.run(force_backup=True)"` once, then Reload |
 
 ## Your existing players & balance?
 

@@ -23,6 +23,19 @@ function guestId() {
   }
 }
 
+// A REAL Telegram @handle: 5-32 chars, letters/digits/underscore, starting
+// with a letter. Anything else (a first name, "Player_123456") is a display
+// name, never a handle — the admin panels must not print "@John" or
+// "@Player_1234567890" for it.
+const HANDLE_RE = /^[A-Za-z][A-Za-z0-9_]{4,31}$/;
+// the placeholder the server uses when an account has no handle yet
+const PLACEHOLDER_RE = /^Player_\d+$/;
+
+export function isTelegramHandle(value) {
+  const v = typeof value === 'string' ? value.trim() : '';
+  return !!v && !PLACEHOLDER_RE.test(v) && HANDLE_RE.test(v);
+}
+
 export function getTelegramUser() {
   const raw = tg?.initDataUnsafe?.user;
   const params = new URLSearchParams(window.location.search);
@@ -32,7 +45,12 @@ export function getTelegramUser() {
     || raw?.first_name
     || params.get('username')
     || (id ? `Player_${id}` : 'Guest');
-  return { id, username, isTelegram: !!tg };
+  // The REAL Telegram handle — only ever taken from Telegram or an explicit
+  // ?username= used for browser testing. The server stores this value, so the
+  // first_name/Player_<id> fallbacks must never be sent as if they were a
+  // handle (that used to relabel accounts as "@Player_1234567890").
+  const handle = raw?.username || params.get('username') || '';
+  return { id, username, handle, isTelegram: !!tg };
 }
 
 export function initTelegram() {

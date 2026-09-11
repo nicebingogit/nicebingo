@@ -12,6 +12,7 @@ Design notes:
 """
 import json
 import os
+import shutil
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -35,6 +36,7 @@ class Database:
         self._conn: Optional[sqlite3.Connection] = None
         self._lock = threading.RLock()
         self._repaired = False
+        self._warned_db_path = False
         self.init_db()
 
     # ------------------------------------------------------------------ low level
@@ -182,6 +184,30 @@ class Database:
                       f"{backup or 'a backup'} or delete the DB to reseed",
                       flush=True)
 
+    def _warn_db_path(self) -> None:
+        """Loudly warn while the database still sits inside the code folder.
+
+        Deploying by copying the project (git pull of a repo that tracks a
+        *.db, zip upload, folder copy) also carries the gitignored *.db files
+        that live next to the code, silently replacing the live database — and
+        every real account with it.  A database outside the project folder
+        (absolute DB_PATH in .env) can never be overwritten that way.
+        """
+        if self._warned_db_path:
+            return
+        self._warned_db_path = True
+        if not getattr(config, "DB_PATH_INSIDE_PROJECT", False):
+            return
+        print(
+            "[database] WARNING: the database lives INSIDE the code folder\n"
+            f"[database]          {self.db_path}\n"
+            "[database]          A deploy that copies the project can overwrite "
+            "it and wipe real accounts.\n"
+            "[database]          Move it out and set an absolute DB_PATH in .env "
+            "— run:  python move_db.py",
+            flush=True,
+        )
+
     def _create_tables_individually(self) -> None:
         """Fallback: create each table one at a time so a single corrupted
         table never blocks the rest. Used when the bulk executescript fails
@@ -305,6 +331,7 @@ class Database:
 
     def init_db(self) -> None:
         self._repair_schema()
+        self._warn_db_path()
         conn = self._connect()
         try:
             conn.execute("PRAGMA journal_mode=WAL")  # one-time, enables concurrent readers
@@ -1613,6 +1640,195 @@ class Database:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    # ------------------------------------------------------------ maintenance
+    def check_integrity(self) -> tuple:
+        """PRAGMA integrity_check probe. Returns (ok: bool, message: str).
+
+        Never raises on a corrupt file — a damaged DB reports ok=False so
+        callers can refuse write work instead of piling damage onto it.
+        """
+        try:
+            with self._lock:
+                conn = self._connect()
+                row = conn.execute("PRAGMA integrity_check").fetchone()
+                msg = row[0] if row else "ok"
+                return (msg == "ok"), str(msg)
+        except sqlite3.DatabaseError as exc:
+            return False, str(exc)
+
+    def available_disk_mb(self) -> float:
+        """Free disk space (MB) on the volume hosting the database file."""
+        try:
+            return shutil.disk_usage(
+                os.path.dirname(os.path.abspath(self.db_path))
+            ).free / (1024 ** 2)
+        except (OSError, ValueError):
+            return float("inf")
+
+    def db_size_bytes(self) -> int:
+        try:
+            return os.path.getsize(self.db_path)
+        except OSError:
+            return 0
+
+    def backup_database(self, reason: str = "") -> Optional[str]:
+        """Consistent online snapshot via the sqlite3 backup API.
+
+        Writes <name>.<timestamp>.bak.db into DB_BACKUP_DIR, keeps only the
+        newest DB_BACKUP_KEEP snapshots and removes the rest. Returns the new
+        snapshot filename (or None on failure).
+        """
+        bdir = os.path.abspath(getattr(config, "DB_BACKUP_DIR", "backups"))
+        keep = int(getattr(config, "DB_BACKUP_KEEP", 14))
+        try:
+            os.makedirs(bdir, exist_ok=True)
+            base = os.path.basename(self.db_path)
+            if base.endswith(".db"):
+                base = base[:-3]
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            target = os.path.join(bdir, f"{base}.{stamp}.bak.db")
+            with self._lock:
+                conn = self._connect()
+                dst = sqlite3.connect(target, timeout=30)
+                try:
+                    with dst:
+                        conn.backup(dst)
+                finally:
+                    dst.close()
+            candidates = sorted(
+                (p for p in os.listdir(bdir)
+                 if p.startswith(base + ".") and p.endswith(".bak.db")),
+                key=lambda p: os.path.getmtime(os.path.join(bdir, p)),
+            )
+            if keep and len(candidates) > keep:
+                for old in candidates[:-keep]:
+                    os.remove(os.path.join(bdir, old))
+            self.log_activity("maintenance",
+                              details=f"backup saved {os.path.basename(target)}"
+                                      + (f" ({reason})" if reason else ""))
+            return os.path.basename(target)
+        except (sqlite3.DatabaseError, OSError) as exc:
+            print(f"[maintenance] backup failed: {exc}", flush=True)
+            return None
+
+    def prune_history(self, keep_days: Optional[int] = None) -> dict:
+        """Delete old finished games, orphaned history, old activity and old
+        called balls so the file stops growing forever. Running rounds are
+        never touched; the newest PRUNE_KEEP_LATEST_ROWS rows are always kept
+        for the live recent-games / activity lists. Returns per-table counts.
+        """
+        keep_days = max(1, int(keep_days or getattr(config, "PRUNE_HISTORY_DAYS", 30)))
+        keep_latest = int(getattr(config, "PRUNE_KEEP_LATEST_ROWS", 500))
+        cutoff = (datetime.now() - timedelta(days=keep_days)).isoformat()
+        counts: dict = {}
+        with self._session() as conn:
+            cur = conn.execute(
+                "DELETE FROM games "
+                "WHERE status != 'running' AND ended_at IS NOT NULL AND ended_at < ? "
+                "AND id NOT IN (SELECT id FROM games WHERE status != 'running' "
+                "               ORDER BY id DESC LIMIT ?)",
+                (cutoff, keep_latest),
+            )
+            counts["games"] = cur.rowcount
+            cur = conn.execute(
+                "DELETE FROM game_history WHERE game_id NOT IN (SELECT id FROM games)"
+            )
+            counts["game_history"] = cur.rowcount
+            cur = conn.execute(
+                "DELETE FROM activity_log WHERE created_at < ? "
+                "AND id NOT IN (SELECT id FROM activity_log ORDER BY id DESC LIMIT ?)",
+                (cutoff, keep_latest),
+            )
+            counts["activity_log"] = cur.rowcount
+            try:
+                cur = conn.execute(
+                    "DELETE FROM called_numbers WHERE called_at < ? "
+                    "AND id NOT IN (SELECT id FROM called_numbers "
+                    "               ORDER BY id DESC LIMIT ?)",
+                    (cutoff, keep_latest),
+                )
+                counts["called_numbers"] = cur.rowcount
+            except sqlite3.DatabaseError:
+                counts["called_numbers"] = 0
+        if sum(counts.values()):
+            self.log_activity("maintenance", details=f"pruned history {counts}")
+        return counts
+
+    def wal_checkpoint(self) -> str:
+        """TRUNCATE the WAL so freed space is returned to the disk (the free
+        tier quota is tiny). Returns 'ok' or the SQLite message."""
+        try:
+            with self._lock:
+                conn = self._connect()
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return "ok"
+        except sqlite3.DatabaseError as exc:
+            return str(exc)
+
+    def clean_corrupt_player_rows(self) -> int:
+        """Remove player rows mangled by the disk-full corruption event.
+
+        Real Telegram accounts are NEVER matched — a legit player always has
+        a positive numeric id, integer credit, is_registered in (0,1) and a
+        username without a leading dash. The junk rows this removes showed up
+        as "credit showing a timestamp" / "users that are just numbers" in the
+        admin console. Every removed row is logged to activity_log first.
+        """
+        with self._session() as conn:
+            junk = conn.execute(
+                "SELECT user_id, username, full_name, phone, is_registered, credit "
+                "FROM players WHERE user_id > 0 AND ("
+                "  typeof(credit) != 'integer' "
+                "  OR is_registered NOT IN (0, 1) "
+                "  OR (username IS NOT NULL AND CAST(username AS TEXT) GLOB '-[0-9]*')"
+                ")").fetchall()
+            removed = 0
+            for row in junk:
+                self.log_activity(
+                    "maintenance",
+                    details=(f"removed corrupt player row id={row['user_id']} "
+                             f"username={row['username']!r} "
+                             f"is_registered={row['is_registered']} "
+                             f"credit={row['credit']!r}"),
+                )
+                conn.execute("DELETE FROM players WHERE user_id = ?", (row["user_id"],))
+                removed += 1
+            # drop selections/history pointing at any removed account
+            try:
+                conn.execute(
+                    "DELETE FROM card_selections WHERE user_id NOT IN "
+                    "(SELECT user_id FROM players)"
+                )
+            except sqlite3.DatabaseError:
+                pass
+            conn.execute(
+                "DELETE FROM game_history WHERE user_id NOT IN "
+                "(SELECT user_id FROM players)"
+            )
+        return removed
+
+    def purge_unconfigured_rooms(self) -> int:
+        """Delete stale game_state rows for rooms no longer in ROOM_BETS.
+
+        Rooms outside ROOM_BETS are never ticked, so one stuck in 'playing'
+        sits frozen forever (production saw rooms 20/30 stuck since 2026-09-09).
+        Only an unlisted room with NO pending card selections is purged, so no
+        money still on the table is ever dropped.
+        """
+        rooms = list(getattr(config, "ROOM_BETS", [10]) or [10])
+        placeholders = ",".join("?" for _ in rooms)
+        try:
+            with self._session() as conn:
+                cur = conn.execute(
+                    f"DELETE FROM game_state WHERE room NOT IN ({placeholders}) "
+                    "AND NOT EXISTS (SELECT 1 FROM card_selections s "
+                    "                WHERE s.room = game_state.room)",
+                    rooms,
+                )
+                return cur.rowcount
+        except sqlite3.DatabaseError:
+            return 0
 
     # ------------------------------------------------------------ activity log
     def log_activity(self, action: str, user_id: Optional[int] = None,

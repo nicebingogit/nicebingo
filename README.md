@@ -211,6 +211,7 @@ Everything is optional except `BOT_TOKEN` / `ADMIN_IDS` (already in your file):
 ```ini
 BOT_TOKEN=your-bot-token-here           # from @BotFather
 ADMIN_IDS=your-telegram-id-here        # find yours via @userinfobot
+SUPER_ADMIN_IDS=                        # required — your full-control ids (see TECHNICAL_DOCS2 §7)
 
 # SERVER_HOST=127.0.0.1
 # SERVER_PORT=5000
@@ -225,6 +226,14 @@ ADMIN_IDS=your-telegram-id-here        # find yours via @userinfobot
 # MAX_TOTAL_PLAYERS=18                 # informational — bot count follows human count (config.BOT_OPTIONS)
 # NUM_CARDS=400                        # card pool size
 # ANNOUNCE_NUMBERS=True                # also announce every ball in chat
+
+# --- Maintenance / reliability (see TECHNICAL_DOCS2 §7 for all of them) ---
+# PRUNE_HISTORY_DAYS=30                # auto-delete old games/activity/balls
+# PRUNE_KEEP_LATEST_ROWS=500           # always keep this many newest rows
+# DB_BACKUP_DIR=backups                # daily backup snapshots (absolute path outside the code folder on hosts)
+# DB_BACKUP_KEEP=14                    # backups to keep
+# MAINTENANCE_INTERVAL_MIN=360         # maintenance every 6 hours
+# MAINTENANCE_MIN_FREE_MB=25           # stop writing when less than this is free
 ```
 
 ---
@@ -238,8 +247,17 @@ history, bot accounts, wallet transactions, settings.
 - **Migrate / seed / repair:** `python migrate_db.py` (idempotent, runs
   automatically when the server starts). Creates all tables +
   `profiles` view + `bots` table and seeds the 400 unique cards.
+- **Auto housekeeping (`maintenance.py`)**: on boot and every
+  `MAINTENANCE_INTERVAL_MIN` (default 6 h) the system takes a **daily backup
+  snapshot**, prunes old finished games / activity / called balls
+  (`PRUNE_HISTORY_DAYS`, default 30) so the file never grows forever, cleans
+  corrupted player rows ("credit shows a date / users are just numbers"),
+  removes stuck rooms that are no longer configured, and returns trimmed WAL
+  space to the disk. It **stops writing below `MAINTENANCE_MIN_FREE_MB`
+  (25 MB free)** instead of corrupting the DB on a full disk.
 - Your existing players/credits/history are **preserved** (migrations only add).
-- Backup: copy `bingo_bot.db` while the system is stopped.
+- Backup: automatic daily snapshots go to `DB_BACKUP_DIR` (default
+  `backups/`); you can also copy `bingo_bot.db` while the system is stopped.
 
 ---
 
@@ -263,6 +281,8 @@ For live development: `cd frontend && npm run dev` (Vite on :5173 proxies
 bot.py              Telegram bot: /play Web App button, announcer, /admin
 server.py           Flask server: API + serves frontend/dist + starts game loop
 game_loop.py        APScheduler game loop (tick, rounds, winners, payouts)
+maintenance.py      Auto housekeeping: backup, prune, corrupt-row cleanup, WAL checkpoint
+salvage_recover.py  Incident tool: rebuild verified recovered.db from a corrupt DB
 game_logic.py       Pure rules: ball machine, patterns, bots, prize pool
 database.py         SQLite layer (WAL, auto-migrations, profiles/bots tables)
 cards_data.py       Generates the 400 unique cards
@@ -317,6 +337,8 @@ A green `SMOKE TEST PASSED` means the core is healthy.
 | Game stuck / no countdown | Run `migrate_db.py` (resets a stale round to preparation) |
 | Windows Firewall prompt when the tunnel starts | Click **Allow** — cloudflared needs outbound access to create the tunnel |
 | Port 5000 already in use | Close the other server, or set `SERVER_PORT` in `.env` |
+| User credit shows a **date** / usernames are just **numbers** | Corrupted player rows (from a disk-full leak) | Auto-fixed since 2026-09-12: run `python -c "import maintenance; maintenance.run(force_backup=True)"` once (or just restart) — `clean_corrupt_player_rows()` deletes them and logs each removal |
+| `Disk quota exceeded` / `disk I/O error` | Disk full — SQLite corrupts when it cannot commit | Free space (delete `db_rescue*`, old `*.corrupt.bak`), then `python -c "import maintenance; maintenance.run(force_backup=True)"`; the system now self-prunes and stops writing below 25 MB free |
 
 ---
 

@@ -409,11 +409,12 @@ The **Super Admin Panel** has:
 
 ### PythonAnywhere
 
-1. **WSGI entry point**: `wsgi.py` runs `migrate_db.main()` → `server.loop.start()` → bot webhook
+1. **WSGI entry point**: `wsgi.py` runs `migrate_db.main()` → `server.loop.start()` → bot webhook → `maintenance.run()` + interval job
 2. **Card seeding + cleanup**: `migrate_db.main()` seeds 400 cards and clears stale `card_selections` when resetting rooms
 3. **Bot filling**: `GameLoop.start()` fills every room with bots immediately
 4. **Post-boot fill**: Retries every 5 seconds for rooms with 0 bots
 5. **Database corruption**: `_repair_schema()` auto-heals corrupted DB (with double-probe to avoid false positives); `_create_tables_individually()` as fallback
+6. **Auto housekeeping (`maintenance.py`)**: on boot + every `MAINTENANCE_INTERVAL_MIN` (6 h) — low-disk write-guard, integrity probe, **daily backup snapshot**, cleanup of corrupted player rows (the "credit shows a date / users are just numbers" garbage), purge of stuck rooms no longer in `ROOM_BETS`, pruning of old games/activity/called balls (`PRUNE_HISTORY_DAYS`), and a WAL TRUNCATE checkpoint so trimmed space returns to the disk. `/health` also shows `game_loop_heartbeat` so you can see the loop is alive.
 
 ### After `git pull`
 
@@ -431,6 +432,8 @@ The WSGI module is reloaded, which re-runs `migrate_db.main()` and `server.loop.
 BOT_WEBHOOK=1          # Required for PythonAnywhere
 SERVER_HOST=0.0.0.0    # Required for PythonAnywhere
 APP_URL=https://<username>.pythonanywhere.com
+SUPER_ADMIN_IDS=...    # Required — no hardcoded super-admins since 2026-09-12
+DB_BACKUP_DIR=/home/<username>/bingo_backups   # daily backups outside the code folder
 ```
 
 ---
