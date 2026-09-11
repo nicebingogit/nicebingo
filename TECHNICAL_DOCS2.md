@@ -627,11 +627,12 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 - Verifies the player's card actually has a winning pattern
 - **Minimum-ball rule (`MIN_CALLS_BEFORE_WIN`, default 10)**: a valid pattern
   claimed before enough balls are called is **refused with a friendly "too
-  soon" message — never an elimination** and the round keeps running; the
-  frontend disables the BINGO button until the minimum (and auto-play waits
-  too). A false BINGO (no pattern at all) is still punished regardless of ball
-  count, and the Impossible backtrack also respects the minimum (it fires only
-  at ≥ the minimum balls)
+  soon" message — never an elimination** and the round keeps running. The
+  BINGO button stays **available throughout the whole game** exactly as
+  before — pressing it early simply gets the friendly refusal and play
+  continues. A false BINGO (no pattern at all) is still punished regardless of
+  ball count, and the Impossible backtrack also respects the minimum (it fires
+  only at ≥ the minimum balls)
 - If valid (and at/after the minimum): pays the prize, ends the round
 - If invalid: eliminates the player for this round (false BINGO)
 - **Impossible (5)**: a human can never win — the win is handed to a bot
@@ -753,9 +754,11 @@ The root component that manages:
 - **User state**: Tracks selections, credit, registration status
 - **Auto-play**: Toggles automatic daubing and BINGO claiming
 - **Spectator mode**: Shows another player's card when no cards selected
-- **Minimum-ball gate**: the BINGO button (and auto-play) stays disabled until
-  `called_count >= cfg.min_calls_before_win` (from the server config), so a
-  round is never ended early from the UI
+- **BINGO button always available**: the button stays present and clickable the
+  whole game, exactly as originally — pressing it before the minimum
+  (`cfg.min_calls_before_win`, server config) just gets the friendly "too
+  soon" refusal from the server and play continues (auto-play still claims;
+  the server simply refuses early claims)
 - **Called strips (both sides)**: with 2–3 cards the recent called balls are
   rendered by the `CalledStrip` component above (`📣 Called`) and below
   (`🔔 Called`) the cards. Balls are shown **newest-first** — the newest ball
@@ -1153,9 +1156,10 @@ python bot.py     # Terminal 2
   (no elimination, round keeps running — false BINGO still eliminates at any
   count, and the Impossible bot-win backtrack only fires at ≥ the minimum);
   `_bot_claim_pass()` re-schedules an early bot instead of dropping it, so
-  bots claim as soon as the minimum is reached. The Mini App disables the
-  BINGO button until `called_count >= min` and auto-play waits too (server
-  exposes `min_calls_before_win` in the state config). `api_smoke.py` step 7
+  bots claim as soon as the minimum is reached. In the Mini App the BINGO
+  button stays available the whole game exactly as before — an early press
+  simply gets the friendly refusal and play continues (the server exposes
+  `min_calls_before_win` in the state config). `api_smoke.py` step 7
   now asserts the 10-ball refusal then wins after 10 calls
 - **Called numbers flank the cards on BOTH sides** (`App.jsx` + `styles.css`):
   the called strip (shown with 2-3 cards) is now **newest-first** — the newest

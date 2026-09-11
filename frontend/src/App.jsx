@@ -95,8 +95,6 @@ export default function App() {
   const state = session?.state;
   const myUser = session?.user;
   const myCards = myUser?.selections || [];
-  // a round can never end before the server has called this many balls
-  const minCalls = state?.config?.min_calls_before_win || 10;
 
   const showError = useCallback((msg) => {
     setToast(msg);
@@ -324,7 +322,6 @@ export default function App() {
   useEffect(() => {
     if (!autoPlay || state?.phase !== 'playing' || myCards.length === 0) return;
     if (myUser?.eliminated || state.winner) return;
-    if ((state.called_count || 0) < minCalls) return; // rounds can't end early
     // check if any card has a winning pattern using current daubs
     for (const c of myCards) {
       const r = checkPatterns(c.numbers, marked[c.card_id] || new Set());
@@ -386,8 +383,7 @@ export default function App() {
     state?.phase === 'playing' &&
     myCards.length > 0 &&
     !myUser?.eliminated &&
-    !state.winner &&
-    (state.called_count || 0) >= minCalls;
+    !state.winner;
 
   const claim = async () => {
     playClick();
