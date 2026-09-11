@@ -12,6 +12,7 @@ or **24/7 in the free cloud with no PC needed** (see
 > anyone can recreate the whole thing just by reading it.
 > **⚠️ That documentation (and this README) must be updated with every change
 > to the codebase** — an out-of-date document is worse than no document.
+> **→ Next programmer or AI: after ANY change, update all docs in the same change.**
 
 ```
 ┌─────────────────────┐      ┌──────────────────────────────────────────┐
@@ -35,6 +36,7 @@ on the Telegram side.
 > **📝 Documentation rule:** these docs (and `TECHNICAL_DOCS2.md`) **must be
 > updated with every change** to the codebase — behavior, config, schema or
 > APIs — in the same change. An out-of-date document is worse than no document.
+> **→ Next programmer or AI: after ANY change, update all docs in the same change.**
 
 ---
 
@@ -66,9 +68,11 @@ routes, depending on whether you can provide a card:
 | 🔢 **Auto-calling** | A ball every **4 seconds**, driven by a server-side APScheduler loop |
 | 💰 **Global win pool** | Pool = sum of **all** purchased cards (bots included); winner takes **80 %**, credited instantly |
 | 🃏 **Up to 3 cards** | One room — **fixed 10 ETB per card** in the single “By 10” room. The UI shows the live 🃏 **card count only** — the player count is hidden from every user screen (cards in play = real + bot cards) |
-| 🤖 **Smart bot fill** | The single room is filled with 18-140 invisible bots (chosen by the **number of humans** playing: fewer humans → more bots). Bots join EVERY round — a room with **zero humans still plays a full round** with bots. Bots carry 1-3 real cards with a random 5-15-card deduction per round, feed the pool, and are invisible to players — **only the super admin knows they are bots**; everyone else just sees players with human-like names — **65% Ethiopian male, 30% nicknames, 5% Ethiopian female** (Girum, BigShot, Hiwot…). The fill is **self-healing** at boot and throughout the preparation countdown, but the roster is **frozen** once a round starts — the player count and prize pool never change mid-round |
+| 🤖 **Smart bot fill** | The single room is filled with 18-140 invisible bots (chosen by the **number of humans** playing: fewer humans → more bots). Bots join EVERY round — a room with **zero humans still plays a full round** with bots. Bots carry 1-3 real cards with a random 5-15-card deduction per round, feed the pool, and are invisible to players — **only the super admin knows they are bots**; everyone else just sees players with human-like names — **20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian male / 5% Ethiopian female / 10% East African / 5% international nicknames** (Guyo, Lemma, Merhawi, Girum, Hiwot, Baraka, HotShot…). The fill is **self-healing** at boot and throughout the preparation countdown, but the roster is **frozen** once a round starts — the player count and prize pool never change mid-round |
 | ➕ **Manual bot fill** | The super admin panel's Game Controls has an **Add Bots** button (plus bot on/off and difficulty 0-5) — it instantly tops the room up to the current bot plan. With bots **off**, the room keeps exactly **one other player** so nobody ever plays alone |
 | 🏆 **Standard bingo rounds** | Normal game duration and pacing — a winner only on a valid BINGO claim; after all 75 balls the round ends winless (like standard bingo). **Impossible** difficulty: a human can never win — the ball that would complete a human's card is never drawn, and a claim is never refused with a warning; instead a bot with a human name takes the win |
+| ⏳ **No round ends early** | At least **10 balls are always called** before a round can end (`MIN_CALLS_BEFORE_WIN`) — an early BINGO claim is gently deferred (never a penalty) and keeps the game going, for humans and bots alike |
+| 🔎 **Called numbers beside your cards** | With 2–3 cards, the recent called numbers ring the cards on **both sides** — the newest ball always sits right at the “Called” label and never gets hidden, with the strip auto-scrolling to it |
 | 👀 **Spectate bot cards** | A player who joined but picked no card watches a random bot's card daub live (with that player's Ethiopian name) — so even near-empty rooms feel alive |
 | 🔁 **Auto-reset** | New 40 s round automatically after a winner or the 75th ball |
 | 🔔 **Real-time sync** | The app polls the local API every 2.5 s — called numbers, sold cards, phase, pool |

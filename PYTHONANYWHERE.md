@@ -20,6 +20,13 @@ required by Telegram for the Mini App button). No credit card, ever.
 > same handlers, same announcer, same commands. Local/desktop usage keeps
 > polling, so nothing changes on your PC.
 
+> **📘 Documentation rule — next programmer or AI:** after **ANY** change to
+> this system, update **all** docs in the *same* change: `README.md`,
+> `TECHNICAL_DOCS2.md` (incl. its changelog), `BOT_SYSTEM.md`, this guide, and
+> `.env.example`. The goal is that anyone can recreate the entire system —
+> including this PythonAnywhere side — by reading the docs alone. An
+> out-of-date document is worse than no document.
+
 ---
 
 ## What changed in the repo (for this host)
@@ -135,6 +142,21 @@ Game loop started · rooms=[10]
 ## Keeping it running
 
 - The free web app **never sleeps** — the game loop ticks 24/7.
+- **Self-healing by design** — the system is built to keep running with **no
+  technical professional**: every room tick is isolated in its own `try/except`
+  so one bad room can't stall the others; stale/missing timestamps self-heal
+  (a stuck room force-starts / force-calls / ends winless); the SQLite
+  connection reconnects on any DB error; `_repair_schema()` rebuilds a
+  corrupted DB and `migrate_db.main()` runs on every reload (seeds cards,
+  purges stale bot rows). There is nothing to click, restart, or monitor
+  manually in normal operation. The `/health` endpoint tells you in one glance
+  if the web process, the game loop, the database, and the bot thread are all
+  alive.
+- **Optional tuning** via env vars (defaults are already sensible): set
+  `TICK_INTERVAL=3` on the free tier to cut CPU ~3× (balls still land on the
+  `CALL_INTERVAL_SECONDS` schedule, just with a tick of jitter); lower
+  `MAX_TOTAL_PLAYERS` for fewer bots; `MIN_CALLS_BEFORE_WIN` (default `10`)
+  sets how many balls must be called before a round can end.
 - **Updating the game:** SSH or Bash console → download the zip to your **home
   folder**, extract it, and copy the files over the existing `~/nicebingo`
   (never download/unzip *inside* `~/nicebingo` — the zip extracts to a

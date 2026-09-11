@@ -5,6 +5,7 @@
 > **⚠️ This documentation must be updated with every change to the codebase.** When you modify behavior,
 > configuration, schema, or APIs, update the relevant sections here (and in `README.md`) in the **same change**.
 > An out-of-date document is worse than no document.
+> **→ Next programmer or AI: after ANY change, update all docs in the same change, and add a changelog row.**
 
 ---
 
@@ -38,7 +39,7 @@ Nice Bingo is a real-time multiplayer Bingo game built as a **Telegram Mini App*
 ### Key Features
 - **Single room (By 10)**: the game runs exactly ONE room — 10 ETB per card. `ROOM_BETS` in `.env` can change it (e.g. `ROOM_BETS=50`), but the production default is a single “By 10” room
 - **Real-time gameplay**: Balls called every 4 seconds via a server-side game loop
-- **Bot players**: AI players fill every room to 18-140 players (count chosen by how many **humans** are playing — see [Bot System](#12-bot-system-ai-players)). Bots look exactly like real players (human-like names — 65% Ethiopian male / 30% nicknames / 5% Ethiopian female, negative IDs — see §9.4) and are completely invisible to humans. The fill works on **every difficulty level**; the only difference is that on **Impossible** no human can win. With bots disabled the room keeps exactly **one other player** so nobody plays alone.
+- **Bot players**: AI players fill every room to 18-140 players (count chosen by how many **humans** are playing — see [Bot System](#12-bot-system-ai-players)). Bots look exactly like real players (human-like names — 20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian male / 5% Ethiopian female / 10% East African / 5% international nicknames, negative IDs — see §9.4) and are completely invisible to humans. The fill works on **every difficulty level**; the only difference is that on **Impossible** no human can win. With bots disabled the room keeps exactly **one other player** so nobody plays alone.
 - **Auto-play mode**: Players can toggle auto-daub and auto-claim
 - **Wallet system**: Deposit/withdraw via bank accounts (TeleBirr, CBE, CBB, etc.)
 - **Referral program**: 5% commission on referred players' bets
@@ -258,6 +259,7 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 | `BOT_GUARANTEED_WIN_AFTER` | `64` | **Legacy — no longer used.** Rounds are never shortened to make a bot win; normal game duration and pacing are preserved |
 | `PREPARATION_SECONDS` | `40` | Countdown between rounds |
 | `CALL_INTERVAL_SECONDS` | `4` | Seconds between ball calls |
+| `MIN_CALLS_BEFORE_WIN` | `10` | Minimum balls that must be called before a round can END. A valid pattern claimed earlier is refused with a “too soon” message (no elimination, round keeps running); false BINGO still eliminates. Bots wait for this minimum too (`_bot_claim_pass` reschedules a too-early read bot) |
 | `POST_GAME_RESET_SECONDS` | `15` | Winner screen duration |
 | `TICK_INTERVAL` | `1` | Game loop tick interval (seconds) |
 | `MIN_TOTAL_PLAYERS` | `18` | Informational — lowest total players (real + bots) in play |
@@ -623,7 +625,14 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 
 **`claim_bingo()` method:**
 - Verifies the player's card actually has a winning pattern
-- If valid: pays the prize, ends the round
+- **Minimum-ball rule (`MIN_CALLS_BEFORE_WIN`, default 10)**: a valid pattern
+  claimed before enough balls are called is **refused with a friendly "too
+  soon" message — never an elimination** and the round keeps running; the
+  frontend disables the BINGO button until the minimum (and auto-play waits
+  too). A false BINGO (no pattern at all) is still punished regardless of ball
+  count, and the Impossible backtrack also respects the minimum (it fires only
+  at ≥ the minimum balls)
+- If valid (and at/after the minimum): pays the prize, ends the round
 - If invalid: eliminates the player for this round (false BINGO)
 - **Impossible (5)**: a human can never win — the win is handed to a bot
   player instead; the claim is NEVER refused with a "you can't win" warning
@@ -640,6 +649,9 @@ preparation (40s countdown) → playing (ball every 4s) → ended (15s) → prep
 - Bots claim based on difficulty level (0=Easy/never, 5=Impossible/instant)
 - Each difficulty has a delay range (number of balls to wait after completing a pattern)
 - Bots genuinely check their cards — they never false-claim
+- **Minimum-ball respect**: a bot whose claim would end the round before
+  `MIN_CALLS_BEFORE_WIN` is re-scheduled by `_bot_claim_pass()` (it claims on
+  a later ball) instead of being dropped, so bots never win too early either
 
 ### 9.4 `game_logic.py` — Game Rules
 
@@ -675,11 +687,17 @@ Pure game logic, no I/O.
 
 **Bot naming:**
 - Deterministic from user ID (stable across restarts) — `mix = (idx * 31 + 17) % 100`
-- **~65% male Ethiopian first names + surnames** (`mix ≥ 35`)
-- **~30% international nicknames** (`mix < 35`) — single-word handles like
-  "BigShot", "RoyalFlush", "MoneyMaster", "NumberNinja"
-- **~5% female Ethiopian first names + surnames** (`mix < 5`)
-- Example names: "Abel Girma", "Biruk Tesfaye", "HotShot", "Leul...", "Hiwot Girma"
+- Seven groups, disjoint first-name pools, drawn from the ID:
+  - **~20% Oromo male** first + surname (`mix < 20`, `BOT_OROMO_FIRST_NAMES`)
+  - **~20% Amhara male** first + surname (`mix < 40`, `BOT_AMHARA_FIRST_NAMES`)
+  - **~10% Tigray male** first + surname (`mix < 50`, `BOT_TIGRAY_FIRST_NAMES`)
+  - **~30% Ethiopian male, all regions** first + surname (`mix < 80`, `BOT_MALE_FIRST_NAMES`)
+  - **~5% Ethiopian female** first + surname (`mix < 85`, `BOT_FEMALE_FIRST_NAMES`)
+  - **~10% East African nicknames** (`mix < 95`, `BOT_EAST_AFRICAN_NICKNAMES` — e.g. "Baraka", "Zuri")
+  - **~5% international nicknames** (`mix ≥ 95`, `BOT_NICKNAMES` — e.g. "BigShot", "RoyalFlush")
+- Shared surname pool `BOT_LAST_NAMES` (12 patronymic-style surnames) for every full name
+- Example names: "Guyo Tadesse", "Lemma Girma", "Merhawi Haile", "Abel Girma", "Hiwot Girma", "Baraka", "HotShot"
+- Over any 100 consecutive IDs every `mix` residue occurs exactly once (31 is coprime to 100), so the mix is exactly 20/20/10/30/5/10/5 (asserted by `api_smoke.py` step 15)
 
 ### 9.5 `database.py` — SQLite Layer
 
@@ -735,6 +753,15 @@ The root component that manages:
 - **User state**: Tracks selections, credit, registration status
 - **Auto-play**: Toggles automatic daubing and BINGO claiming
 - **Spectator mode**: Shows another player's card when no cards selected
+- **Minimum-ball gate**: the BINGO button (and auto-play) stays disabled until
+  `called_count >= cfg.min_calls_before_win` (from the server config), so a
+  round is never ended early from the UI
+- **Called strips (both sides)**: with 2–3 cards the recent called balls are
+  rendered by the `CalledStrip` component above (`📣 Called`) and below
+  (`🔔 Called`) the cards. Balls are shown **newest-first** — the newest ball
+  sits next to the label — and a `useEffect` on `called_count` scrolls every
+  strip back to `scrollLeft 0` as each new ball arrives, so it can never be
+  hidden by older balls
 
 ### 10.2 `Header.jsx` — Top Bar
 
@@ -865,9 +892,11 @@ Bot bets contribute to the pool just like real bets, making the prize larger.
 - Bots are identified by **negative user IDs** drawn from a ~1-billion-value
   window (`-1,000,000` … `-999,999,999`, see §9.4) — never reused, never
   colliding with real Telegram IDs (which are always positive)
-- Each bot gets a deterministic human-like name — **~65% Ethiopian male**,
-  **~30% international nickname** (e.g. "BigShot", "RoyalFlush"),
-  **~5% Ethiopian female** (see §9.4) — e.g. "Girum Bekele", "HotShot", "Hiwot Girma"
+- Each bot gets a deterministic human-like name — **20% Oromo / 20% Amhara /
+  10% Tigray / 30% general Ethiopian male**, **5% Ethiopian female**, **10%
+  East African nicknames**, **5% international nicknames** (see §9.4) — e.g.
+  "Guyo Tadesse", "Lemma Girma", "Merhawi Haile", "Abel Girma", "Hiwot Girma",
+  "Baraka", "HotShot"
 - Each bot picks **1-3 cards** from the pool, per the round's card plan
 - Bot bets feed the prize pool (controlled by `BOTS_CONTRIBUTE_TO_POOL`)
 - Bots are ordinary `players` rows to every player in the room — only the
@@ -910,8 +939,9 @@ with 2 and 9 bots with 1. Option 1 (1 card each) cannot be reduced below 1 card
 per bot, so no deduction applies there.
 
 > Bots are completely **invisible to humans** — they are stored as ordinary
-> players (negative IDs) with human-like names (65% Ethiopian male, 30%
-> nicknames, 5% Ethiopian female — see §9.4), and their bets feed the
+> players (negative IDs) with human-like names (20% Oromo / 20% Amhara / 10%
+> Tigray / 30% general Ethiopian male / 5% Ethiopian female / 10% East
+> African / 5% international nicknames — see §9.4), and their bets feed the
 > prize pool. Only the **super admin** sees them via `/api/admin/bots` and the
 > `bots` table.
 
@@ -1107,6 +1137,41 @@ python bot.py     # Terminal 2
 > change to the codebase, every time.** Anyone must be able to recreate the
 > entire system just by reading this documentation.
 
+### 2026-09-11 (2nd pass) — 7-way bot-name mix · min-10-balls round rule · called numbers on both sides · responsive/accessibility pass
+- **Bot-name mix reworked** (`game_logic.py`): instead of 65/30/5 the names
+  are now **20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian male /
+  5% Ethiopian female / 10% East African nickname / 5% international
+  nickname**. New disjoint pools `BOT_OROMO_FIRST_NAMES`,
+  `BOT_AMHARA_FIRST_NAMES`, `BOT_TIGRAY_FIRST_NAMES`,
+  `BOT_EAST_AFRICAN_NICKNAMES`; `BOT_NICKNAMES` now means “international”.
+  Still deterministic from the ID (`mix = (idx * 31 + 17) % 100`); exactly
+  20/20/10/30/5/10/5 over any 100 consecutive IDs. `api_smoke.py` step 15
+  validates both the exact percentages and that each name comes from its
+  group's pool
+- **Minimum balls before a round can end** (`config.MIN_CALLS_BEFORE_WIN=10`):
+  `claim_bingo()` refuses a valid-but-early claim with a `too_soon` result
+  (no elimination, round keeps running — false BINGO still eliminates at any
+  count, and the Impossible bot-win backtrack only fires at ≥ the minimum);
+  `_bot_claim_pass()` re-schedules an early bot instead of dropping it, so
+  bots claim as soon as the minimum is reached. The Mini App disables the
+  BINGO button until `called_count >= min` and auto-play waits too (server
+  exposes `min_calls_before_win` in the state config). `api_smoke.py` step 7
+  now asserts the 10-ball refusal then wins after 10 calls
+- **Called numbers flank the cards on BOTH sides** (`App.jsx` + `styles.css`):
+  the called strip (shown with 2-3 cards) is now **newest-first** — the newest
+  ball sits right next to the “Called” label and can never be hidden by older
+  balls scrolling off; on each new call the strip auto-scrolls back to the
+  newest; a mirrored strip (`🔔 Called`) is shown BELOW the cards too. The
+  running highlight animation moved to `:first-child` (was `:last-child`)
+- **Responsive / accessibility pass** (`styles.css`): `overflow-x: hidden` on
+  `html,body` kills any device-wide horizontal scroll; `:focus-visible`
+  outlines for keyboard users; safe-area (notched-screen) padding on `.app`;
+  compact strip chips at ≤420px and short viewports
+- **Frontend rebuilt** into `frontend/dist/` (assets `index-DPJPs7-9.js`,
+  `index-CThgN6I1.css`)
+- Passing from a fresh DB: `api_smoke.py` (all steps, 9.6s) and
+  `smoke_test.py` (API + card image rendering)
+
 ### 2026-09-11 — Fresh-DB schema fix · roster/pool frozen mid-round · bot-name mix · card count shown
 - **Fresh-DB schema bug fixed** (`database.py`): `init_db()` now runs
   `_migrate_schema()` on the happy path too (previously the `game_state`
@@ -1125,7 +1190,9 @@ python bot.py     # Terminal 2
   `mix = (idx * 31 + 17) % 100`): **65% male Ethiopian** first+last name,
   **30% international nickname** (`BOT_NICKNAMES` widened to 30),
   **5% female Ethiopian** first+last name. `api_smoke.py` step 15 asserts
-  exactly 65/30/5 per 100 sampled IDs
+  exactly 65/30/5 per 100 sampled IDs. **Later replaced** — since 2026-09-11
+  (2nd pass) the mix is the 7-way Oromo/Amhara/Tigray/general/female/East
+  African/international distribution (see the new changelog entry above)
 - **Card count shown, player count hidden** (`Header.jsx` + `App.jsx`): the
   header now displays `🃏 N card(s)` (`cards_in_play`) and the preparation
   hero shows the card count — **reversing** the 2026-09-10 "card counts

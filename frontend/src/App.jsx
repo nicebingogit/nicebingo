@@ -28,6 +28,36 @@ function cacheSession(s) {
   try { sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
 }
 
+// The strip of recently called balls that flanks the player's cards. The balls
+// are passed NEWEST-FIRST so the newest number always sits right next to the
+// "Called" label (never hidden by older balls scrolling out of view).
+function CalledStrip({ balls, myCards, marked, onToggleBall, label = '📣 Called', bottom = false }) {
+  return (
+    <div className={`called-strip${bottom ? ' called-strip-bottom' : ''}`}>
+      <span className="called-strip-label">{label}</span>
+      <div className="called-strip-balls">
+        {balls.map((key) => {
+          const [letter, num] = key.split('-');
+          const color = BALL_COLORS[letter] || 'var(--gold)';
+          const allMarked = myCards.every((c) => (marked[c.card_id] || new Set()).has(key));
+          return (
+            <button
+              key={key}
+              type="button"
+              className={`strip-ball ${allMarked ? 'daubed' : ''}`}
+              style={{ '--ball-color': color }}
+              onClick={() => onToggleBall(key)}
+              title="Tap to mark this number on all your cards"
+            >
+              {letter}{num}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const user = useMemo(() => getTelegramUser(), []);
   const [session, setSession] = useState(null); // { user, state }
@@ -65,6 +95,8 @@ export default function App() {
   const state = session?.state;
   const myUser = session?.user;
   const myCards = myUser?.selections || [];
+  // a round can never end before the server has called this many balls
+  const minCalls = state?.config?.min_calls_before_win || 10;
 
   const showError = useCallback((msg) => {
     setToast(msg);
@@ -218,6 +250,13 @@ export default function App() {
     prev.current = { count: state.called_count, phase: state.phase };
   }, [state, user.id]);
 
+  // keep the NEWEST ball pinned next to the "Called" label: whenever a new
+  // number arrives, slide the called strips back to the newest-at-left start
+  useEffect(() => {
+    if (!state) return;
+    document.querySelectorAll('.called-strip-balls').forEach((el) => el.scrollTo({ left: 0 }));
+  }, [state?.called_count]);
+
   // toggle a daub on one of the player's cards. If the SAME number exists on
   // the player's other cards it is daubed there automatically too — tapping a
   // number once marks it everywhere it appears (no need to repeat yourself).
@@ -285,6 +324,7 @@ export default function App() {
   useEffect(() => {
     if (!autoPlay || state?.phase !== 'playing' || myCards.length === 0) return;
     if (myUser?.eliminated || state.winner) return;
+    if ((state.called_count || 0) < minCalls) return; // rounds can't end early
     // check if any card has a winning pattern using current daubs
     for (const c of myCards) {
       const r = checkPatterns(c.numbers, marked[c.card_id] || new Set());
@@ -337,11 +377,17 @@ export default function App() {
     [myCards, marked],
   );
   const hasLocalPattern = myWinning.some((w) => w.patterns.length > 0);
+  // newest ball first — the newest number sits right at the "Called" label
+  const calledReversed = useMemo(
+    () => (state?.called_numbers ? [...state.called_numbers].reverse() : []),
+    [state?.called_numbers],
+  );
   const claimable =
     state?.phase === 'playing' &&
     myCards.length > 0 &&
     !myUser?.eliminated &&
-    !state.winner;
+    !state.winner &&
+    (state.called_count || 0) >= minCalls;
 
   const claim = async () => {
     playClick();
@@ -568,28 +614,12 @@ export default function App() {
               {myCards.length > 0 ? (
                 <>
                   {!myUser?.eliminated && myCards.length > 1 && state.called_numbers.length > 0 && (
-                    <div className="called-strip">
-                      <span className="called-strip-label">📣 Called</span>
-                      <div className="called-strip-balls">
-                        {state.called_numbers.map((key) => {
-                          const [letter, num] = key.split('-');
-                          const color = BALL_COLORS[letter] || 'var(--gold)';
-                          const allMarked = myCards.every((c) => (marked[c.card_id] || new Set()).has(key));
-                          return (
-                            <button
-                              key={key}
-                              type="button"
-                              className={`strip-ball ${allMarked ? 'daubed' : ''}`}
-                              style={{ '--ball-color': color }}
-                              onClick={() => { haptic('light'); playDaub(); toggleCellAll(key); }}
-                              title="Tap to mark this number on all your cards"
-                            >
-                              {letter}{num}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <CalledStrip
+                      balls={calledReversed}
+                      myCards={myCards}
+                      marked={marked}
+                      onToggleBall={(key) => { haptic('light'); playDaub(); toggleCellAll(key); }}
+                    />
                   )}
                   <div
                     className={`my-cards ${myCards.length === 1 ? 'single' : ''} card-count-${myCards.length}`}
@@ -611,6 +641,16 @@ export default function App() {
                       />
                     ))}
                   </div>
+                  {!myUser?.eliminated && myCards.length > 1 && state.called_numbers.length > 0 && (
+                    <CalledStrip
+                      balls={calledReversed}
+                      myCards={myCards}
+                      marked={marked}
+                      onToggleBall={(key) => { haptic('light'); playDaub(); toggleCellAll(key); }}
+                      label="🔔 Called"
+                      bottom
+                    />
+                  )}
                 </>
               ) : (
                 <div className="spectator-mode">

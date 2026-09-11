@@ -24,10 +24,19 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  overflow-x: hidden; /* no device-wide horizontal scroll on any screen size */
+  -webkit-text-size-adjust: 100%; /* keep text from auto-enlarging on phones */
   background: linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 40%, var(--bg-2) 100%);
   background-attachment: fixed;
   color: var(--text);
   font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+}
+
+/* keyboard / accessibility focus is always visible, on every device */
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 body::before {
@@ -42,7 +51,7 @@ body::before {
   z-index: 0;
 }
 
-.app { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 12px 12px 60px; }
+.app { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 12px 12px 60px; padding: calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(60px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left)); }
 
 /* ------------------------------------------------------------ auto-play */
 .auto-play-btn {
@@ -864,6 +873,9 @@ body::before {
 }
 @media (max-width: 420px) {
   .brand-letter { font-size: 25px; }
+  .strip-ball { min-width: 34px; padding: 5px 6px; font-size: 11px; }
+  .called-strip { gap: 4px; padding: 3px 6px; }
+  .called-strip-label { font-size: 11px; letter-spacing: 0.2px; }
   .countdown-num { font-size: 32px; }
   .card-grid-picker { gap: 6px; }
   .card-grid-picker { grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); }
@@ -1642,9 +1654,15 @@ body::before {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Called strip — newest ball highlight */
-.called-strip-balls .strip-ball:last-child {
+/* Called strip — NEWEST ball highlight (the strip is newest-first, so the
+   newest ball is the FIRST child, right next to the "Called" label) */
+.called-strip-balls .strip-ball:first-child {
   animation: stripNew 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+/* Mirrored strip below the cards (the "opposite side") */
+.called-strip-bottom {
+  margin-top: 2px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 @keyframes stripNew {
   0% { transform: scale(0.5); opacity: 0; }

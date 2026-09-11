@@ -140,6 +140,12 @@ TICK_INTERVAL = _int("TICK_INTERVAL", 1)
 POST_GAME_RESET_SECONDS = _int("POST_GAME_RESET_SECONDS", 15)  # winner screen
 END_GAME_RESET_SECONDS = _int("END_GAME_RESET_SECONDS", 10)     # forced stop
 TOTAL_NUMBERS = 75                                          # a bingo set
+# Minimum number of balls that must be called before a round can END. A valid
+# BINGO pattern claimed before this is kindly refused (never a punishment) and
+# the round keeps running; false BINGO (no pattern) still eliminates regardless,
+# so nobody can cheat the game to end early. 10 = one complete row (5) plus 5
+# more balls, which keeps every round long enough to be a real game.
+MIN_CALLS_BEFORE_WIN = _int("MIN_CALLS_BEFORE_WIN", 10)
 
 # ---------------------------------------------------------------------------
 # Players / bots

@@ -251,6 +251,15 @@ def main():
     code, state = get("/api/game-state", query_string={"user_id": TEST_USER})
     step(7, "Winning pattern present but NOT announced until BINGO is pressed",
          state["phase"] == "playing" and state["winner"] is None)
+    # a round can never end before MIN_CALLS_BEFORE_WIN balls: this valid claim
+    # at 5 balls is kindly refused (no elimination) and the round keeps running
+    code, data = post("/api/claim-bingo", {"user_id": TEST_USER, "card_id": "3"})
+    code2, state = get("/api/game-state", query_string={"user_id": TEST_USER})
+    step(7, "Claim refused before 10 balls (no winner, no elimination)",
+         code == 409 and data.get("too_soon") is True
+         and state["phase"] == "playing" and state["winner"] is None)
+    for _ in range(5):                            # 6th-10th balls: minimum reached
+        post("/api/admin/force-call", {"admin_id": ADMIN})
     code, data = post("/api/claim-bingo", {"user_id": TEST_USER, "card_id": "3"})
     step(7, "BINGO claim declares the winner", code == 200 and data.get("winner"))
     expected = int(30 * config.PRIZE_PERCENT)
@@ -278,7 +287,7 @@ def main():
     card5 = db.get_card("5")
     row5 = [f"{c}-{card5[c][0]}" for c in COLUMNS]
     db.set_ball_order(30, row5 + [n for n in loop.logic.new_ball_order() if n not in row5])
-    for _ in range(5):
+    for _ in range(10):                           # minimum 10 balls before any BINGO
         post("/api/admin/force-call", {"admin_id": ADMIN})
     code, data = post("/api/claim-bingo", {"user_id": TEST_USER, "card_id": "5"})
     step(7, f"Dynamic payout: pool 30+30=60 -> prize {data['winner']['prize'] if data.get('winner') else '?'} ETB",
@@ -572,13 +581,47 @@ def main():
     # delay), so a bot genuinely wins rounds — the player is never alone.
     # Bot fill works on EVERY difficulty: switch to the default Impossible (5)
     # here — bots still join and claim instantly, exactly like a full room.
-    from game_logic import bot_name, BOT_MALE_FIRST_NAMES, BOT_FEMALE_FIRST_NAMES, BOT_NICKNAMES
-    sample = [bot_name(-(1000 + i)) for i in range(100)]
-    male = sum(1 for n in sample if n.split()[0] in BOT_MALE_FIRST_NAMES)
-    female = sum(1 for n in sample if n.split()[0] in BOT_FEMALE_FIRST_NAMES)
-    nick = sum(1 for n in sample if " " not in n and n in BOT_NICKNAMES)
-    step(15, "Bot names mix: ~65% male Ethiopian · ~30% nicknames · ~5% female",
-         male == 65 and female == 5 and nick == 30)
+    from game_logic import (
+        bot_name, BOT_OROMO_FIRST_NAMES, BOT_AMHARA_FIRST_NAMES,
+        BOT_TIGRAY_FIRST_NAMES, BOT_MALE_FIRST_NAMES,
+        BOT_FEMALE_FIRST_NAMES, BOT_EAST_AFRICAN_NICKNAMES,
+        BOT_NICKNAMES, BOT_LAST_NAMES,
+    )
+
+    def _name_group(user_id):
+        mix = (abs(int(user_id)) * 31 + 17) % 100
+        if mix < 20: return "oromo"
+        if mix < 40: return "amhara"
+        if mix < 50: return "tigray"
+        if mix < 80: return "general"
+        if mix < 85: return "female"
+        if mix < 95: return "eastnick"
+        return "intlnick"
+
+    pools = {
+        "oromo": BOT_OROMO_FIRST_NAMES, "amhara": BOT_AMHARA_FIRST_NAMES,
+        "tigray": BOT_TIGRAY_FIRST_NAMES, "general": BOT_MALE_FIRST_NAMES,
+        "female": BOT_FEMALE_FIRST_NAMES,
+    }
+    counts = {k: 0 for k in ("oromo", "amhara", "tigray", "general",
+                             "female", "eastnick", "intlnick")}
+    good_shape = True
+    for i in range(100):
+        uid = -(1000 + i)
+        name = bot_name(uid)
+        group = _name_group(uid)
+        counts[group] += 1
+        parts = name.split()
+        if group in pools:
+            good_shape = (good_shape and len(parts) == 2
+                          and parts[0] in pools[group] and parts[1] in BOT_LAST_NAMES)
+        elif group == "eastnick":
+            good_shape = good_shape and len(parts) == 1 and name in BOT_EAST_AFRICAN_NICKNAMES
+        else:
+            good_shape = good_shape and len(parts) == 1 and name in BOT_NICKNAMES
+    step(15, f"Bot names mix (Oromo/Amhara/Tigray/general/female/EA/Intl): {counts}",
+         counts == {"oromo": 20, "amhara": 20, "tigray": 10, "general": 30,
+                    "female": 5, "eastnick": 10, "intlnick": 5} and good_shape)
     loop.set_bots_difficulty(5)
 
     post("/api/admin/reset", {"admin_id": ADMIN, "room": 30})

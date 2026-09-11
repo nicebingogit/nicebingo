@@ -1,6 +1,7 @@
 # Bot Player System — Complete Documentation
 
 > **Every change to the bot system must be reflected in this document.**  
+> **→ Next programmer or AI: after ANY change, update all docs in the same change.**  
 > update-in-every-change: yes
 
 ---
@@ -28,7 +29,7 @@
 
 The bot system fills every game room with AI-controlled "players" that behave identically to human players. Bots:
 
-- Have **human-like names** — 65% Ethiopian male, 30% international nicknames, 5% Ethiopian female (e.g., "Abel Girma", "HotShot", "Hiwot Girma")
+- Have **human-like names** — 20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian male / 5% Ethiopian female / 10% East African / 5% international nicknames (e.g., "Guyo Tadesse", "Lemma Girma", "Merhawi Haile", "Abel Girma", "Hiwot Girma", "Baraka", "HotShot")
 - Hold **1–3 cards** per bot (varies by difficulty option)
 - **Buy cards** just like humans (bets feed the prize pool)
 - **Press BINGO** when their card completes a winning pattern (delay varies by difficulty)
@@ -114,31 +115,48 @@ def pick_bot_target(self, humans: int | None = None) -> int:
 
 ## 4. Bot Naming
 
-Bot names are **deterministic** based on the negative user ID, so the same bot keeps the same name across restarts. The mix is **~65% Ethiopian male, ~30% international nicknames, ~5% Ethiopian female**:
+Bot names are **deterministic** based on the negative user ID, so the same bot
+keeps the same name across restarts. Every 100 consecutive IDs produce exactly
+the same mix: **20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian
+male / 5% Ethiopian female / 10% East African nickname / 5% international
+nickname**.
 
 **`game_logic.py:bot_name()`:**
 ```python
 def bot_name(user_id: int) -> str:
     idx = abs(int(user_id))
-    mix = (idx * 31 + 17) % 100        # 65 male / 30 nickname / 5 female
-    if mix < 5:
-        first = BOT_FEMALE_FIRST_NAMES[(idx * 9 + 5) % len(BOT_FEMALE_FIRST_NAMES)]
-        last = BOT_LAST_NAMES[(idx * 5 + idx // len(BOT_FEMALE_FIRST_NAMES)) % len(BOT_LAST_NAMES)]
-        return f"{first} {last}"
-    if mix < 35:
-        return BOT_NICKNAMES[(idx * 13 + 7) % len(BOT_NICKNAMES)]
-    first = BOT_MALE_FIRST_NAMES[(idx * 7 + 3) % len(BOT_MALE_FIRST_NAMES)]
-    last = BOT_LAST_NAMES[(idx * 5 + idx // len(BOT_MALE_FIRST_NAMES)) % len(BOT_LAST_NAMES)]
-    return f"{first} {last}"
+    mix = (idx * 31 + 17) % 100
+    if mix < 20:  # 20% Oromo male
+        return _ethiopian_full_name(BOT_OROMO_FIRST_NAMES, idx)
+    if mix < 40:  # 20% Amhara male
+        return _ethiopian_full_name(BOT_AMHARA_FIRST_NAMES, idx)
+    if mix < 50:  # 10% Tigray male
+        return _ethiopian_full_name(BOT_TIGRAY_FIRST_NAMES, idx)
+    if mix < 80:  # 30% Ethiopian male — all regions
+        return _ethiopian_full_name(BOT_MALE_FIRST_NAMES, idx)
+    if mix < 85:  # 5% Ethiopian female
+        return _ethiopian_full_name(BOT_FEMALE_FIRST_NAMES, idx)
+    if mix < 95:  # 10% East African nickname
+        return BOT_EAST_AFRICAN_NICKNAMES[(idx * 13 + 7) % len(BOT_EAST_AFRICAN_NICKNAMES)]
+    return BOT_NICKNAMES[(idx * 13 + 7) % len(BOT_NICKNAMES)]  # 5% international
 ```
 
-**Name pools:**
-- `BOT_MALE_FIRST_NAMES`: 90+ Ethiopian male first names (Abel, Abebe, Amanuel, Biruk, ...)
+`_ethiopian_full_name(pool, idx)` draws the first name from the given pool and
+the surname `BOT_LAST_NAMES[(idx * 5 + idx // len(pool)) % len(BOT_LAST_NAMES)]`
+— both derived from the ID, so the full name is stable across restarts.
+
+**Name pools (disjoint first-name pools → each bot's group is unambiguous):**
+- `BOT_OROMO_FIRST_NAMES`: 32 Oromo male first names (Addise, Bayisa, Boru, Chala, Guyo, Kumsa, Tolu, ...)
+- `BOT_AMHARA_FIRST_NAMES`: 32 Amhara male first names (Admasu, Ayele, Bekele, Lemma, Mulat, Zewdu, ...)
+- `BOT_TIGRAY_FIRST_NAMES`: 32 Tigray male first names (Abera, Berhe, Girmay, Hadush, Merhawi, Tesfay, ...)
+- `BOT_MALE_FIRST_NAMES`: 90+ Ethiopian male first names, ALL regions (Abel, Abebe, Amanuel, Biruk, ...)
 - `BOT_FEMALE_FIRST_NAMES`: ~30 Ethiopian female first names
+- `BOT_EAST_AFRICAN_NICKNAMES`: 22 East African (Swahili-flavoured) nicknames (Baraka, Zuri, Simba, Nuru, ...)
 - `BOT_NICKNAMES`: 30 international nicknames (BigShot, RoyalFlush, MoneyMaster, NumberNinja, ...)
 - `BOT_LAST_NAMES`: 12 Ethiopian surnames (Tadesse, Alemu, Bekele, Tesfaye, ...)
 
-**Examples:** "Abel Girma", "Biruk Tesfaye", "HotShot", "Hiwot Girma", "Kirubel Haile"
+**Examples:** "Guyo Tadesse", "Lemma Girma", "Merhawi Haile", "Abel Girma",
+"Hiwot Girma", "Baraka", "HotShot"
 
 ---
 
@@ -299,6 +317,10 @@ if not self.db.get_ball_order(room):
 On difficulties 0–4, the game plays like **standard bingo**:
 - Winner only declared when a player presses BINGO
 - Round ends winless after all 75 balls if nobody claims
+- **Minimum 10 balls**: no valid BINGO (human OR bot) is accepted before
+  `MIN_CALLS_BEFORE_WIN` (default 10) balls are called — `claim_bingo()` returns
+  a `too_soon` refusal (no elimination) and `_bot_claim_pass()` re-schedules the
+  bot to claim on a later ball instead of dropping it
 - Game duration is **never shortened** to make a bot win
 - Normal pacing preserved
 
@@ -311,7 +333,7 @@ On difficulties 0–4, the game plays like **standard bingo**:
 ```sql
 CREATE TABLE IF NOT EXISTS bots (
     user_id    INTEGER PRIMARY KEY,   -- Negative integer (e.g., -12345)
-    username   TEXT,                  -- human-like bot name (65 male / 30 nick / 5 female)
+    username   TEXT,                  -- human-like bot name (20/20/10/30/5/10/5 mix — see §4)
     cards      INTEGER DEFAULT 0,    -- Card count
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -372,7 +394,7 @@ Regular players see `total_players` (humans + bots combined) — they never lear
 The Mini App shows:
 - **"Players"**: `total_players` (humans + bots combined) — never shows 0
 - **"Cards in play"**: Total selections (human + bot cards)
-- **Player names**: human-like bot names (65% Ethiopian male / 30% nicknames / 5% Ethiopian female), real names for humans
+- **Player names**: human-like bot names (20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian male / 5% Ethiopian female / 10% East African / 5% international nicknames), real names for humans
 - **No bot indicators**: Bots are indistinguishable from humans
 
 The **Super Admin Panel** has:
@@ -476,14 +498,23 @@ BOTS_CONTRIBUTE_TO_POOL = True
 ### Step 3: Bot Naming (`game_logic.py`)
 
 ```python
-BOT_MALE_FIRST_NAMES = ["Abel", "Abebe", "Amanuel", ...]  # 90+ names
-BOT_LAST_NAMES = ["Tadesse", "Alemu", "Bekele", ...]       # 12 names
+# Seven disjoint pools: regional male, general male, female, and nicknames
+BOT_OROMO_FIRST_NAMES = ["Addise", "Bayisa", "Boru", "Chala", ...]   # 32 names
+BOT_AMHARA_FIRST_NAMES = ["Admasu", "Ayele", "Bekele", "Lemma", ...] # 32 names
+BOT_TIGRAY_FIRST_NAMES = ["Abera", "Berhe", "Girmay", "Hadush", ...] # 32 names
+BOT_MALE_FIRST_NAMES = ["Abel", "Abebe", "Amanuel", ...]             # 90+ names
+BOT_LAST_NAMES = ["Tadesse", "Alemu", "Bekele", ...]                 # 12 names
 
 def bot_name(user_id: int) -> str:
     idx = abs(int(user_id))
-    first = BOT_MALE_FIRST_NAMES[(idx * 7 + 3) % len(BOT_MALE_FIRST_NAMES)]
-    last = BOT_LAST_NAMES[(idx * 5 + idx // len(BOT_MALE_FIRST_NAMES)) % len(BOT_LAST_NAMES)]
-    return f"{first} {last}"
+    mix = (idx * 31 + 17) % 100
+    if mix < 20:  return _ethiopian_full_name(BOT_OROMO_FIRST_NAMES, idx)
+    if mix < 40:  return _ethiopian_full_name(BOT_AMHARA_FIRST_NAMES, idx)
+    if mix < 50:  return _ethiopian_full_name(BOT_TIGRAY_FIRST_NAMES, idx)
+    if mix < 80:  return _ethiopian_full_name(BOT_MALE_FIRST_NAMES, idx)
+    if mix < 85:  return _ethiopian_full_name(BOT_FEMALE_FIRST_NAMES, idx)
+    if mix < 95:  return BOT_EAST_AFRICAN_NICKNAMES[(idx * 13 + 7) % len(BOT_EAST_AFRICAN_NICKNAMES)]
+    return BOT_NICKNAMES[(idx * 13 + 7) % len(BOT_NICKNAMES)]        # international
 ```
 
 ### Step 4: Bot Creation (`game_logic.py`)
@@ -564,13 +595,14 @@ def _state_payload(user_id, room):
 ## Summary of Key Principles
 
 1. **Room never shows 0 players** — bots fill immediately on boot, gradually during prep, and the final top-up happens in `start_round()` (the roster is then frozen until the next countdown)
-2. **Bots are invisible** — stored as regular players with human-like names (65% Ethiopian male / 30% nicknames / 5% Ethiopian female), negative IDs hidden from frontend
+2. **Bots are invisible** — stored as regular players with human-like names (20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian male / 5% Ethiopian female / 10% East African / 5% international nicknames), negative IDs hidden from frontend
 3. **Option-based filling** — 0–1 humans → 80–140 bots × 1 card; 2–5 → 40–79 × 2; 6+ → 18–39 × 3
 4. **Card deduction** — 5–15 cards randomly removed from total bot cards each round
-5. **Normal game duration** — no shortened rounds to make bots win (except Impossible)
-6. **Impossible mode** — humans can NEVER win; ball machine reordered to prevent human completion
-7. **Standard bingo on other difficulties** — normal pacing, winner only on valid BINGO claim
-8. **All difficulty levels use the same bot fill** — only claiming behavior differs
+5. **Minimum 10 balls before any win** — `MIN_CALLS_BEFORE_WIN` (default 10): an early valid claim (human or bot) is gently deferred, never a punishment; false BINGO still eliminates at any count; the Impossible bot-win backtrack respects the minimum too
+6. **Normal game duration** — no shortened rounds to make bots win (except Impossible)
+7. **Impossible mode** — humans can NEVER win; ball machine reordered to prevent human completion
+8. **Standard bingo on other difficulties** — normal pacing, winner only on valid BINGO claim
+9. **All difficulty levels use the same bot fill** — only claiming behavior differs
 
 ---
 

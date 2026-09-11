@@ -340,6 +340,7 @@ def _state_payload(user_id: int, room: int = 30) -> dict:
             "max_cards": config.MAX_CARDS_PER_PLAYER,
             "call_interval": config.CALL_INTERVAL_SECONDS,
             "preparation": config.PREPARATION_SECONDS,
+            "min_calls_before_win": config.MIN_CALLS_BEFORE_WIN,
             "currency": config.APP_CURRENCY,
             "new_player_credit": config.NEW_PLAYER_CREDIT,
         },
@@ -833,6 +834,8 @@ def api_claim_bingo():
         return jsonify({"ok": True, "winner": result["winner"],
                         "eliminated": False, "user": _user_payload(user_id, room)})
     body = {"ok": False, "message": result["message"]}
+    if result.get("too_soon"):
+        body["too_soon"] = True  # valid pattern, but the round is still too young
     if result.get("eliminated"):
         body["eliminated"] = True  # lets the Mini App show the elimination modal
     return jsonify(body), 409

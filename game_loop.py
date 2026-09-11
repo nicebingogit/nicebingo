@@ -530,6 +530,7 @@ class GameLoop:
         # actually have a complete pattern (a bot must never false-claim itself)
         claimants = sorted((bid, at) for bid, at in ready.items() if at <= index)
         for bid, _ in claimants:
+            deferred = False
             for s in self.db.get_user_selections(bid, room):
                 card = cards.get(s["card_id"])
                 if not card:
@@ -541,7 +542,15 @@ class GameLoop:
                 if result.get("ok"):
                     ready.pop(bid, None)
                     return result["winner"]
-            ready.pop(bid, None)
+                if result.get("too_soon"):
+                    # valid pattern, but the round hasn't reached the minimum
+                    # number of calls yet — keep the bot scheduled so it can
+                    # press BINGO the moment claiming is allowed
+                    ready[bid] = index + 1
+                    deferred = True
+                    break
+            if not deferred:
+                ready.pop(bid, None)
         return None
 
     # ------------------------------------------------------------- bot filling
@@ -871,7 +880,11 @@ class GameLoop:
             # never told about bots: the winner is simply a player with an
             # Ethiopian name.
             human_impossible = self.db.get_bots_difficulty(room) == 5 and user_id > 0
-            if human_impossible:
+            # the force-bot-win shortcut also respects the minimum ball count:
+            # a round must never end before enough balls have been called. Below
+            # the minimum the claim simply falls through (valid pattern ->
+            # "too soon", no pattern -> normal false-BINGO elimination).
+            if human_impossible and len(called) >= config.MIN_CALLS_BEFORE_WIN:
                 _number, winner = self._force_bot_win(room)
                 if winner is not None:
                     return {"ok": True, "winner": winner, "human": False}
@@ -881,6 +894,14 @@ class GameLoop:
                     continue
                 patterns, cells = self.logic.check_winning_patterns(card_numbers, called)
                 if patterns:
+                    # a round can never end before enough balls have been
+                    # called. A valid pattern this early is refused with a
+                    # friendly message (not a false BINGO — no elimination) and
+                    # the round simply keeps running. False BINGO (no pattern
+                    # at all) is still punished regardless of ball count.
+                    if len(called) < config.MIN_CALLS_BEFORE_WIN:
+                        return {"ok": False, "too_soon": True,
+                                "message": f"Not enough numbers have been called yet — at least {config.MIN_CALLS_BEFORE_WIN} numbers are required before BINGO can be claimed. Keep playing!"}
                     if human_impossible:
                         # last-resort safety: only reachable when no bot could
                         # win (e.g. bots disabled) — end the round so a human
