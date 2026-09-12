@@ -278,30 +278,24 @@ class GameLogic:
 
     # -------------------------------------------------------------------- bots
 
-    def bot_cards_for_count(self, bot_count: int) -> int:
-        """Cards per bot based on the FINAL bot-player count for the game."""
-        for lower, cards in config.BOT_CARDS_BY_COUNT:
-            if bot_count >= lower:
-                return cards
-        return 1
-
     def human_player_count(self, room: int = 30) -> int:
         """Number of distinct REAL players (positive ids) holding cards."""
         return len({s["user_id"] for s in self.db.get_all_selections(room)
                     if s["user_id"] > 0})
 
-    def bot_option_for_humans(self, humans: int) -> Tuple[int, int, int]:
-        """(min_bots, max_bots, cards_each) for a given number of human players.
+    def bot_option_for_humans(self, humans: int) -> Tuple[int, int, int, int]:
+        """(min_bots, max_bots, min_cards, max_cards) for a given number of
+        human players — the random bot count AND card spread for one game.
 
         The bot count for a game is decided by the NUMBER OF HUMAN players:
-           humans <= 1      -> 80-140 bots, 1 card each (Option 1)
-           2 <= humans <= 5 -> 40-79  bots, 2 cards each (Option 2)
-           humans >= 6      -> 18-39  bots, 3 cards each (Option 3)
+           humans <= 1      -> 80-140 bots, 1-3 cards each (Option 1)
+           2 <= humans <= 5 -> 40-79  bots, 1-3 cards each (Option 2)
+           humans >= 6      -> 18-39  bots, 1-3 cards each (Option 3)
         """
-        for max_humans, min_bots, max_bots, cards_each in config.BOT_OPTIONS:
+        for max_humans, min_bots, max_bots, min_cards, max_cards in config.BOT_OPTIONS:
             if max_humans is None or humans <= max_humans:
-                return (min_bots, max_bots, cards_each)
-        return (18, 39, 3)  # unreachable — the last option is unbounded
+                return (min_bots, max_bots, min_cards, max_cards)
+        return (18, 39, 1, 3)  # unreachable — the last option is unbounded
 
     def pick_bot_target(self, humans: int | None = None) -> int:
         """A random bot-player count for one game, chosen by the current
@@ -310,35 +304,35 @@ class GameLogic:
         When `humans` is omitted it defaults to 0 (so an empty room still gets
         the fullest option: a game must never start with 0 players).
         """
-        lo, hi, _ = self.bot_option_for_humans(humans if humans is not None else 0)
+        lo, hi, _, _ = self.bot_option_for_humans(humans if humans is not None else 0)
         return random.randint(lo, hi)
 
     def bot_card_plan(self, bot_count: int,
-                      cards_each: int | None = None) -> List[int]:
-        """Per-bot card counts for a game of `bot_count` bots.
+                      min_cards: int | None = None,
+                      max_cards: int | None = None,
+                      card_cap: int = 400) -> List[int]:
+        """Per-bot card counts for a game of `bot_count` bots — RANDOM.
 
-        Most bots keep `cards_each` cards, but a random 5-15 cards are
-        DEDUCTED from the total (config.BOT_CARD_DEDUCTION): a few bots hold
-        one fewer card, so the game starts with `bot_count * cards_each - d`
-        cards in total. Every bot always keeps at least 1 card, so a 1-card
-        option cannot be deducted (returned as all 1s).
+        Each bot holds a random count inside [min_cards, max_cards], so a
+        game's total card count differs every round. The totals never exceed
+        `card_cap` (the card pool), trimming the biggest cards first while
+        every bot always keeps at least one card.
         """
-        if cards_each is None:
-            cards_each = self.bot_cards_for_count(bot_count)
-        if cards_each <= 1:
-            return [1] * bot_count
-        d_lo, d_hi = config.BOT_CARD_DEDUCTION
-        deduction = min(random.randint(d_lo, d_hi), bot_count * (cards_each - 1))
-        counts = [1] * bot_count
-        # leftover cards above the guaranteed 1-per-bot (never below 1 each)
-        bonus = bot_count * cards_each - deduction - bot_count
-        for i in range(bot_count):
-            add = min(cards_each - 1, bonus)
-            counts[i] += add
-            bonus -= add
-            if bonus <= 0:
-                break
-        random.shuffle(counts)
+        if min_cards is None or max_cards is None:
+            _, _, min_cards, max_cards = self.bot_option_for_humans(0)
+        min_cards = max(1, int(min_cards))
+        max_cards = max(min_cards, int(max_cards))
+        counts = [random.randint(min_cards, max_cards) for _ in range(bot_count)]
+        cap = max(bot_count, min(int(card_cap), len(counts) * max_cards))
+        total = sum(counts)
+        if total > cap:
+            over = total - cap
+            for i in random.sample(range(bot_count), bot_count):
+                if over <= 0:
+                    break
+                cut = min(counts[i] - min_cards, over)
+                counts[i] -= cut
+                over -= cut
         return counts
 
     def bot_player_count(self, room: int = 30) -> int:
@@ -388,28 +382,28 @@ class GameLogic:
         return {"bot_id": bot_id, "cards": num_cards}
 
     def ensure_minimum_players(self, room: int = 30,
-                               target: int | None = None) -> int:
+                               target: int | None = None,
+                               card_cap: int = 400) -> int:
         """Fill the room until it holds `target` BOT PLAYERS.
 
         When `target` is omitted it is chosen from the current HUMAN player
         count (see pick_bot_target / bot_option_for_humans). Bots are created
-        slot-by-slot from the round's card plan (bot_card_plan), so the final
-        game starts with the option's cards-per-bot minus the random 5-15 card
-        deduction:
-          humans <= 1      -> 80-140 players, ~1 card each
-          2 <= humans <= 5 -> 40-79  players, ~2 cards each
-          humans >= 6      -> 18-39  players, ~3 cards each
+        slot-by-slot from the round's random card plan (bot_card_plan), so the
+        final game holds a fresh random bot count AND random cards-per-bot:
+          humans <= 1      -> 80-140 players, 1-3 cards each
+          2 <= humans <= 5 -> 40-79  players, 1-3 cards each
+          humans >= 6      -> 18-39  players, 1-3 cards each
         Existing humans and their cards are never touched. Returns how many
         bots were added by this call.
         """
         if target is None:
             target = self.pick_bot_target(self.human_player_count(room))
-        cards_each = self.bot_cards_for_count(target)
-        plan = self.bot_card_plan(target, cards_each)
+        _, _, min_cards, max_cards = self.bot_option_for_humans(0)
+        plan = self.bot_card_plan(target, min_cards, max_cards, card_cap)
         added = 0
         while self.bot_player_count(room) < target:
             slot = self.bot_player_count(room)
-            cards = plan[slot] if slot < len(plan) else cards_each
+            cards = plan[slot] if slot < len(plan) else min_cards
             bot = self.add_bot_player(room, cards)
             if not bot:
                 break  # card pool exhausted — never loop forever

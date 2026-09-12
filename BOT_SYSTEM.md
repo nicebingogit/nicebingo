@@ -44,57 +44,63 @@ The bot system fills every game room with AI-controlled "players" that behave id
 
 ### Player Count Selection
 
-The number of bots added to a game is determined by the number of **human** players currently in the room:
+Both the number of bots and the cards each bot holds are re-rolled **every round** and locked for that round (the stored plan survives restarts mid-round; the next round draws a fresh one). The bot count is determined by the number of **human** players currently in the room:
 
 | Option | Human Players | Bots Added | Cards per Bot |
 |--------|---------------|------------|---------------|
-| **1** | 0–1 humans | 80–140 bots | 1 card each |
-| **2** | 2–5 humans | 40–79 bots | 2 cards each |
-| **3** | 6+ humans | 18–39 bots | 3 cards each |
+| **1** | 0–1 humans | 80–140 bots | 1–3 cards each |
+| **2** | 2–5 humans | 40–79 bots | 1–3 cards each |
+| **3** | 6+ humans | 18–39 bots | 1–3 cards each |
 
 **Example (Option 2):**
 - 2 human players → 42 bots chosen randomly from 40–79
-- Each bot gets 2 cards → 42 × 2 = 84 cards
-- Random deduction of 5–15 cards → e.g., 9 deducted → 75 total bot cards
-- Game starts with 42 bots holding 75 cards total
+- Each bot gets a random 1–3 cards → e.g. 42 bots hold ~94 cards total
+- The total is clamped to the card pool (400), so the deck is never exhausted
 
-### Card Deduction
+### Card Randomization
 
-Every game randomly deducts **5–15 cards** from the total bot-card count. This is implemented in `game_logic.py:bot_card_plan()`:
-
-```python
-# Most bots keep cards_each cards, but a few keep one fewer.
-# A bot never holds fewer than 1 card.
-```
-
-The deduction is capped so no bot drops below 1 card. For Option 1 (1 card each), no deduction applies.
+Every bot gets a **random** card count inside the option's 1–3 range
+(`game_logic.py:bot_card_plan()`, clamped so the sum never exceeds the pool
+and every bot keeps at least one card). Because the plan is rolled once per
+round and locked, a game's size (players and cards) differs every round —
+the count never creeps to the same ceiling each game.
 
 ### Implementation in Code
 
 **`config.py`:**
 ```python
 BOT_OPTIONS = (
-    (1, 80, 140, 1),      # humans <= 1 → 80-140 bots, 1 card
-    (5, 40, 79, 2),        # 2 <= humans <= 5 → 40-79 bots, 2 cards
-    (None, 18, 39, 3),     # humans >= 6 → 18-39 bots, 3 cards
+    (1, 80, 140, 1, 3),   # humans <= 1 -> 80-140 bots, 1-3 cards each
+    (5, 40, 79, 1, 3),    # 2 <= humans <= 5 -> 40-79 bots, 1-3 cards each
+    (None, 18, 39, 1, 3), # humans >= 6 -> 18-39 bots, 1-3 cards each
 )
-BOT_CARD_DEDUCTION = (5, 15)  # random deduction range
+# Each tuple: (max_humans, min_bots, max_bots, min_cards, max_cards)
 ```
 
 **`game_logic.py:bot_option_for_humans()`:**
 ```python
-def bot_option_for_humans(self, humans: int) -> Tuple[int, int, int]:
-    for max_humans, min_bots, max_bots, cards_each in config.BOT_OPTIONS:
+def bot_option_for_humans(self, humans: int) -> Tuple[int, int, int, int]:
+    for max_humans, min_bots, max_bots, min_cards, max_cards in config.BOT_OPTIONS:
         if max_humans is None or humans <= max_humans:
-            return (min_bots, max_bots, cards_each)
-    return (18, 39, 3)
+            return (min_bots, max_bots, min_cards, max_cards)
+    return (18, 39, 1, 3)
 ```
 
 **`game_logic.py:pick_bot_target()`:**
 ```python
 def pick_bot_target(self, humans: int | None = None) -> int:
-    lo, hi, _ = self.bot_option_for_humans(humans if humans is not None else 0)
+    lo, hi, _, _ = self.bot_option_for_humans(humans if humans is not None else 0)
     return random.randint(lo, hi)
+```
+
+**`game_loop.py` — the per-round lock (`_bot_plan`, `_load_plan`, `_clear_plan`):**
+```python
+def _bot_plan(self, room: int = 30) -> Tuple[int, int, int, list]:
+    stored = self._load_plan(room)      # persisted in the settings table
+    if stored is not None:              # SAME plan for the whole round
+        return (stored["bots"], stored["min_cards"],
+                stored["max_cards"], stored["counts"])
+    ...  # roll a fresh random plan once, persist it, fill toward it
 ```
 
 ---
@@ -103,7 +109,7 @@ def pick_bot_target(self, humans: int | None = None) -> int:
 
 | File | Role |
 |------|------|
-| `config.py` | Bot option ranges, card deduction, pool contribution flag |
+| `config.py` | Bot option ranges (bots + cards 1-3), pool contribution flag |
 | `game_logic.py` | Bot naming, card plans, player creation, pattern detection |
 | `game_loop.py` | Gradual filling, claim delays, impossible guard, round management |
 | `database.py` | `bots` table, `card_selections` for bot accounts, migrations |
@@ -165,19 +171,18 @@ the surname `BOT_LAST_NAMES[(idx * 5 + idx // len(pool)) % len(BOT_LAST_NAMES)]`
 Each bot's card count comes from the round's **card plan** (`game_logic.py:bot_card_plan()`):
 
 ```python
-def bot_card_plan(self, bot_count: int, cards_each: int | None = None) -> List[int]:
-    # Returns a list of per-bot card counts
-    # Most bots get cards_each, some get one fewer
-    # Total = bot_count * cards_each - random_deduction(5-15)
-    # Every bot keeps at least 1 card
+def bot_card_plan(self, bot_count: int, min_cards: int | None = None,
+                  max_cards: int | None = None, card_cap: int = 400) -> List[int]:
+    # Returns a list of per-bot card counts, rolled fresh each round
+    # Each bot gets random.randint(min_cards, max_cards) cards
+    # The sum is clamped to card_cap; every bot keeps at least min_cards (>=1)
 ```
 
-**Example (Option 2, 42 bots):**
+**Example (Option 2, 42 bots, 1-3 cards each, cap 400):**
 ```
-cards_each = 2
-deduction = random.randint(5, 15)  # e.g., 9
-total = 42 * 2 - 9 = 75 cards
-Plan: 33 bots × 2 cards + 9 bots × 1 card = 75
+each = random.randint(1, 3)         # e.g., 42 bots, random 1..3 cards each
+total = sum(plan)                   # e.g., ~90 bot cards in the room
+# clamped so the deck (400 cards) is never exhausted
 ```
 
 **Card assignment** happens in `game_logic.py:add_bot_player()`:
@@ -489,12 +494,11 @@ CREATE TABLE bots (
 
 ```python
 BOT_OPTIONS = (
-    (1, 80, 140, 1),      # humans <= 1 → 80-140 bots, 1 card
-    (5, 40, 79, 2),        # 2 <= humans <= 5 → 40-79 bots, 2 cards
-    (None, 18, 39, 3),     # humans >= 6 → 18-39 bots, 3 cards
+    (1, 80, 140, 1, 3),   # humans <= 1 -> 80-140 bots, 1-3 cards each
+    (5, 40, 79, 1, 3),    # 2 <= humans <= 5 -> 40-79 bots, 1-3 cards each
+    (None, 18, 39, 1, 3), # humans >= 6 -> 18-39 bots, 1-3 cards each
 )
-BOT_CARD_DEDUCTION = (5, 15)
-BOT_CARDS_BY_COUNT = ((80, 1), (40, 2), (18, 3))
+# Each tuple: (max_humans, min_bots, max_bots, min_cards, max_cards)
 BOTS_CONTRIBUTE_TO_POOL = True
 ```
 
@@ -536,9 +540,9 @@ def add_bot_player(self, room, cards_per_bot=None):
 ```python
 def _ensure_bot_players(self, room, cap=None):
     # 1. Check if cards exist (defer if 0 cards)
-    # 2. Compute target from human count (Option 1/2/3)
-    # 3. Build card plan (cards per bot with deduction)
-    # 4. Add bots one by one until target reached
+    # 2. Load the round's LOCKED plan (bot count + per-bot cards), rolling
+    #    and persisting it once per round if not present
+    # 3. Add bots one by one until the locked target is reached
     # 5. Persist bot accounts for super admin view
 ```
 
@@ -599,8 +603,8 @@ def _state_payload(user_id, room):
 
 1. **Room never shows 0 players** — bots fill immediately on boot, gradually during prep, and the final top-up happens in `start_round()` (the roster is then frozen until the next countdown)
 2. **Bots are invisible** — stored as regular players with human-like names (20% Oromo / 20% Amhara / 10% Tigray / 30% general Ethiopian male / 5% Ethiopian female / 10% East African / 5% international nicknames), negative IDs hidden from frontend
-3. **Option-based filling** — 0–1 humans → 80–140 bots × 1 card; 2–5 → 40–79 × 2; 6+ → 18–39 × 3
-4. **Card deduction** — 5–15 cards randomly removed from total bot cards each round
+3. **Option-based filling** — 0–1 humans → 80–140 bots; 2–5 → 40–79; 6+ → 18–39
+4. **Random card spread** — each bot draws a random 1–3 cards every round, capped to the pool; no fixed "cards each" tiers
 5. **Minimum 10 balls before any win** — `MIN_CALLS_BEFORE_WIN` (default 10): an early valid claim (human or bot) is gently deferred, never a punishment; false BINGO still eliminates at any count; the Impossible bot-win backtrack respects the minimum too
 6. **Normal game duration** — no shortened rounds to make bots win (except Impossible)
 7. **Impossible mode** — humans can NEVER win; ball machine reordered to prevent human completion

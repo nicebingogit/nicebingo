@@ -68,6 +68,12 @@ def main() -> None:
                 next_call_time=None,
                 reset_time=None,
             )
+            # a reset means a NEW round — drop the old round's locked bot plan
+            # so the next fill rolls a fresh random bot/card count
+            try:
+                db.set_setting(f"bot_plan_{room}", None)
+            except Exception:
+                pass
             print(f"[3/3] {config.room_label(room)} reset → preparation (selections cleared)")
         else:
             print(f"[3/3] {config.room_label(room)} already in preparation — leaving it as-is")

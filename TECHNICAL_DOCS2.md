@@ -834,10 +834,11 @@ Full-screen modal with:
 - Confetti animation (CSS-based)
 - NOTE: the super admin panel's Game Controls include an explicit **Add Bots**
   button (`POST /api/superadmin/game/add-bots`) that immediately fills the room
-  with bot players up to the current plan target (chosen by human count:
-  1 human -> 80-140 bots x1 card, 2-5 -> 40-79 x2, 6+ -> 18-39 x3, minus a
-  random 5-15 card deduction). Bots also join automatically during every
-  preparation countdown, so every game has players regardless of this button.
+  with bot players up to the current round's locked plan target (chosen by
+  human count: 1 human -> 80-140 bots, 2-5 -> 40-79, 6+ -> 18-39, each bot
+  holding a random 1-3 cards, capped to the card pool). Bots also join
+  automatically during every preparation countdown, so every game has players
+  regardless of this button.
 - Winner name and prize amount
 - Winning card with pattern highlighted
 - "Next round" countdown
@@ -887,9 +888,10 @@ Synthesized via Web Audio API (no external files). Four packs:
 1. Timer starts at 40 seconds
 2. Players select up to 3 cards from a pool of 400
 3. Each card costs the single room's fixed bet (10 ETB by default)
-4. Bots gradually join (up to 8 per tick), each taking the plan's card count
-5. When timer hits 0, `start_round()` rebuilds the plan from the final human
-   count and tops up to the chosen option (80-140 / 40-79 / 18-39 bots)
+4. Bots gradually join (up to 8 per tick) toward the round's **locked** plan
+5. When timer hits 0, `start_round()` reads the same locked plan and tops up
+   to the stored target (rolled once per round: 80-140 / 40-79 / 18-39 bots,
+   each with a random 1-3 cards)
 
 ### Playing Phase
 1. Balls are called every 4 seconds from a shuffled pool of 75
@@ -948,14 +950,19 @@ Bot bets contribute to the pool just like real bets, making the prize larger.
 
 ### Bot Filling Logic
 1. During preparation, bots join gradually (up to 8 per tick) toward the
-   current plan — the room always looks alive before the round starts (bots
-   are added **gradually throughout the countdown**, never all at once)
-2. The plan is recomputed from the **current human-player count** every call,
-   so the fill follows how many real players are in the room that round
-3. When the round starts, `_bot_plan()` rebuilds the plan with the **final**
-   human count and `start_round()` tops up the room slot-by-slot
-4. Every round randomly deducts **5-15 cards** from the total bot-card count
-   (option's cards × bots, minus the deduction). Each bot keeps at least 1 card
+   round's **locked** plan — the room always looks alive before the round
+   starts (bots are added **gradually throughout the countdown**, never all
+   at once)
+2. The plan is rolled **once per round** from the **current human-player
+   count** and persisted, so the fill follows how many real players are in
+   the room — and the SAME target is reused by every prep tick and the
+   final top-up (the size never creeps up to the same ceiling every round;
+   each round draws a different random size)
+3. When the round starts, `_bot_plan()` returns the **stored** plan and
+   `start_round()` tops up to the locked target slot-by-slot
+4. Every round each bot gets a **random 1-3 cards** (`bot_card_plan()`); the
+   total is clamped to the 400-card pool with every bot keeping at least one
+   card — so bot-card totals differ every round
 5. Bots work on **every difficulty level** — the fill is identical on all of
    them; the ONLY difference is that on **Impossible (5)** no human can win
 6. **Bots disabled** (super-admin toggle): the room keeps exactly **ONE other
@@ -967,14 +974,13 @@ Bot bets contribute to the pool just like real bets, making the prize larger.
 
 | Option | Human players | Bots added | Cards per bot |
 |--------|---------------|------------|---------------|
-| 1 | `0-1` | 80-140 | 1 |
-| 2 | `2-5` (e.g. 2 players → 40-79) | 40-79 | 2 |
-| 3 | `6+` | 18-39 | 3 |
+| 1 | `0-1` | 80-140 | 1-3 (random) |
+| 2 | `2-5` (e.g. 2 players → 40-79) | 40-79 | 1-3 (random) |
+| 3 | `6+` | 18-39 | 1-3 (random) |
 
-Card plan example (Option 2, the famous case): 42 bots × 2 cards = 84, minus a
-random 5-15 deduction (say 9) → the game starts with **75** bot cards: 33 bots
-with 2 and 9 bots with 1. Option 1 (1 card each) cannot be reduced below 1 card
-per bot, so no deduction applies there.
+Card plan example (Option 2, the famous case): 42 bot players each draw
+`random.randint(1, 3)` cards → e.g. the room starts with **~90** bot cards,
+capped so the deck is never exhausted. Every bot holds at least one card.
 
 > Bots are completely **invisible to humans** — they are stored as ordinary
 > players (negative IDs) with human-like names (20% Oromo / 20% Amhara / 10%
@@ -1321,9 +1327,10 @@ python bot.py     # Terminal 2
   player** holding a card — nobody plays alone — instead of the full 18-140
   fill; the toggle still only silences their auto-claims
 - Bot fill unchanged otherwise: 18-140 players chosen by human count
-  (Options 1/2/3 with 1/2/3 cards each + random 5-15 card deduction), added
-  gradually through the countdown, male Ethiopian names, invisible to humans,
-  super-admin-only review; fill identical on all difficulties
+  (Options 1/2/3, each bot holding a random 1-3 cards, capped to the pool),
+  added gradually through the countdown toward the round's locked plan,
+  male Ethiopian names, invisible to humans, super-admin-only review; fill
+  identical on all difficulties
 - Smoke tests updated (`api_smoke.py` sections 8 and 15c); `BOT_GUARANTEED_WIN_AFTER`
   kept in `config.py`/`.env.example` marked legacy for compatibility
 

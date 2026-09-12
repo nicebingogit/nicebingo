@@ -188,26 +188,22 @@ MIN_CALLS_BEFORE_WIN = _int("MIN_CALLS_BEFORE_WIN", 10)
 # sums real + bot players per room, so these just describe the overall range).
 MIN_TOTAL_PLAYERS = _int("MIN_TOTAL_PLAYERS", 18)   # minimum total players (real + bots)
 MAX_TOTAL_PLAYERS = _int("MAX_TOTAL_PLAYERS", 140)  # maximum total players (real + bots)
-# How many bot players a game gets is chosen by the NUMBER OF HUMAN players in
-# the room, then randomized inside that option's range:
-#   humans <= 1        -> Option 1: 80-140 bots, 1 card each
-#   2 <= humans <= 5   -> Option 2: 40-79  bots, 2 cards each   (e.g. 2 humans)
-#   humans >= 6        -> Option 3: 18-39  bots, 3 cards each
-# Each tuple: (max_humans, min_bots, max_bots, cards_each). max_humans None
-# means the option catches every larger human count. Pure constants (not
-# env-driven) so a deployed environment can never distort the required ranges.
+# How many bot players AND how many cards each bot holds are RE-ROLLED EVERY
+# ROUND. The bot-player count is chosen by the NUMBER OF HUMAN players in the
+# room, then randomized inside that option's range:
+#   humans <= 1        -> Option 1: 80-140 bots, 1-3 cards each
+#   2 <= humans <= 5   -> Option 2: 40-79  bots, 1-3 cards each
+#   humans >= 6        -> Option 3: 18-39  bots, 1-3 cards each
+# Each tuple: (max_humans, min_bots, max_bots, min_cards, max_cards).
+# max_humans None means the option catches every larger human count. Pure
+# constants (not env-driven) so a deployed environment can never distort the
+# required ranges. Per-bot cards are randomized inside (min_cards, max_cards),
+# and the TOTAL is clamped to the card pool so the deck is never exhausted.
 BOT_OPTIONS = (
-    (1, 80, 140, 1),
-    (5, 40, 79, 2),
-    (None, 18, 39, 3),
+    (1, 80, 140, 1, 3),
+    (5, 40, 79, 1, 3),
+    (None, 18, 39, 1, 3),
 )
-# Every game randomly deducts 5-15 cards from the total bot-card count: most
-# bots keep the option's cards, a few keep one less. A bot never holds fewer
-# than 1 card, so a 1-card option cannot be reduced below 1 per bot.
-BOT_CARD_DEDUCTION = (5, 15)
-# Cards each bot gets depends on the FINAL bot-player count (matches the option
-# ranges above — used to derive cards_each from a chosen count).
-BOT_CARDS_BY_COUNT = ((80, 1), (40, 2), (18, 3))
 # LEGACY — no longer used by the game loop. Rounds are NOT shortened to make
 # a bot win: every difficulty other than Impossible plays a standard bingo
 # game (winner only on a valid BINGO claim; the round ends winless after all

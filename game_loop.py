@@ -51,11 +51,12 @@ class GameLoop:
         # heartbeat throttling — /health reads game_loop_heartbeat setting to
         # tell if this loop is alive without us writing the DB every second
         self._last_heartbeat_at = 0.0
-        # NO cached bot target: the plan is recomputed every time from the
-        # CURRENT human-player count (fewer humans -> more bots, 80-140; more
-        # humans -> fewer bots, 18-39) plus a per-bot card plan with a random
-        # 5-15 card deduction. Prep ticks fill toward a provisional plan and
-        # start_round() rebuilds it with the final human count and tops up.
+        # The round's bot plan (bot count + per-bot cards) is rolled ONCE per
+        # round from the CURRENT human-player count (fewer humans -> more bots,
+        # 80-140; more humans -> fewer bots, 18-39) plus random cards-per-bot,
+        # then LOCKED in the settings table so every prep tick and start_round
+        # fill toward the SAME target — the round size stays stable and every
+        # new round draws a different random size (never the same 140 each game).
 
     # ------------------------------------------------------------------ boot
     def start(self) -> None:
@@ -262,10 +263,10 @@ class GameLoop:
             # a round NEVER starts with 0 players. With bots disabled this
             # keeps exactly ONE other player in the room (nobody plays alone;
             # the toggle only silences their auto-claims).
-            target, cards_each, plan = self._bot_plan(room)
+            target, min_cards, max_cards, plan = self._bot_plan(room)
             self._ensure_bot_players(room)
-            logger.info("%s: round starts with %s bot players · %s cards each",
-                        config.room_label(room), target, cards_each)
+            logger.info("%s: round starts with %s bot players · %s-%s cards each",
+                        config.room_label(room), target, min_cards, max_cards)
             # fresh round -> fresh bot-claim schedule
             self._bot_claim_at[room] = {}
 
@@ -475,8 +476,9 @@ class GameLoop:
         """ended -> fresh preparation phase."""
         with self._lock:
             self._bot_claim_at[room] = {}
-            # bot plan is recomputed from the current human count every tick —
-            # nothing to drop between rounds
+            # the new round gets a FRESH random plan (bot count + cards) — the
+            # stored round plan is cleared so the next fill rolls a new one
+            self._clear_plan(room)
             self.db.clear_selections(room)
             self.db.clear_called_numbers(room)
             self.db.clear_eliminations()
@@ -574,20 +576,61 @@ class GameLoop:
         return None
 
     # ------------------------------------------------------------- bot filling
-    def _bot_plan(self, room: int = 30) -> Tuple[int, int, list]:
-        """Build this instant's bot-fill plan for the room.
+    @staticmethod
+    def _plan_key(room: int) -> str:
+        return f"bot_plan_{room}"
 
-        Returns (target, cards_each, per_bot_card_counts). Recomputed every
-        call so it always follows the CURRENT human count — fewer humans get
-        the fullest option (80-140 bots), more humans get a lighter fill
-        (18-39 bots). Prep ticks fill toward a provisional plan; start_round()
-        rebuilds it with the final human count and tops up slot-by-slot.
+    def _load_plan(self, room: int) -> dict | None:
+        """This round's locked bot plan, or None when none is stored yet."""
+        raw = self.db.get_setting(self._plan_key(room))
+        if not raw:
+            return None
+        try:
+            plan = json.loads(raw)
+            if isinstance(plan, dict) and isinstance(plan.get("counts"), list):
+                return plan
+        except (ValueError, TypeError):
+            pass
+        return None
+
+    def _clear_plan(self, room: int) -> None:
+        try:
+            self.db.set_setting(self._plan_key(room), None)
+        except Exception:
+            pass
+
+    def _bot_plan(self, room: int = 30) -> Tuple[int, int, int, list]:
+        """LOCK this round's random plan: (bot_target, min_cards, max_cards,
+        per_bot_card_counts).
+
+        The plan is rolled ONCE per round — at the first fill after reset —
+        and persisted in the settings table, so every prep tick and
+        start_round() fill toward the SAME target. Before this fix every tick
+        re-rolled the target and the fill could only ADD players (never shrink
+        them), so the room ratcheted up to the option maximum (~140 bots/cards)
+        in every single game. Now each round draws a fresh random size (e.g.
+        92, 140, 117, 81...) and stays at it for the whole round.
         """
+        stored = self._load_plan(room)
+        if stored is not None:
+            return (stored["bots"], stored["min_cards"],
+                    stored["max_cards"], stored["counts"])
         humans = self.logic.human_player_count(room)
         target = self.logic.pick_bot_target(humans)
-        cards_each = self.logic.bot_cards_for_count(target)
-        plan = self.logic.bot_card_plan(target, cards_each)
-        return target, cards_each, plan
+        _, _, min_cards, max_cards = self.logic.bot_option_for_humans(humans)
+        try:
+            cap = max(self.db.count_cards(), 1)
+        except Exception:
+            cap = max(config.NUM_CARDS, 1)
+        counts = self.logic.bot_card_plan(target, min_cards, max_cards, card_cap=cap)
+        plan = {"bots": target, "min_cards": min_cards,
+                "max_cards": max_cards, "counts": counts}
+        try:
+            self.db.set_setting(self._plan_key(room), json.dumps(plan))
+        except Exception:
+            logger.exception("%s: could not persist bot plan — will retry next call",
+                             config.room_label(room))
+        return target, min_cards, max_cards, counts
 
     def _ensure_bot_players(self, room: int = 30,
                             cap: int | None = None) -> int:
@@ -638,16 +681,16 @@ class GameLoop:
             logger.warning("%s: 0 cards in pool — bot fill deferred (seed may be pending)",
                            config.room_label(room))
             return 0
-        target, cards_each, plan = self._bot_plan(room)
+        target, min_cards, max_cards, plan = self._bot_plan(room)
         current = self.logic.bot_player_count(room)
         goal = target if cap is None else min(target, current + cap)
         if current == 0 and goal > 0:
-            logger.info("%s: filling with bots — target=%d, cards_each=%d, cards_in_pool=%d",
-                        config.room_label(room), target, cards_each, card_count)
+            logger.info("%s: filling with bots — target=%d, cards=%d-%d, cards_in_pool=%d",
+                        config.room_label(room), target, min_cards, max_cards, card_count)
         added = 0
         while self.logic.bot_player_count(room) < goal:
             slot = self.logic.bot_player_count(room)
-            cards = plan[slot] if slot < len(plan) else cards_each
+            cards = plan[slot] if slot < len(plan) else min_cards
             try:
                 if not self.logic.add_bot_player(room, cards):
                     logger.warning("%s: add_bot_player returned None at slot %d — card pool may be exhausted",
@@ -667,12 +710,12 @@ class GameLoop:
         return added
 
     def _add_prep_bots(self, room: int = 30, state: dict | None = None) -> int:
-        """During preparation, join bot players gradually toward the current
-        plan's target instead of dumping them all at once (up to 8 per tick).
-        The plan is recomputed from the CURRENT human count on every call; the
-        initial seed happens immediately on reset, and start_round() does the
-        final top-up. With bots disabled this keeps just ONE other player in
-        the room (nobody plays alone)."""
+        """During preparation, join bot players gradually toward the round's
+        LOCKED plan target instead of dumping them all at once (up to 8 per
+        tick). The plan is rolled once per round and persisted, so the same
+        target is used by every tick and by start_round()'s final top-up. With
+        bots disabled this keeps just ONE other player in the room (nobody
+        plays alone)."""
         return self._ensure_bot_players(room, cap=8)
 
     # ------------------------------------------------- Difficulty 5 (Impossible)
