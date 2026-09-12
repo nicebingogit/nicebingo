@@ -251,6 +251,7 @@ All configuration lives in `.env` (or environment variables). Every value in `co
 | `DB_BACKUP_KEEP` | `14` | How many daily backups to keep (oldest deleted) |
 | `MAINTENANCE_INTERVAL_MIN` | `360` | Minutes between automatic maintenance runs (6h) |
 | `MAINTENANCE_MIN_FREE_MB` | `25` | Maintenance refuses to WRITE once fewer MB are free — writing on a full disk corrupts SQLite (the Sep 2026 production incident) |
+| `BOT_HISTORY_KEEP_GAMES` | `10` | Bot data retention: how many FINISHED games of bot-created rows to keep (5–20 recommended). Each round invents ~80–140 new random bot accounts + roster rows; older ones are purged after every finished round and on every maintenance pass so the DB runs forever. **Human** history (`game_history`, `transactions`, accounts) is NEVER touched |
 | `BOT_WEBHOOK` | `False` | Use webhook mode instead of polling (needed on PythonAnywhere) |
 | `WEBHOOK_SECRET` | *(auto)* | Secret path segment for `POST /webhook/<secret>`. Auto-derived as `sha256(BOT_TOKEN).hexdigest()[:24]` if not set; falls back to `"dev-secret"` with no token |
 | `SERVER_HOST` | `127.0.0.1` | Flask bind address |
@@ -756,6 +757,15 @@ Pure game logic, no I/O.
 - `prune_history(keep_days)` — deletes finished games older than N days
   (newest `PRUNE_KEEP_LATEST_ROWS` always kept), orphaned `game_history`,
   old `activity_log` and old `called_numbers`; running rounds never touched
+- `prune_bot_history(keep_games)` — BOT data retention. Every finished round
+  invents ~80-140 brand-new random bot accounts (`players.user_id < 0`) plus a
+  `bots` roster row each; these were NEVER cleaned and grew the file forever.
+  Rows older than the `BOT_HISTORY_KEEP_GAMES`-th most recent finished game
+  are dropped (accounts not currently holding a card, their orphaned roster
+  rows, any negative-id `game_history`, and bot `round_eliminations` outside
+  the last N games). HUMAN history — `game_history`, `transactions`, real
+  accounts — is NEVER touched. Runs on every maintenance pass and after every
+  finished round, so the DB can run forever
 - `wal_checkpoint()` — `PRAGMA wal_checkpoint(TRUNCATE)` so trimmed rows
   actually return free space to the packed free-tier disk
 - `clean_corrupt_player_rows()` — deletes the garbage rows whose `credit` is a
@@ -773,9 +783,10 @@ All settings are read from environment variables with defaults. Helper functions
 - `_bool(name, default)` — Parse boolean from env
 
 The **maintenance / reliability group** (`PRUNE_HISTORY_DAYS`,
-`PRUNE_KEEP_LATEST_ROWS`, `DB_BACKUP_DIR`, `DB_BACKUP_KEEP`,
-`MAINTENANCE_INTERVAL_MIN`, `MAINTENANCE_MIN_FREE_MB`) is consumed by the new
-`maintenance.py` module — see §9.5 and the 2026-09-12 changelog entry.
+`PRUNE_KEEP_LATEST_ROWS`, `BOT_HISTORY_KEEP_GAMES`, `DB_BACKUP_DIR`,
+`DB_BACKUP_KEEP`, `MAINTENANCE_INTERVAL_MIN`, `MAINTENANCE_MIN_FREE_MB`) is
+consumed by the new `maintenance.py` module — see §9.5 and the 2026-09-12
+changelog entry.
 
 ---
 
@@ -1180,6 +1191,35 @@ python bot.py     # Terminal 2
 > **⚠️ This changelog — and the whole document — must be updated with every
 > change to the codebase, every time.** Anyone must be able to recreate the
 > entire system just by reading this documentation.
+
+### 2026-09-12 — Random round sizes (locked per-round bot plan) · bot-history retention (run-forever DB)
+- **Every round now has a DIFFERENT random size.** Previously `_bot_plan()`
+  re-rolled the bot target on every prep tick but the fill can only ever ADD
+  players, so the room ratcheted up to the option maximum (~140 bots/cards) in
+  every single game. Now the room's plan (bot count + each bot's random 1-3
+  cards, capped to the pool) is rolled **ONCE per round**, persisted in the
+  `settings` table under `bot_plan_<room>`, and reused by every prep tick and
+  `start_round()`'s top-up; `reset_round()` / `migrate_db` clear it so the next
+  round draws a fresh size. Verified: eight consecutive test rounds came in at
+  130/119/134/107/80/104/119/116 bots with varying card counts.
+- `BOT_OPTIONS` in `config.py` changed from 4-tuples (cards_each fixed) to
+  5-tuples `(max_humans, min_bots, max_bots, min_cards, max_cards)` — all
+  options now give each bot a random **1-3** cards. Removed the now-unused
+  `BOT_CARD_DEDUCTION` and `BOT_CARDS_BY_COUNT`.
+- **Bot data retention** (`Database.prune_bot_history`,
+  `config.BOT_HISTORY_KEEP_GAMES=10`, 5-20 recommended): `game_history` and
+  `transactions` were already human-only; the unbounded growth was the ~80-140
+  brand-new random bot accounts + `bots` roster rows invented by EVERY finished
+  round (never cleaned before, so the file grew forever). Now rows older than
+  the Nth most recent finished game are purged — after every finished round
+  (`game_loop._prune_bot_history`) and on every maintenance pass — deleting
+  retired bot accounts (never ones currently holding a card), orphaned roster
+  rows, stray negative-id `game_history`, and bot `round_eliminations` outside
+  the last N games, then `wal_checkpoint(TRUNCATE)` returns the space. Human
+  accounts/history/transactions/referrals are NEVER touched.
+- `restore_players.py` — idempotent merge tool that re-imports clean real
+  (positive-id) accounts from a source DB into the app's DB plus their
+  transactions (`RESTORE_SRC` / `RESTORE_TARGET` env override; tested locally).
 
 ### 2026-09-12 — Disk-full self-defense · auto-pruning · corrupt-row cleanup · no hardcoded secrets
 - **NEW `maintenance.py`** — automatic housekeeping run on boot (`wsgi.py`)

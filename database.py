@@ -1755,6 +1755,76 @@ class Database:
             self.log_activity("maintenance", details=f"pruned history {counts}")
         return counts
 
+    def prune_bot_history(self, keep_games: Optional[int] = None) -> dict:
+        """Purge BOT-created rows so the database can run forever.
+
+        Human history is NEVER touched: `game_history` only ever holds real
+        (positive-id) players anyway, and transactions are human-only. The
+        problem is that EVERY finished round invents ~80-140 NEW random bot
+        accounts (`players` rows with negative ids, re-rolled per round) plus
+        one `bots` roster row each — without cleanup they accumulate forever
+        and the file grows without bound.
+
+        Rows whose account was created BEFORE the `keep_games`-th most recent
+        finished game are removed (default/clamp range below):
+          * bot account rows (`players.user_id < 0`) that are NOT currently
+            holding a card in any configured room (active rounds are kept)
+          * their orphaned `bots` roster rows
+          * any `game_history` rows with a negative user_id (defensive — the
+            game loop already filters bots out before writing them)
+          * bot `round_eliminations` outside the last `keep_games` finished games
+        Returns per-table deleted counts ({} when there are fewer than
+        `keep_games` finished games yet — nothing to prune).
+        """
+        keep_games = max(1, int(keep_games or getattr(config, "BOT_HISTORY_KEEP_GAMES", 10)))
+        counts: dict = {}
+        with self._session() as conn:
+            # The start time of the keep_games-th most recent FINISHED game is
+            # the cutoff: anything a bot did before then is old history.
+            row = conn.execute(
+                "SELECT started_at FROM games "
+                "WHERE status != 'running' AND ended_at IS NOT NULL "
+                "ORDER BY ended_at DESC LIMIT 1 OFFSET ?",
+                (keep_games - 1,),
+            ).fetchone()
+            if not row or not row["started_at"]:
+                return counts  # not enough finished games yet — keep everything
+            cutoff = row["started_at"]
+            # bots holding a card right now (prep/playing) are NEVER removed
+            active = {r[0] for r in conn.execute(
+                "SELECT DISTINCT user_id FROM card_selections WHERE user_id < 0")}
+            cur = conn.execute(
+                "DELETE FROM players WHERE user_id < 0 AND created_at < ? "
+                "AND user_id NOT IN (%s)" % ",".join("?" for _ in active or [0]),
+                (cutoff, *tuple(active or [0])),
+            )
+            counts["players"] = cur.rowcount
+            # orphans whose account row just vanished (roster is kept in sync)
+            cur = conn.execute(
+                "DELETE FROM bots WHERE user_id NOT IN (SELECT user_id FROM players)"
+            )
+            counts["bots"] = cur.rowcount
+            cur = conn.execute("DELETE FROM game_history WHERE user_id < 0")
+            counts["game_history"] = cur.rowcount
+            recent = [r[0] for r in conn.execute(
+                "SELECT id FROM games "
+                "WHERE status != 'running' AND ended_at IS NOT NULL "
+                "ORDER BY ended_at DESC LIMIT ?",
+                (keep_games,))]
+            if recent:
+                ph = ",".join("?" for _ in recent)
+                cur = conn.execute(
+                    f"DELETE FROM round_eliminations WHERE user_id < 0 "
+                    f"AND game_id NOT IN ({ph})",
+                    recent,
+                )
+                counts["round_eliminations"] = cur.rowcount
+        if sum(counts.values()):
+            self.log_activity("maintenance",
+                              details=f"pruned bot history {counts} "
+                                      f"keep_games={keep_games}")
+        return counts
+
     def wal_checkpoint(self) -> str:
         """TRUNCATE the WAL so freed space is returned to the disk (the free
         tier quota is tiny). Returns 'ok' or the SQLite message."""

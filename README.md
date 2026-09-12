@@ -230,6 +230,7 @@ SUPER_ADMIN_IDS=                        # required — your full-control ids (se
 # --- Maintenance / reliability (see TECHNICAL_DOCS2 §7 for all of them) ---
 # PRUNE_HISTORY_DAYS=30                # auto-delete old games/activity/balls
 # PRUNE_KEEP_LATEST_ROWS=500           # always keep this many newest rows
+# BOT_HISTORY_KEEP_GAMES=10            # finished games of BOT rows to keep (5-20)
 # DB_BACKUP_DIR=backups                # daily backup snapshots (absolute path outside the code folder on hosts)
 # DB_BACKUP_KEEP=14                    # backups to keep
 # MAINTENANCE_INTERVAL_MIN=360         # maintenance every 6 hours
@@ -255,6 +256,11 @@ history, bot accounts, wallet transactions, settings.
   removes stuck rooms that are no longer configured, and returns trimmed WAL
   space to the disk. It **stops writing below `MAINTENANCE_MIN_FREE_MB`
   (25 MB free)** instead of corrupting the DB on a full disk.
+- **Bot history cleans itself up** (`BOT_HISTORY_KEEP_GAMES`, default 10):
+  only **human** history is recorded — bots (negative id accounts) are purged
+  once older than the newest N finished games, after every finished round and
+  on each maintenance pass, so the DB stays small and can run forever. Human
+  accounts/history/transactions are never touched.
 - Your existing players/credits/history are **preserved** (migrations only add).
 - Backup: automatic daily snapshots go to `DB_BACKUP_DIR` (default
   `backups/`); you can also copy `bingo_bot.db` while the system is stopped.

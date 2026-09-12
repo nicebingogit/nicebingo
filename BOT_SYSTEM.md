@@ -597,6 +597,28 @@ def _state_payload(user_id, room):
     # bots_players, bots_enabled, bots_difficulty (super admin only)
 ```
 
+## Data Retention (run-forever storage)
+
+Only **human** history is recorded, and BOT rows are automatically cleaned up
+so the database never grows without bound:
+
+- **`game_history` is human-only by design** (`game_loop._write_history`
+  filters `user_id > 0`) — bots never get a history row.
+- **`transactions` are human-only** — deposits/withdrawals/reviews; bot bets
+  only feed the in-game prize pool and are never written as transactions.
+- **Bot accounts are retired automatically** (`Database.prune_bot_history`):
+  every round invents ~80–140 brand-new random negative-id accounts plus one
+  `bots` roster row each. After `BOT_HISTORY_KEEP_GAMES` (default 10, 5–20
+  recommended) finished games, rows older than the newest N games are deleted:
+  bot account rows (only when not actively holding a card), their orphaned
+  roster rows, any stray negative-id `game_history`, and bot
+  `round_eliminations` outside the last N games.
+- Runs **after every finished round** and **on every maintenance pass**
+  (`maintenance.py`), then a `wal_checkpoint(TRUNCATE)` returns the freed
+  space to the disk — so the file stays small and the game can run forever.
+- Human accounts, human `game_history`, `transactions`, `referrals` and
+  commissions are **never touched** by this cleanup.
+
 ---
 
 ## Summary of Key Principles

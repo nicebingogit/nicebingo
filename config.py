@@ -211,6 +211,14 @@ BOT_OPTIONS = (
 # bot — and it never shortens the game either. Kept for config compatibility.
 BOT_GUARANTEED_WIN_AFTER = _int("BOT_GUARANTEED_WIN_AFTER", 64)
 NUM_CARDS = _int("NUM_CARDS", 400)                  # pre-generated card pool
+# BOT-HISTORY RETENTION — how many FINISHED games of bot-created rows to keep.
+# Every round invents ~80-140 brand-new random bot accounts (players rows with
+# negative ids) plus one `bots` roster row each; without cleanup those
+# accumulate forever and the DB file grows without bound. This knobs how many
+# finished games' worth of BOT rows survive before the next prune (5-20
+# recommended). HUMAN history (game_history, transactions, accounts) is NEVER
+# touched — bots are recognised by negative user ids only.
+BOT_HISTORY_KEEP_GAMES = _int("BOT_HISTORY_KEEP_GAMES", 10)
 
 # ---------------------------------------------------------------------------
 # Telegram bot notifications (the bot only announces; the server runs the game)

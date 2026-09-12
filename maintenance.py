@@ -12,7 +12,10 @@ Runs on boot (from wsgi.py) and on a repeating scheduler interval:
                             timestamp / username showed a random number
   5. stale-room purge      — drops game_state rows for rooms not in ROOM_BETS
   6. history pruning       — old games / game_history / activity_log / balls
-  7. WAL checkpoint        — TRUNCATE so trimmed rows actually free disk space
+  7. bot history pruning   — drops retired BOT accounts/roster rows older than
+                            BOT_HISTORY_KEEP_GAMES finished games (human
+                            history is NEVER touched) so the DB runs forever
+  8. WAL checkpoint        — TRUNCATE so trimmed rows actually free disk space
 
 The whole pass is defensive: every step is guarded so one failing table never
 stops the rest, and a damaged DB is never written to.
@@ -86,6 +89,14 @@ def run(db=None, reason="boot", force_backup: bool = False, log=True) -> dict:
 
         # Prune old history so the file stops growing forever.
         summary["pruned"] = db.prune_history()
+
+        # Drop retired bot accounts/roster rows (human history untouched) —
+        # every round invents ~100 new random bot rows; without this the DB
+        # grows without bound. Guarded so one bad table never stops the pass.
+        try:
+            summary["bot_history_pruned"] = db.prune_bot_history()
+        except Exception as exc:
+            summary["bot_history_pruned"] = f"FAILED: {exc}"
 
         # Return trimmed pages to the disk (tiny free-tier quota).
         summary["wal_checkpoint"] = db.wal_checkpoint()

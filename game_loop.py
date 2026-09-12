@@ -396,6 +396,7 @@ class GameLoop:
                                      f'{config.APP_CURRENCY} ({payload["pattern"]})')
             except Exception:
                 pass
+            self._prune_bot_history()
             logger.info("%s winner: %s (%s) won %s",
                         config.room_label(room), winner_name, payload["pattern"], prize)
 
@@ -417,6 +418,7 @@ class GameLoop:
             self.db.finish_game(game_id, None, None, "none", pool["total_bets"], 0,
                                 pool["total_bets"], "finished")
             self._distribute_referral_commissions(room, state)
+            self._prune_bot_history()
             logger.info("%s round %s ended without a winner (75 balls)",
                         config.room_label(room), state.get("round_number"))
 
@@ -1042,6 +1044,15 @@ class GameLoop:
             if p.get("username"):
                 return p["username"]
         return bot_name(user_id) if user_id < 0 else "Player"
+
+    def _prune_bot_history(self) -> None:
+        """After a finished round, drop retired bot rows kept longer than
+        BOT_HISTORY_KEEP_GAMES finished games. Additive housekeeping — human
+        history is never touched and a failure can never break the round."""
+        try:
+            self.db.prune_bot_history()
+        except Exception:
+            logger.exception("bot-history prune failed (non-fatal)")
 
     def _write_history(self, state: dict, winner_user_id, winner_prize: int,
                        room: int = 30) -> None:
